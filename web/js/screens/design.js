@@ -139,7 +139,7 @@ function bandHtml(value, index) {
 }
 
 function eqSection() {
-  return `<section class="eq-wrap${theme.eq.on ? '' : ' is-off'}" id="eq-section">
+  return `<section class="eq-wrap${theme.eq.on ? '' : ' is-off'}" id="eq-section" data-section="eq">
     <div class="panel__head">
       ${icon('eq')}<h3>Эквалайзер</h3>
       <span class="hint">10 полос · Web Audio</span>
@@ -210,26 +210,7 @@ function previewHtml() {
       </div>
     </div>
 
-    <div class="panel" style="padding:16px 18px 14px">
-      <div class="panel__head" style="padding:0 0 10px"><h3>Тема как файл</h3><span class="hint">JSON</span></div>
-      <div class="palette-preview">
-        <i style="background:var(--accent)"></i>
-        <i style="background:${palette.a}"></i>
-        <i style="background:${palette.b}"></i>
-        <i style="background:var(--bg-2)"></i>
-        <i style="background:var(--text)"></i>
-      </div>
-      <div class="preview__json" id="preview-code">${previewCode()}</div>
-      <div class="theme-actions">
-        <button class="btn btn--ghost btn--sm" type="button" data-theme-action="export">${icon('download')} Экспорт</button>
-        <button class="btn btn--ghost btn--sm" type="button" data-theme-action="import">${icon('upload')} Импорт</button>
-        <button class="btn btn--ghost btn--sm" type="button" data-theme-action="reset">${icon('x')} Сбросить</button>
-      </div>
-    </div>
-
-    <p class="footnote">Тема хранится в localStorage под ключом <b>player-theme</b> и применяется мгновенно.
-      «Акцент из обложки» считается на canvas: картинка уменьшается до 42×42 и квантуется по насыщенности.<br>
-      <b>labsoul</b> — свой плеер: Яндекс.Музыка, SoundCloud, Spotify.</p>`;
+`;
 }
 
 function shellHtml() {
@@ -243,17 +224,25 @@ function shellHtml() {
       <div class="page-head__actions">
         <button class="btn btn--ghost btn--sm" type="button" data-theme-action="export">${icon('download')} Экспорт темы</button>
         <button class="btn btn--ghost btn--sm" type="button" data-theme-action="import">${icon('upload')} Импорт</button>
+        <button class="btn btn--ghost btn--sm" type="button" data-theme-action="reset">${icon('x')} Сбросить</button>
       </div>
     </div>
 
+    <nav class="design-tabs" id="design-tabs">
+      <button class="design-tab is-on" type="button" data-tab-section="look">${icon('palette')} <span>Внешний вид</span></button>
+      <button class="design-tab" type="button" data-tab-section="form">${icon('type')} <span>Форма и текст</span></button>
+      <button class="design-tab" type="button" data-tab-section="blocks">${icon('library')} <span>Блоки</span></button>
+      <button class="design-tab" type="button" data-tab-section="eq">${icon('eq')} <span>Эквалайзер</span></button>
+    </nav>
+
     <div class="theme-grid">
       <div class="design-controls">
-        <div class="panel">
+        <div class="panel" data-section="look">
           <div class="panel__head">${icon('spark')}<h3>Пресеты</h3><span class="hint">быстрый старт</span></div>
           <div class="presets" style="padding-bottom:12px">${presetButtons()}</div>
         </div>
 
-        <div class="panel">
+        <div class="panel" data-section="look">
           <div class="panel__head">${icon('palette')}<h3>Внешний вид</h3><span class="hint">схема, стиль, акцент</span></div>
           <div class="ctl">
             <div class="ctl__label">Схема<small>тёмная, светлая или AMOLED</small></div>
@@ -296,7 +285,7 @@ function shellHtml() {
           </div>
         </div>
 
-        <div class="panel">
+        <div class="panel" data-section="form">
           <div class="panel__head">${icon('type')}<h3>Форма и текст</h3><span class="hint">плотность и радиусы</span></div>
           <div class="ctl">
             <div class="ctl__label">Плотность<small>сколько воздуха между строками</small></div>
@@ -329,6 +318,13 @@ function shellHtml() {
             </div>
           </div>
           <div class="ctl">
+            <div class="ctl__label">Размер интерфейса<small>масштаб всего окна</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="85" max="120" step="5" value="${theme.uiScale}" data-range="uiScale" aria-label="Размер интерфейса">
+              <span class="rng-val" data-val-for="uiScale">${theme.uiScale}%</span>
+            </div>
+          </div>
+          <div class="ctl">
             <div class="ctl__label">Размер текста песни<small>панель с текстом в полноэкранном</small></div>
             <div class="ctl__body">
               <input class="rng" type="range" min="85" max="150" step="5" value="${theme.lyricsSize}" data-range="lyricsSize" aria-label="Размер текста песни">
@@ -345,14 +341,13 @@ function shellHtml() {
           </div>
         </div>
 
-        <div class="panel">
+        <div class="panel" data-section="blocks">
           <div class="panel__head">${icon('library')}<h3>Блоки</h3><span class="hint">скрыть и переставить</span></div>
           <div id="block-rows">${blockRows()}</div>
           <p class="footnote">Порядок блоков меняет ленту «Волны»; переключатели скрывают элементы интерфейса целиком.</p>
         </div>
       </div>
 
-      <div class="preview" id="theme-preview">${previewHtml()}</div>
     </div>
 
     ${eqSection()}
@@ -594,7 +589,30 @@ function handleWallUpload(file) {
   reader.readAsDataURL(file);
 }
 
+/** Активный раздел оформления — один, чтобы не листать длинную страницу. */
+let activeSection = 'look';
+
+function applySection() {
+  const root = screen.root;
+  if (!root) return;
+  for (const block of root.querySelectorAll('[data-section]')) {
+    block.hidden = block.dataset.section !== activeSection;
+  }
+  for (const tab of root.querySelectorAll('[data-tab-section]')) {
+    const on = tab.dataset.tabSection === activeSection;
+    tab.classList.toggle('is-on', on);
+    tab.setAttribute('aria-selected', String(on));
+  }
+}
+
 function onClick(event) {
+  const tab = event.target instanceof Element ? event.target.closest('[data-tab-section]') : null;
+  if (tab) {
+    activeSection = tab.dataset.tabSection;
+    applySection();
+    return;
+  }
+
   const target = event.target instanceof Element
     ? event.target.closest('[data-preset], [data-t], [data-wall], [data-theme-action], [data-block-move], [data-eq-preset], [data-eq-flat], [data-eq-save]')
     : null;
@@ -750,6 +768,7 @@ export const designScreen = {
   mount(container) {
     screen.root = container;
     screen.lastOrder = theme.blockOrder.join(',');
+    applySection();
     container.addEventListener('click', onClick);
     container.addEventListener('input', onInput);
     container.addEventListener('change', onChange);

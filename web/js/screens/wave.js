@@ -312,6 +312,17 @@ function checkFill() {
   }
 }
 
+// волна бесконечна: подкладываем новые треки в очередь, чтобы она не кончалась на 20
+function extendQueue() {
+  const snap = player.getState();
+  if (snap.context?.type !== 'wave') return;
+  if (!snap.queue.length) return;
+  const inQueue = new Set(snap.queue.map((track) => track.id));
+  const fresh = app.wave.items.filter((track) => track && !inQueue.has(track.id));
+  if (!fresh.length) return;
+  player.enqueue(fresh);
+}
+
 function refreshFlow() {
   if (app.wave.loading) return;
   resetWave();
@@ -432,6 +443,7 @@ export const waveScreen = {
       if (event === 'wave') {
         paint();
         checkFill();
+        extendQueue();
       }
       if (event === 'likes') {
         paint();
