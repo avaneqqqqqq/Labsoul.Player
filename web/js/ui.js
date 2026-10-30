@@ -117,8 +117,8 @@ function syncBanner() {
 let updateChecked = false;
 
 /** Проверяем обновления один раз за сессию (сервер кэширует ответ на час). */
-async function loadUpdate() {
-  if (updateChecked || isDemo()) return;
+async function loadUpdate(force = false) {
+  if (!force && (updateChecked || isDemo())) return;
   updateChecked = true;
   let info = null;
   try {
@@ -185,6 +185,44 @@ function maybeOpenNowPlayingDemo() {
       renderLyrics();
     }, 400);
   } catch { /* не критично */ }
+}
+
+/* ------------------------------------------------------------------ */
+/* Меню в шапке (аватар)                                               */
+/* ------------------------------------------------------------------ */
+
+function toggleAvatarMenu(force) {
+  const menu = document.getElementById('avatar-menu');
+  const button = document.getElementById('avatar-btn');
+  if (!menu || !button) return;
+  const next = typeof force === 'boolean' ? force : menu.hidden;
+  menu.hidden = !next;
+  button.setAttribute('aria-expanded', String(next));
+
+  const version = document.getElementById('avatar-version');
+  if (version) version.textContent = net.version ? `v${String(net.version).replace(/^v/i, '')}` : 'v—';
+}
+
+function onAvatarMenuClick(event) {
+  const item = event.target instanceof Element ? event.target.closest('[data-menu-route], [data-menu-update], [data-menu-about]') : null;
+  if (!item) return;
+  toggleAvatarMenu(false);
+
+  if (item.dataset.menuRoute) {
+    go(item.dataset.menuRoute);
+    return;
+  }
+
+  if (item.hasAttribute('data-menu-update')) {
+    toast('Проверяем обновления…', { icon: 'refresh', duration: 1600 });
+    loadUpdate(true);
+    return;
+  }
+
+  if (item.hasAttribute('data-menu-about')) {
+    const version = net.version ? `v${String(net.version).replace(/^v/i, '')}` : 'версия неизвестна';
+    toast(`labsoul ${version} · свой плеер`, { icon: 'spark', duration: 3200 });
+  }
 }
 
 function syncNetUi() {
@@ -1256,6 +1294,22 @@ export function initShell() {
   maybeOpenNowPlayingDemo();
   // версия подтягивается после проверки сервера
   ping().then(() => { modeChip(); syncVersionChip(); }).catch(() => {});
+
+  // меню профиля в шапке
+  document.getElementById('avatar-btn')?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    toggleAvatarMenu();
+  });
+  document.getElementById('avatar-menu')?.addEventListener('click', onAvatarMenuClick);
+  document.addEventListener('click', (event) => {
+    const menu = document.getElementById('avatar-menu');
+    if (!menu || menu.hidden) return;
+    if (event.target instanceof Element && event.target.closest('.avatar-wrap')) return;
+    toggleAvatarMenu(false);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') toggleAvatarMenu(false);
+  });
 
   // битые обложки убираем, чтобы остался аккуратный градиент и не проступал alt-текст
   document.addEventListener('error', (event) => {

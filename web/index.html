@@ -104,7 +104,21 @@
         <button class="iconbtn" data-route="design" type="button" title="Оформление" aria-label="Оформление">
           <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"></use></svg>
         </button>
-        <div class="avatar" title="Локальный профиль" aria-hidden="true">L</div>
+        <div class="avatar-wrap">
+          <button class="avatar-btn" id="avatar-btn" type="button" title="Меню labsoul" aria-haspopup="menu" aria-expanded="false" aria-controls="avatar-menu">
+            <span class="avatar" aria-hidden="true">L</span>
+          </button>
+          <div class="avatar-menu" id="avatar-menu" role="menu" hidden>
+            <div class="avatar-menu__head">
+              <b>labsoul</b>
+              <span id="avatar-version">v—</span>
+            </div>
+            <button class="avatar-menu__item" type="button" role="menuitem" data-menu-route="sources">Подключения</button>
+            <button class="avatar-menu__item" type="button" role="menuitem" data-menu-route="design">Оформление</button>
+            <button class="avatar-menu__item" type="button" role="menuitem" data-menu-update>Проверить обновления</button>
+            <button class="avatar-menu__item" type="button" role="menuitem" data-menu-about>О программе</button>
+          </div>
+        </div>
       </div>
     </header>
 
