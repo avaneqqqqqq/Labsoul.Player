@@ -1,0 +1,57 @@
+name: release
+
+# Сборка установщика labsoul и прикрепление к релизу.
+# Запускается по тегу вида v0.1.0, либо вручную из вкладки Actions.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Код
+        uses: actions/checkout@v4
+
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Тесты (ядро, вход, поток, мок Яндекса)
+        run: npm test
+
+      - name: Зависимости приложения
+        working-directory: app
+        run: npm ci --no-audit --no-fund
+
+      - name: Сборка установщика
+        working-directory: app
+        run: npm run dist -- --publish never
+
+      - name: Артефакты
+        uses: actions/upload-artifact@v4
+        with:
+          name: labsoul-installer
+          path: |
+            app/dist/*-setup.exe
+            app/dist/latest.yml
+            app/dist/*.blockmap
+          if-no-files-found: error
+
+      - name: Черновик релиза
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            app/dist/*-setup.exe
+            app/dist/latest.yml
+            app/dist/*.blockmap
