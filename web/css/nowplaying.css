@@ -77,6 +77,25 @@ body.np-open { overflow: hidden; }
 
 .np__side { display: flex; flex-direction: column; min-width: 0; }
 
+/* строка-надпись над названием и «играет из» — как в Spotify */
+.np__eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 6px;
+}
+
+.np__context {
+  font-size: 12.5px;
+  color: var(--mute);
+  margin-top: 10px;
+}
+
+.np.is-empty .np__eyebrow { color: var(--mute); }
+
+
 .np__src {
   font-size: 11px;
   font-weight: 600;

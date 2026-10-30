@@ -383,10 +383,12 @@ function npTemplate() {
       <button class="np__close" type="button" data-np="close" title="Закрыть (Esc)" aria-label="Закрыть">${icon('x')}</button>
       <div class="np__art" data-np-art></div>
       <div class="np__side">
+        <span class="np__eyebrow" data-np-eyebrow>Сейчас играет</span>
         <span class="np__src" data-np-src></span>
         <h2 class="np__title" data-np-title>Ничего не играет</h2>
         <div class="np__artist" data-np-artist></div>
         <div class="np__album" data-np-album></div>
+        <div class="np__context" data-np-context></div>
         <div class="np__line">
           <span class="np__time" data-np-time>0:00</span>
           <input class="rng np__seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Перемотка">
@@ -425,6 +427,8 @@ function syncNowPlaying() {
     setText('[data-np-artist]', 'Выберите трек в Волне или поиске');
     setText('[data-np-album]', '');
     setText('[data-np-src]', '');
+    setText('[data-np-context]', '');
+    setText('[data-np-eyebrow]', 'Плеер');
     const bg = el.querySelector('[data-np-bg]');
     if (bg) bg.style.backgroundImage = 'none';
     return;
@@ -434,6 +438,13 @@ function syncNowPlaying() {
   setText('[data-np-artist]', artistsLine(track));
   setText('[data-np-album]', track.album || '');
   setText('[data-np-src]', SOURCE_NAMES[track.source] || track.source);
+  setText('[data-np-eyebrow]', snap.playing ? 'Сейчас играет' : 'Пауза');
+
+  // «играет из» — как в Spotify: откуда запущена очередь
+  const contextLabels = { wave: 'Волна', local: 'Своя музыка', queue: 'Очередь', search: 'Поиск', library: 'Библиотека' };
+  const routeLabels = { wave: 'Волна', search: 'Поиск', library: 'Библиотека', sources: 'Подключения', design: 'Оформление' };
+  const from = contextLabels[snap.context?.type] || routeLabels[app.route] || null;
+  setText('[data-np-context]', from ? `Играет из: ${from}` : '');
 
   const art = el.querySelector('[data-np-art]');
   if (art) {

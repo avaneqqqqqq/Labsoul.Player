@@ -75,7 +75,7 @@ labsoul — локальное приложение: **все ключи хра�
 
 1. Откройте <https://github.com/settings/personal-access-tokens/new> (fine-grained token).
 2. **Token name**: `labsoul-push`, **Expiration**: 7 days.
-3. **Repository access** → *Only select repositories* → `Ymuz.mod`.
+3. **Repository access** → *Only select repositories* → `Labsoul.Player`.
 4. **Permissions → Repository permissions → Contents**: *Read and write* (Metadata подтянется сам).
 5. **Generate token** и скопируйте `github_pat_...`.
 

@@ -893,7 +893,7 @@ if (!app.requestSingleInstanceLock()) {
       setTimeout(() => {
         updateFlow.phase = 'available';
         updateFlow.version = '9.9.9';
-        updateFlow.url = 'https://github.com/avaneqqqqqq/Ymuz.mod/releases';
+        updateFlow.url = 'https://github.com/avaneqqqqqq/Labsoul.Player/releases';
         showUpdateBanner();
       }, 2500);
     }
