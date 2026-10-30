@@ -152,6 +152,16 @@ function maybeOpenNowPlayingDemo() {
       state.status = 'ready';
       state.key = 'demo';
       state.provider = 'demo';
+
+      if (params.get('lyrics') === 'plain') {
+        // проверка вида «текст без синхронизации»: длинный список с прокруткой
+        const demoLines = Array.from({ length: 18 }, (_, i) => `Строка текста номер ${i + 1} — для проверки прокрутки`);
+        state.synced = [];
+        state.plain = demoLines.join('\n');
+        renderLyrics();
+        return;
+      }
+
       state.synced = [
         { time: 0, text: 'Тёплое место, но улицы ждут' },
         { time: 6, text: 'отпечатков наших ног' },
@@ -421,6 +431,7 @@ function renderLyrics() {
   if (!el) return;
   const box = el.querySelector('[data-np-lyrics]');
   const trackBox = el.querySelector('[data-np-lyrics-track]');
+  const scrollBox = el.querySelector('[data-np-lyrics-scroll]');
   if (!box || !trackBox) return;
 
   const state = lyricsState();
@@ -447,6 +458,8 @@ function renderLyrics() {
   }
 
   if (state.status === 'ready' && state.synced.length) {
+    scrollBox?.classList.remove('is-plain');
+    trackBox.style.transform = '';
     trackBox.innerHTML = state.synced
       .map((line, index) => `<div class="np__lyric" data-lyric="${index}" data-lyric-time="${line.time}" title="Перейти к строке">
         <span class="np__lyric-text">${esc(line.text)}</span>
@@ -461,11 +474,15 @@ function renderLyrics() {
   if (state.status === 'ready' && state.plain) {
     const lines = state.plain.split('\n').map((line) => line.trim()).filter(Boolean);
     state.plainLines = lines;
-    trackBox.innerHTML = `${lines.map((line, index) => `<div class="np__lyric np__lyric--plain" data-plain-line="${index}">
+    // текст без таймингов — обычная прокрутка, как в Яндекс.Музыке
+    scrollBox?.classList.add('is-plain');
+    trackBox.style.transform = '';
+    if (scrollBox) scrollBox.scrollTop = 0;
+    trackBox.innerHTML = `<div class="np__lyrics-note np__lyrics-note--small">без синхронизации · можно листать</div>
+      ${lines.map((line, index) => `<div class="np__lyric np__lyric--plain" data-plain-line="${index}">
         <span class="np__lyric-text">${esc(line)}</span>
         <button class="np__lyric-share" type="button" data-np-share-plain="${index}" title="Поделиться строкой" aria-label="Поделиться строкой">${icon('external')}</button>
-      </div>`).join('')}
-      <div class="np__lyrics-note np__lyrics-note--small">без синхронизации</div>`;
+      </div>`).join('')}`;
     return;
   }
 

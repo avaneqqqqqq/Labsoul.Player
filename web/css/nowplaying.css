@@ -371,3 +371,31 @@ body.np-open { overflow: hidden; }
   .np__lyrics-scroll { height: min(44vh, 380px); }
   .np__lyrics-track { padding: 165px 0 180px 18px; }
 }
+
+/* --- текст без синхронизации: обычная прокрутка ------------------------ */
+
+.np__lyrics-scroll.is-plain {
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-mask-image: none;
+  mask-image: none;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, .18) transparent;
+  padding-right: 4px;
+}
+
+.np__lyrics-scroll.is-plain .np__lyrics-track {
+  padding: 0 0 12px;
+  transform: none !important;
+}
+
+.np__lyrics-scroll.is-plain::-webkit-scrollbar { width: 6px; }
+.np__lyrics-scroll.is-plain::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, .18);
+  border-radius: 3px;
+}
+.np__lyrics-scroll.is-plain::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, .3); }
+.np__lyrics-scroll.is-plain::-webkit-scrollbar-track { background: transparent; }
+
+.np__lyrics-scroll.is-plain .np__lyric { cursor: text; }
+.np__lyrics-scroll.is-plain .np__lyric:hover { background: transparent; color: rgba(255, 255, 255, .85); }

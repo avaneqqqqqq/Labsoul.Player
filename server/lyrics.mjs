@@ -131,7 +131,7 @@ export function cleanPlainLines(plain) {
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .map((line) => line.replace(TIME_TAG, '').replace(/^\[[^\]]*\]\s*/, '').trim())
-    .filter((line) => line && !/^\[[a-z]+:/i.test(line) && !isCreditLine(line));
+    .filter((line) => line && !/^\[[a-z]+:/i.test(line) && !isCreditLine(line) && !looksInstrumental(line));
 }
 
 /* ------------------------------- запросы -------------------------------- */
@@ -250,6 +250,22 @@ async function neteaseLyrics({ title, artist, duration }) {
         ? synced.map((line) => line.text)
         : cleanPlainLines(stripLrc(lrc));
       const plain = plainLines.join('\n').trim();
+      // заглушка «纯音乐» вместо текста — это инструментал
+      if (!synced.length && looksInstrumental(lrc)) {
+        return {
+          available: false,
+          instrumental: true,
+          synced: [],
+          plain: '',
+          provider: 'netease',
+          matched: {
+            title: song.name || null,
+            artist: (song.artists || []).map((a) => a.name).join(', ') || null,
+            album: song.album?.name || null,
+            duration: Math.round((song.duration || 0) / 1000) || null,
+          },
+        };
+      }
       // запись без самого текста (только «作词/作曲») — пропускаем
       if (!synced.length && plainLines.length < 2) continue;
       return {
@@ -277,6 +293,14 @@ async function neteaseLyrics({ title, artist, duration }) {
 const CREDIT_LINE = /^(作词|作曲|编曲|制作人?|出品|监制|录音|混音|母带|和声|吉他|贝斯|鼓|键盘|弦乐|lyrics?|composer|producer|arranger|written|mixed|mastered|performed)\b/i;
 const CREDIT_PAIR = /^[^:：]{2,20}\s*[:：]\s*\S/;
 
+// NetEase и другие базы помечают инструментал служебной фразой вместо текста
+const INSTRUMENTAL_TEXT = /(纯音乐|此歌曲为没有填词的纯音乐|没有填词|instrumental|no lyrics|\[instrumental\])/i;
+
+/** Похоже ли содержимое на пометку «это инструментал». */
+export function looksInstrumental(value) {
+  return INSTRUMENTAL_TEXT.test(String(value || ''));
+}
+
 /** Строка-кредит: «作词 : Кино», «Producer: X» и подобное. */
 export function isCreditLine(value) {
   const line = String(value || '').trim().replace(/^\[\d{1,3}:\d{2}[^\]]*\]\s*/, '');
@@ -294,6 +318,124 @@ export function cleanSynced(lines) {
     if (!value) return false;
     return !isCreditLine(value);
   });
+}
+
+/* -------------------------------- Genius -------------------------------- */
+
+const GENIUS_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36',
+  Accept: 'text/html,application/json',
+};
+
+/** Вырезает содержимое блоков data-lyrics-container с учётом вложенности тегов. */
+function extractContainers(html) {
+  const out = [];
+  const openTag = /<div[^>]*data-lyrics-container="true"[^>]*>/g;
+  let match;
+  while ((match = openTag.exec(html)) !== null) {
+    const start = match.index + match[0].length;
+    let depth = 1;
+    let end = start;
+
+    const tag = /<(\/?)div\b[^>]*>/gi;
+    tag.lastIndex = start;
+    let inner;
+    while ((inner = tag.exec(html)) !== null) {
+      depth += inner[1] ? -1 : 1;
+      if (depth === 0) { end = inner.index; break; }
+    }
+
+    out.push(html.slice(start, end));
+    openTag.lastIndex = end;
+  }
+  return out;
+}
+
+function htmlToText(fragment) {
+  return fragment
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&#x27;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/\u00a0/g, ' ')
+    .trim();
+}
+
+const GENIUS_NOISE = /^(contributors?|translations?|romanization|read more|you might also like|\d+\s*contributors?)/i;
+
+/** Чистит страницу Genius: шапка-описание и шум отбрасываются. */
+export function extractGeniusLyrics(html) {
+  const blocks = extractContainers(String(html || ''));
+  if (!blocks.length) return '';
+
+  let text = blocks.map(htmlToText).join('\n');
+
+  // у Genius перед текстом идёт описание песни, заканчивающееся «Read More»
+  const readMore = text.lastIndexOf('Read More');
+  if (readMore !== -1) text = text.slice(readMore + 'Read More'.length);
+
+  const lines = text
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line && !GENIUS_NOISE.test(line) && line.length <= 240);
+
+  return cleanPlainLines(lines.join('\n')).join('\n').trim();
+}
+
+async function geniusLyrics({ title, artist }) {
+  if (!title) return null;
+
+  const query = [title, artist].filter(Boolean).join(' ');
+  const search = await fetchJson(
+    `https://genius.com/api/search/multi?q=${encodeURIComponent(query)}`,
+    GENIUS_HEADERS,
+    8000,
+  );
+
+  const hits = (search?.response?.sections || [])
+    .flatMap((section) => section.hits || [])
+    .map((hit) => hit.result)
+    .filter((result) => result && result.url);
+
+  if (!hits.length) return null;
+
+  const scored = hits
+    .map((song) => {
+      const nameScore = similarity(song.title || song.full_title, title);
+      const artistScore = similarity(song.primary_artist?.name || '', artist);
+      return { song, score: (1 - nameScore) * 100 + (1 - artistScore) * 40 };
+    })
+    .sort((a, b) => a.score - b.score);
+
+  for (const { song, score } of scored.slice(0, 2)) {
+    if (score > 130) continue;
+    try {
+      const page = await fetch(song.url, { headers: GENIUS_HEADERS, signal: AbortSignal.timeout(NETEASE_TIMEOUT_MS) });
+      if (!page.ok) continue;
+      const plain = extractGeniusLyrics(await page.text());
+      if (plain.split('\n').length < 2) continue;
+      return {
+        available: true,
+        instrumental: false,
+        synced: [],
+        plain,
+        provider: 'genius',
+        matched: {
+          title: song.title || null,
+          artist: song.primary_artist?.name || null,
+          album: song.album?.name || null,
+          duration: null,
+        },
+      };
+    } catch (err) {
+      log(`genius page: ${err.message}`);
+    }
+  }
+  return null;
 }
 
 /* ------------------------------ оркестратор ----------------------------- */
@@ -332,6 +474,14 @@ export async function lookup(rawMeta) {
   const anyText = [lrclib, netease, search].find((item) => item?.available && item.plain);
   if (anyText) return postProcess(anyText);
 
+  // своих источников не хватило — идём в Genius
+  try {
+    const genius = await geniusLyrics(meta);
+    if (genius) return postProcess(genius);
+  } catch (err) {
+    log(`genius: ${err.message}`);
+  }
+
   const instrumental = [lrclib, netease, search].find((item) => item?.instrumental);
   if (instrumental) return instrumental;
 
@@ -352,7 +502,8 @@ function postProcess(result) {
   if (plainLines.length >= 2) {
     return { ...result, synced: [], available: true, plain: plainLines.join('\n') };
   }
-  return { ...result, synced: [], available: false, plain: '', instrumental: false };
+  const instrumental = looksInstrumental(result.plain) || Boolean(result.instrumental);
+  return { ...result, synced: [], available: false, plain: '', instrumental };
 }
 
 // отрицательный ответ кэшируем недолго: источники бывают перегружены
