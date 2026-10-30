@@ -173,7 +173,7 @@ function playerTemplate(snap) {
         <button class="pl-btn" type="button" data-pl="next" title="Следующий трек" aria-label="Следующий трек" ${track ? '' : 'disabled'}>${icon('next')}</button>
         <button class="pl-btn${snap.repeat !== 'off' ? ' on' : ''}" type="button" data-pl="repeat" title="${repeatTitle}" aria-label="${repeatTitle}">${icon(repeatIcon)}</button>
       </div>
-      <div class="pl-line">
+      <div class="pl-line${track ? '' : ' is-empty'}">
         <span class="pl-time" data-pl-time>${fmtClock(snap.time)}</span>
         <input class="rng pl-seek" type="range" min="0" max="1000" step="1" value="${duration ? Math.round((snap.time / duration) * 1000) : 0}"
           aria-label="Перемотка" ${track ? '' : 'disabled'}>
@@ -245,7 +245,12 @@ function syncPlayer(snap) {
       seek.value = duration ? String(Math.round((snap.time / duration) * 1000)) : '0';
     }
     seek.disabled = !snap.current;
+    // заполнение полосы считаем здесь же: без этого слайдер висел на дефолтном 50%
+    const percent = duration ? Math.min(100, Math.max(0, (snap.time / duration) * 100)) : 0;
+    seek.style.setProperty('--p', `${percent}%`);
   }
+  const line = host.querySelector('.pl-line');
+  if (line) line.classList.toggle('is-empty', !snap.current);
   const time = host.querySelector('[data-pl-time]');
   if (time) time.textContent = fmtClock(snap.time);
   const dur = host.querySelector('[data-pl-dur]');

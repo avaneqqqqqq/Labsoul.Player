@@ -357,7 +357,7 @@ input[type="range"].rng {
   -webkit-appearance: none; appearance: none;
   width: 126px; height: 18px;
   background: transparent; outline: none; cursor: pointer; margin: 0;
-  --p: 50%; --rc: var(--text);
+  --p: 0%; --rc: var(--text);
 }
 input[type="range"].rng::-webkit-slider-runnable-track {
   height: 4px; border-radius: 999px;
@@ -385,6 +385,14 @@ input[type="range"].rng.is-drag::-webkit-slider-thumb { opacity: 1; }
 input[type="range"].rng:hover::-moz-range-thumb,
 input[type="range"].rng:focus-visible::-moz-range-thumb { opacity: 1; }
 input[type="range"].rng.is-accent { --rc: var(--accent); }
+/* Неактивный слайдер не должен выглядеть как заполненный прогресс:
+   без трека полоса перемотки вообще скрыта (class is-empty), а тут — страховка. */
+input[type="range"].rng:disabled { cursor: default; }
+input[type="range"].rng:disabled::-webkit-slider-runnable-track { background: var(--border); }
+input[type="range"].rng:disabled::-moz-range-track { background: var(--border); }
+input[type="range"].rng:disabled::-moz-range-progress { background: transparent; }
+input[type="range"].rng:disabled::-webkit-slider-thumb { opacity: 0; }
+input[type="range"].rng:disabled::-moz-range-thumb { opacity: 0; }
 .rng-val { font-size: 10.5px; color: var(--mute); min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* =========================================================================
@@ -839,6 +847,8 @@ body[data-variant="paper"] .pl-btn--main { background: var(--accent); color: var
 }
 .pl-time--end { text-align: right; }
 .pl-seek { flex: 1; min-width: 0; width: auto !important; }
+/* пока трека нет, полосу перемотки не показываем вовсе */
+.pl-line.is-empty { display: none; }
 body.hide-pl-progress .pl-line { display: none; }
 
 .pl-right { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
