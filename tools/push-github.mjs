@@ -212,15 +212,34 @@ async function main() {
 
   // 3. дерево и коммит
   const tree = await api('POST', `/repos/${OWNER}/${REPO}/git/trees`, { tree: entries });
-  const commit = await api('POST', `/repos/${OWNER}/${REPO}/git/commits`, {
-    message: COMMIT_MESSAGE,
-    tree: tree.sha,
-    parents: [headSha],
-  });
-  await api('PATCH', `/repos/${OWNER}/${REPO}/git/refs/heads/${BRANCH}`, {
-    sha: commit.sha,
-    force: false,
-  });
+
+  /**
+   * Коммит поверх актуального HEAD. GitHub может отдать устаревший ref
+   * (кэш чтения), из-за чего новый коммит окажется «сбоку» — тогда ref
+   * нельзя обновить без force (422 fast-forward). В этом случае перечитываем
+   * HEAD и делаем коммит ещё раз, деревом пользуемся тем же.
+   */
+  async function commitAndPush(parentSha, attempt = 0) {
+    const commit = await api('POST', `/repos/${OWNER}/${REPO}/git/commits`, {
+      message: COMMIT_MESSAGE,
+      tree: tree.sha,
+      parents: [parentSha],
+    });
+    try {
+      await api('PATCH', `/repos/${OWNER}/${REPO}/git/refs/heads/${BRANCH}`, {
+        sha: commit.sha,
+        force: false,
+      });
+      return commit;
+    } catch (err) {
+      if (attempt >= 1 || !/fast forward|422/i.test(err.message)) throw err;
+      const fresh = await api('GET', `/repos/${OWNER}/${REPO}/git/ref/heads/${BRANCH}`);
+      console.log(`  ветка ушла вперёд (${String(parentSha).slice(0, 7)} → ${String(fresh.object.sha).slice(0, 7)}), повторяю коммит`);
+      return commitAndPush(fresh.object.sha, attempt + 1);
+    }
+  }
+
+  const commit = await commitAndPush(headSha);
 
   console.log(`\nГотово: https://github.com/${OWNER}/${REPO}/commit/${commit.sha}`);
 }
