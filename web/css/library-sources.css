@@ -1,0 +1,42 @@
+/* =========================================================================
+   labsoul — библиотека: полоска «избранное из» и подсказки по источникам.
+   Полоска использует те же классы .wave-sources/.wsrc, здесь — только
+   отступы и оформление заметок.
+   ========================================================================= */
+
+.lib-sources {
+  margin: 0 0 14px;
+}
+
+.lib-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 16px;
+}
+
+.lib-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--hover);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--dim);
+}
+
+.lib-note svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent);
+}
+
+.lib-note b {
+  color: var(--text);
+  font-weight: 600;
+}

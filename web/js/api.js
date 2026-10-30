@@ -306,6 +306,22 @@ export async function getUpdate() {
   }
 }
 
+/**
+ * Избранное (лайки) по источникам: какие сервисы переданы, те и опрашиваются.
+ * Сервис без права доступа к аккаунту вернёт группу с ошибкой — это нормально.
+ */
+export async function getLikes(sources = ['yandex'], limit = 100) {
+  const list = (Array.isArray(sources) ? sources : []).filter((s) => SOURCES.has(s));
+  if (!list.length || isDemo()) return [];
+  try {
+    const params = new URLSearchParams({ sources: list.join(','), limit: String(limit) });
+    return normalizeGroups(await request(`/api/likes?${params.toString()}`, { timeout: 25000 }));
+  } catch (err) {
+    if (isNetworkError(err)) degrade(err);
+    throw err;
+  }
+}
+
 export async function getWave(limit = 20, station = 'user:onyourwave', sources = null) {
   const list = Array.isArray(sources) && sources.length ? sources : null;
   if (isDemo()) return normalizeWave(demoWave(limit, list));

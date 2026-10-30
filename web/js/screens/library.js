@@ -11,27 +11,50 @@ import {
   icon,
   rowHtml,
   skeletonRows,
+  SOURCE_NAMES,
 } from '../components.js';
 import {
   app,
+  libraryErrors,
+  libraryTracks,
   loadHistory,
+  loadLibraryLikes,
   subscribe as storeSubscribe,
+  toggleLibrarySource,
 } from '../store.js';
 import { toast } from '../toast.js';
-import { dayKey, dayLabel, esc, plural, pluralTracks } from '../utils.js';
+import { dayKey, dayLabel, esc, humanizeError, plural, pluralTracks } from '../utils.js';
 
 const TAB_KEY = 'player-library-tab';
 let tab = 'history';
+let tabExplicit = false;
 try {
   const saved = sessionStorage.getItem(TAB_KEY);
-  if (saved === 'likes' || saved === 'history') tab = saved;
+  if (saved === 'likes' || saved === 'history') {
+    tab = saved;
+    tabExplicit = true;
+  }
 } catch { /* приватный режим */ }
 
 const screen = { root: null, unsubs: [] };
 
 function rememberTab(next) {
   tab = next;
+  tabExplicit = true;
   try { sessionStorage.setItem(TAB_KEY, next); } catch { /* ignore */ }
+}
+
+/**
+ * Пока пользователь сам не выбрал вкладку, показываем то, где есть содержимое:
+ * на первом запуске истории ещё нет, а избранное из подключённого сервиса — есть.
+ */
+function autoTab() {
+  if (tabExplicit) return;
+  if (app.history.items.length) {
+    tab = 'history';
+    return;
+  }
+  tab = libraryTracks().length ? 'likes' : 'history';
 }
 
 function historyTracks() {
@@ -39,7 +62,7 @@ function historyTracks() {
 }
 
 function currentList() {
-  return tab === 'history' ? historyTracks() : app.likes;
+  return tab === 'history' ? historyTracks() : libraryTracks();
 }
 
 function totalListening() {
@@ -62,8 +85,8 @@ function summaryHtml() {
       <span class="stat__label">время с плеером</span>
     </div>
     <div class="stat stat--accent">
-      <span class="stat__value">${app.likes.length}</span>
-      <span class="stat__label">${plural(app.likes.length, ['трек', 'трека', 'треков'])} в избранном</span>
+      <span class="stat__value">${libraryTracks().length}</span>
+      <span class="stat__label">${plural(libraryTracks().length, ['трек', 'трека', 'треков'])} в избранном</span>
     </div>
   </div>`;
 }
@@ -75,7 +98,7 @@ function toolbarHtml() {
         История <span class="chip__count">${app.history.items.length}</span>
       </button>
       <button type="button" role="tab" data-tab="likes" class="${tab === 'likes' ? 'on' : ''}" aria-selected="${tab === 'likes'}">
-        Избранное <span class="chip__count">${app.likes.length}</span>
+        Избранное <span class="chip__count">${libraryTracks().length}</span>
       </button>
     </div>
     <div class="lib-toolbar__spacer"></div>
@@ -133,19 +156,73 @@ function historyBody() {
   return chunks.join('');
 }
 
+const LIB_SOURCE_META = [
+  { key: 'local', label: 'На компьютере' },
+  { key: 'yandex', label: 'Яндекс.Музыка' },
+  { key: 'soundcloud', label: 'SoundCloud' },
+  { key: 'spotify', label: 'Spotify' },
+];
+
+/** Полоска «избранное из»: те же переключатели, что и у Волны. */
+function likesStripHtml() {
+  const active = new Set(app.library.sources || []);
+  const status = app.status?.sources || {};
+  const chips = LIB_SOURCE_META.map(({ key, label }) => {
+    const on = active.has(key);
+    const ready = key === 'local' ? true : Boolean(status[key]?.connected);
+    const hint =
+      key === 'local'
+        ? 'Лайки, поставленные в labsoul'
+        : ready
+          ? 'Аккаунт подключён — лайки подтянутся'
+          : 'Нужен вход в аккаунт сервиса';
+    return `<button class="wsrc${on ? ' is-on' : ''}${ready ? '' : ' is-off'}" type="button"
+        data-lib-src="${key}" aria-pressed="${on}" title="${hint}">
+        <i aria-hidden="true"></i>${esc(label)}${ready ? '' : '<u aria-hidden="true"></u>'}
+      </button>`;
+  }).join('');
+
+  return `<div class="wave-sources lib-sources" role="group" aria-label="Избранное из каких сервисов">
+    <span class="wave-sources__label">избранное из</span>${chips}
+  </div>`;
+}
+
+function likesNotesHtml() {
+  const errors = libraryErrors();
+  if (!errors.length) return '';
+  return `<div class="lib-notes">${errors.map((entry) => {
+    const name = SOURCE_NAMES[entry.source] || entry.source;
+    const reason = entry.error === 'NOT_SUPPORTED'
+      ? 'не отдаёт избранное без входа в аккаунт'
+      : humanizeError(entry.message || entry.error);
+    return `<div class="lib-note">${icon('alert')}<span><b>${esc(name)}</b> — ${esc(reason)}</span></div>`;
+  }).join('')}</div>`;
+}
+
 function likesBody() {
-  if (!app.likes.length) {
-    return `<div class="lib-empty">${emptyState({
+  const tracks = libraryTracks();
+  const strip = `${likesStripHtml()}${likesNotesHtml()}`;
+
+  if (app.library.loading && !tracks.length) {
+    return `${strip}<div class="section">${skeletonRows(5)}</div>`;
+  }
+
+  if (!tracks.length) {
+    const anyRemote = (app.library.sources || []).some((key) => key !== 'local');
+    return `${strip}<div class="lib-empty">${emptyState({
       iconName: 'heart',
       title: 'В избранном пусто',
-      text: 'Нажмите сердечко на треке в Волне или поиске — он появится здесь и останется после перезапуска.',
+      text: anyRemote
+        ? 'Поставьте сердечко в labsoul или проверьте, что аккаунт сервиса подключён в «Подключениях» — лайки оттуда подтянутся сюда.'
+        : 'Выберите хотя бы один сервис в полоске «избранное из» или поставьте сердечко на треке.',
       actions: `<button class="btn btn--accent btn--sm" type="button" data-route="wave">${icon('wave')} Открыть Волну</button>
-        <button class="btn btn--ghost btn--sm" type="button" data-route="search">${icon('search')} Найти трек</button>`,
+        <button class="btn btn--ghost btn--sm" type="button" data-route="sources">${icon('connection')} Подключения</button>`,
     })}</div>`;
   }
+
   const likedIds = new Set(app.likes.map((track) => track.id));
   const currentId = player.getState().current?.id;
-  return `<div class="rows">${app.likes.map((track, i) => rowHtml(track, {
+  return `${strip}<div class="rows">${tracks.map((track, i) => rowHtml(track, {
     index: i + 1,
     current: track.id === currentId,
     likedIds,
@@ -162,6 +239,7 @@ function bodyHtml() {
 
 function paint({ bodyOnly = false } = {}) {
   if (!screen.root) return;
+  autoTab();
   const toolbar = screen.root.querySelector('#lib-toolbar');
   if (toolbar && !bodyOnly) toolbar.innerHTML = toolbarHtml();
   const summary = screen.root.querySelector('#lib-summary');
@@ -202,10 +280,17 @@ function queueAll() {
 }
 
 function onClick(event) {
+  const sourceButton = event.target instanceof Element ? event.target.closest('[data-lib-src]') : null;
+  if (sourceButton) {
+    toggleLibrarySource(sourceButton.dataset.libSrc);
+    return;
+  }
   const tabButton = event.target instanceof Element ? event.target.closest('[data-tab]') : null;
   if (tabButton) {
-    rememberTab(tabButton.dataset.tab === 'likes' ? 'likes' : 'history');
+    const next = tabButton.dataset.tab === 'likes' ? 'likes' : 'history';
+    rememberTab(next);
     paint();
+    if (next === 'likes') loadLibraryLikes();
     return;
   }
   const action = event.target instanceof Element ? event.target.closest('[data-lib]') : null;
@@ -239,7 +324,7 @@ export const libraryScreen = {
       <div id="lib-summary">${summaryHtml()}</div>
       <div id="lib-toolbar">${toolbarHtml()}</div>
       <div id="lib-body">${bodyHtml()}</div>
-      <p class="footnote lib-footnote">История приходит из GET /api/history; избранное хранится в localStorage под ключом player-likes. Никакой синхронизации с чужими аккаунтами нет — labsoul остаётся локальным.</p>
+      <p class="footnote lib-footnote">История приходит из GET /api/history. Избранное собирается из локальных лайков и лайков подключённых сервисов (GET /api/likes) — какие сервисы участвуют, задаёт полоска «избранное из». labsoul ничего не пишет в чужие аккаунты, только читает.</p>
     `;
   },
 
@@ -254,9 +339,10 @@ export const libraryScreen = {
     screen.unsubs.push(unbindTracks);
     screen.unsubs.push(storeSubscribe((_state, event) => {
       if (event === 'history') paint();
-      if (event === 'likes') paint();
+      if (event === 'likes' || event === 'library' || event === 'status') paint();
       if (event === 'net') {
         if (app.history.items.length === 0) loadHistory();
+        loadLibraryLikes({ force: true });
       }
     }));
     screen.unsubs.push(player.subscribe((_snap, event) => {
@@ -267,6 +353,8 @@ export const libraryScreen = {
 
     paint();
     if (!app.history.items.length && !app.history.loading) loadHistory();
+    // избранное подтягиваем сразу: полоска сервисов должна показывать живые статусы
+    loadLibraryLikes();
   },
 
   destroy() {

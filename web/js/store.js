@@ -5,6 +5,7 @@
 
 import {
   getHistory,
+  getLikes,
   getSettings,
   getStatus,
   getWave,
@@ -43,6 +44,23 @@ function readWaveSources() {
   return [...DEFAULT_WAVE_SOURCES];
 }
 
+// Источники для «Избранного» в библиотеке: локальные лайки + сервисы,
+// которые умеют отдавать лайки аккаунта. Выключаются так же, как в Волне.
+const LIBRARY_SOURCES_KEY = 'player-library-sources';
+export const LIBRARY_SOURCE_KEYS = ['local', 'yandex', 'soundcloud', 'spotify'];
+const DEFAULT_LIBRARY_SOURCES = ['local', 'yandex'];
+
+function readLibrarySources() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(LIBRARY_SOURCES_KEY) || 'null');
+    if (Array.isArray(raw)) {
+      const list = raw.filter((s) => LIBRARY_SOURCE_KEYS.includes(s));
+      if (list.length) return list;
+    }
+  } catch { /* localStorage может быть недоступен */ }
+  return [...DEFAULT_LIBRARY_SOURCES];
+}
+
 export const app = {
   route: 'wave',
   ready: false,
@@ -50,6 +68,15 @@ export const app = {
   settings: null,
   statusLoading: false,
   likes: [],
+  library: {
+    // какие сервисы показывать в «Избранном»
+    sources: readLibrarySources(),
+    // ответы серверных источников: [{source, items, error?, message?}]
+    remote: [],
+    loading: false,
+    error: null,
+    loadedAt: 0,
+  },
   wave: {
     items: [],
     station: 'user:onyourwave',
@@ -295,8 +322,7 @@ export function setWaveSources(sources) {
   return next;
 }
 
-export function toggleWaveSource(sourceKey) {
-  if (!WAVE_SOURCE_KEYS.includes(sourceKey)) return app.wave.sources;
+export function toggleWaveSource(sourceKey) {  if (!WAVE_SOURCE_KEYS.includes(sourceKey)) return app.wave.sources;
   const current = app.wave.sources.slice();
   const index = current.indexOf(sourceKey);
   if (index >= 0) {
@@ -307,6 +333,86 @@ export function toggleWaveSource(sourceKey) {
     current.push(sourceKey);
   }
   return setWaveSources(current);
+}
+
+/* ------------------------------------------------------------------ */
+/* Библиотека: избранное по источникам                                  */
+/* ------------------------------------------------------------------ */
+
+/** Подтягивает лайки из выбранных сервисов (локальные лайки уже в app.likes). */
+export async function loadLibraryLikes({ force = false } = {}) {
+  const remote = app.library.sources.filter((source) => source !== 'local');
+  if (!remote.length) {
+    app.library.remote = [];
+    app.library.error = null;
+    emit('library');
+    return;
+  }
+  if (app.library.loading) return;
+  // Пока не известно, жив ли сервер, запрос бессмысленен: демо-режим закэшировал бы
+  // пустой ответ на минуту. Дождёмся события 'net' — экран перезапросит сам.
+  if (net.mode !== 'online') return;
+  if (!force && app.library.loadedAt && Date.now() - app.library.loadedAt < 60_000) return;
+
+  app.library.loading = true;
+  app.library.error = null;
+  emit('library');
+  try {
+    // getLikes возвращает {groups:[...]} — в состоянии храним именно массив групп
+    const result = await getLikes(remote, 150);
+    app.library.remote = Array.isArray(result?.groups) ? result.groups : [];
+    app.library.loadedAt = Date.now();
+  } catch (err) {
+    app.library.remote = [];
+    app.library.error = err?.message || 'Не удалось загрузить избранное';
+  } finally {
+    app.library.loading = false;
+    emit('library');
+  }
+}
+
+/** Включает/выключает сервис в «Избранном». Последний выключить нельзя. */
+export function toggleLibrarySource(sourceKey) {
+  if (!LIBRARY_SOURCE_KEYS.includes(sourceKey)) return app.library.sources;
+  const current = app.library.sources.slice();
+  const index = current.indexOf(sourceKey);
+  if (index >= 0) {
+    if (current.length === 1) return current;
+    current.splice(index, 1);
+  } else {
+    current.push(sourceKey);
+  }
+  app.library.sources = current;
+  try { localStorage.setItem(LIBRARY_SOURCES_KEY, JSON.stringify(current)); } catch { /* приватный режим */ }
+  emit('library');
+  loadLibraryLikes({ force: true });
+  return current;
+}
+
+/**
+ * Объединённый список избранного: локальные лайки + лайки из включённых сервисов.
+ * Дубликаты по id отбрасываются, локальные идут первыми (ими управляет сам пользователь).
+ */
+export function libraryTracks() {
+  const includeLocal = app.library.sources.includes('local');
+  const merged = includeLocal ? app.likes.slice() : [];
+  const seen = new Set(merged.map((track) => track.id));
+  for (const group of app.library.remote) {
+    if (!app.library.sources.includes(group.source)) continue;
+    for (const track of group.items || []) {
+      if (!track || !track.id || seen.has(track.id)) continue;
+      seen.add(track.id);
+      merged.push(track);
+    }
+  }
+  return merged;
+}
+
+/** Ошибки серверных источников — для честных подсказок в интерфейсе. */
+export function libraryErrors() {
+  return app.library.remote
+    .filter((group) => group.error)
+    .map((group) => ({ source: group.source, error: group.error, message: group.message }));
 }
 
 /* ------------------------------------------------------------------ */

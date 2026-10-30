@@ -123,6 +123,7 @@ export function configure(next) {
     if (token !== cfg.token) {
       cfg.token = token;
       cachedUser = null;
+      cachedUid = null;
     }
   }
   if (typeof next.quality === 'string' && ['lq', 'nq', 'lossless'].includes(next.quality)) {
@@ -277,6 +278,55 @@ export async function wave(limit = 20, station = DEFAULT_STATION) {
   }
 
   return { station, batchId, items: items.slice(0, want) };
+}
+
+/* --------------------------- лайкнутые треки ----------------------------- */
+
+let cachedUid = null;
+
+async function accountUid() {
+  if (cachedUid) return cachedUid;
+  const data = await request('/account/status');
+  const account = data?.result?.account || {};
+  cachedUid = account.uid || account.login || null;
+  if (!cachedUid) throw fail('AUTH_FAILED', 'Не удалось определить пользователя Яндекс.Музыки');
+  return cachedUid;
+}
+
+/**
+ * Лайкнутые треки аккаунта.
+ *
+ * Сервис отдаёт в /likes/tracks только пары id:albumId (и игнорирует limit),
+ * поэтому нужное количество отрезаем сами, а метаданные дозапрашиваем пачками
+ * по 50: большой единый запрос API отвергает (413).
+ */
+export async function likes(limit = 100) {
+  const want = Math.min(Math.max(Number(limit) || 100, 1), 300);
+  const uid = await accountUid();
+  const data = await request(`/users/${encodeURIComponent(uid)}/likes/tracks`);
+  const entries = Array.isArray(data?.result?.library?.tracks) ? data.result.library.tracks : [];
+  const ids = entries.slice(0, want).map((entry) => `${entry.id}:${entry.albumId}`);
+
+  const tracks = [];
+  const seen = new Set();
+  for (let i = 0; i < ids.length; i += 50) {
+    const chunk = ids.slice(i, i + 50).join(',');
+    try {
+      const res = await request(`/tracks?trackIds=${encodeURIComponent(chunk)}`);
+      for (const raw of Array.isArray(res?.result) ? res.result : []) {
+        const mapped = mapTrack(raw);
+        if (mapped && !seen.has(mapped.id)) {
+          seen.add(mapped.id);
+          tracks.push(mapped);
+        }
+      }
+    } catch (err) {
+      // одна проблемная пачка не должна обнулять всю библиотеку
+      if (i === 0) throw err;
+      console.warn('[yandex] likes batch:', err.message);
+    }
+  }
+  return tracks;
 }
 
 const FEEDBACK_TYPES = {

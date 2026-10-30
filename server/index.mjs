@@ -553,6 +553,39 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (route[0] === 'likes') {
+    // избранное по источникам: какие сервисы включены, такие и опрашиваем
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 100, 1), 300);
+    const requested = (url.searchParams.get('sources') || 'yandex')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => PROVIDER_NAMES.includes(s));
+    const sources = requested.length ? requested : ['yandex'];
+
+    const groups = await Promise.all(
+      sources.map(async (source) => {
+        const provider = providers[source];
+        if (!provider || typeof provider.likes !== 'function') {
+          return {
+            source,
+            items: [],
+            error: 'NOT_SUPPORTED',
+            message: 'Этот сервис не отдаёт избранное без входа в аккаунт',
+          };
+        }
+        try {
+          const items = await provider.likes(limit);
+          return { source, items: Array.isArray(items) ? items : [] };
+        } catch (err) {
+          return { source, items: [], error: err.code || 'UPSTREAM', message: err.message };
+        }
+      }),
+    );
+
+    sendJson(res, 200, { groups });
+    return;
+  }
+
   if (route[0] === 'history') {
     if (req.method === 'POST') {
       const body = await readJson(req);
