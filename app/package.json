@@ -1,7 +1,7 @@
 {
   "name": "labsoul-desktop",
   "productName": "labsoul",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "private": true,
   "description": "labsoul — десктопная оболочка плеера",
   "main": "main.cjs",
@@ -78,9 +78,11 @@
       "owner": "avaneqqqqqq",
       "repo": "Ymuz.mod",
       "releaseType": "release"
-    }
+    },
+    "afterPack": "build/afterpack.cjs"
   },
   "dependencies": {
-    "electron-updater": "^6.8.11"
+    "electron-updater": "^6.8.11",
+    "resedit": "^3.1.0"
   }
 }
