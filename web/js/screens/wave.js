@@ -299,8 +299,8 @@ function syncCurrentRows() {
 
 function checkFill() {
   if (!screen.root) return;
-  if (screen.autoFills > 25) return;
-  if (app.wave.loading || app.wave.done) return;
+  // без жёсткого лимита: лента догружается, пока пользователь листает
+  if (app.wave.loading) return;
   const content = document.getElementById('content');
   const sentinel = screen.root.querySelector('#wave-sentinel');
   if (!content || !sentinel) return;

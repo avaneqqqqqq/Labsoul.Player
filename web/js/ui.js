@@ -79,6 +79,17 @@ function renderSources() {
   }
 }
 
+function syncVersionChip() {
+  const chip = document.getElementById('side-version');
+  if (!chip) return;
+  // чип занят плашкой обновления — не перетираем
+  if (chip.classList.contains('side-foot__chip--update')) return;
+  const raw = String(net.version || '').trim();
+  if (!raw) return;
+  chip.textContent = `v${raw.replace(/^v/i, '')}`;
+  chip.title = `Версия labsoul ${raw}`;
+}
+
 function modeChip() {
   const chip = document.getElementById('side-mode');
   if (!chip) return;
@@ -178,6 +189,7 @@ function maybeOpenNowPlayingDemo() {
 
 function syncNetUi() {
   modeChip();
+  syncVersionChip();
   syncBanner();
   renderSources();
   if (net.mode === 'online') loadUpdate();
@@ -666,6 +678,13 @@ function npTemplate() {
         <div class="np__artist" data-np-artist></div>
         <div class="np__album" data-np-album></div>
         <div class="np__context" data-np-context></div>
+        <div class="np__extra">
+          <button class="np__chip" type="button" data-np="like">${icon('heart')}<span>В избранное</span></button>
+          <button class="np__chip" type="button" data-np="queue">${icon('queue')}<span>Очередь</span></button>
+          <button class="np__chip np__chip--lyrics" type="button" data-np="lyrics" aria-pressed="false">${icon('type')}<span>Текст</span></button>
+        </div>
+      </div>
+      <div class="np__transport">
         <div class="np__line">
           <span class="np__time" data-np-time>0:00</span>
           <input class="rng np__seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Перемотка">
@@ -677,11 +696,6 @@ function npTemplate() {
           <button class="pl-btn pl-btn--main np__play" type="button" data-np="toggle" title="Играть" aria-label="Играть">${icon('play')}</button>
           <button class="pl-btn" type="button" data-np="next" title="Следующий" aria-label="Следующий">${icon('next')}</button>
           <button class="pl-btn" type="button" data-np="repeat" title="Повтор" aria-label="Повтор">${icon('repeat')}</button>
-        </div>
-        <div class="np__extra">
-          <button class="np__chip" type="button" data-np="like">${icon('heart')}<span>В избранное</span></button>
-          <button class="np__chip" type="button" data-np="queue">${icon('queue')}<span>Очередь</span></button>
-          <button class="np__chip np__chip--lyrics" type="button" data-np="lyrics" aria-pressed="false">${icon('type')}<span>Текст</span></button>
         </div>
       </div>
       <div class="np__lyrics" data-np-lyrics hidden>
@@ -796,6 +810,11 @@ function openNowPlaying() {
   nowPlaying.lyrics = null;
 
   syncNowPlaying();
+
+  // настройка «текст сразу»: открываем панель, если включена
+  if (theme.lyricsAuto && player.currentTrack()) {
+    setTimeout(() => toggleLyrics(), 120);
+  }
 
   el.addEventListener('click', (event) => {
     // строка текста: кнопка «поделиться» или перемотка на её время
@@ -1231,9 +1250,12 @@ export function initShell() {
 
   renderSources();
   modeChip();
+  syncVersionChip();
   syncBanner();
   syncQuickTheme();
   maybeOpenNowPlayingDemo();
+  // версия подтягивается после проверки сервера
+  ping().then(() => { modeChip(); syncVersionChip(); }).catch(() => {});
 
   // битые обложки убираем, чтобы остался аккуратный градиент и не проступал alt-текст
   document.addEventListener('error', (event) => {

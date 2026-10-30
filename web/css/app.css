@@ -1128,3 +1128,10 @@ body.hide-pl-vol .pl-src { display: none; }
 
 .page-anim { animation: fadeup 240ms var(--ease) both; }
 body[data-anim="off"] .page-anim { animation: none; }
+
+/* настройка «перемотка в панели» — прячем полосу прогресса внизу */
+body.hide-pl-seek .pl-line { display: none; }
+
+/* радиус обложки из настроек */
+.pl-now__art { border-radius: var(--cover-radius, 8px); }
+.qitem__art { border-radius: var(--cover-radius, 6px); }

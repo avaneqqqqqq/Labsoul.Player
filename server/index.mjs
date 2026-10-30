@@ -19,7 +19,7 @@ import * as store from './store.mjs';
 import * as waveEngine from './wave.mjs';
 import { decryptBuffer, parseRange } from './streaming.mjs';
 import { resolveLink, findCandidates } from './linkimport.mjs';
-import { checkForUpdate } from './update.mjs';
+import { checkForUpdate, currentVersion } from './update.mjs';
 import * as localLibrary from './local.mjs';
 import * as lyrics from './lyrics.mjs';
 
@@ -493,12 +493,12 @@ async function handleApi(req, res, url) {
   const route = segments.slice(1);
 
   if (route[0] === 'health') {
-    sendJson(res, 200, { ok: true, version: '0.1.0', uptime: Math.round(process.uptime()) });
+    sendJson(res, 200, { ok: true, version: currentVersion(), uptime: Math.round(process.uptime()) });
     return;
   }
 
   if (route[0] === 'status') {
-    sendJson(res, 200, { ok: true, version: '0.1.0', sources: await statusAll() });
+    sendJson(res, 200, { ok: true, version: currentVersion(), sources: await statusAll() });
     return;
   }
 

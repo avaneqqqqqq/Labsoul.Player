@@ -15,6 +15,10 @@
  * поэтому один и тот же код обслуживает и «только Яндекс», и микс трёх сервисов.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import * as store from './store.mjs';
 
 const LOCAL_STATION = 'local:wave';
@@ -61,6 +65,77 @@ export function normalizeSources(input) {
  * @param {string} station станция Яндекса (для остальных источников игнорируется)
  * @param {string[]|string|null} sources выбранные источники
  */
+/* ------------------------------------------------------------------ */
+/* Показанное: волна не должна повторять одни и те же треки            */
+/* ------------------------------------------------------------------ */
+
+const HERE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const SEEN_FILE = path.join(process.env.PLAYER_DATA_DIR || path.join(HERE_DIR, '..', 'data'), 'wave-seen.json');
+const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
+const SEEN_MAX = 2500;
+
+/** station -> Map(id -> когда показали) */
+const seenByStation = new Map();
+let seenLoaded = false;
+
+function loadSeen() {
+  if (seenLoaded) return;
+  seenLoaded = true;
+  try {
+    if (!fs.existsSync(SEEN_FILE)) return;
+    const raw = JSON.parse(fs.readFileSync(SEEN_FILE, 'utf8'));
+    const now = Date.now();
+    for (const [station, entries] of Object.entries(raw || {})) {
+      const map = new Map();
+      for (const [id, at] of Object.entries(entries || {})) {
+        if (now - Number(at) < SEEN_TTL_MS) map.set(id, Number(at));
+      }
+      if (map.size) seenByStation.set(station, map);
+    }
+  } catch (err) {
+    store.log('[wave] не удалось прочитать историю показанных треков:', err.message);
+  }
+}
+
+let saveTimer = null;
+function saveSeenSoon() {
+  if (saveTimer) return;
+  saveTimer = setTimeout(() => {
+    saveTimer = null;
+    try {
+      const dump = {};
+      for (const [station, map] of seenByStation) {
+        dump[station] = Object.fromEntries(map);
+      }
+      fs.mkdirSync(path.dirname(SEEN_FILE), { recursive: true });
+      fs.writeFileSync(SEEN_FILE, JSON.stringify(dump), 'utf8');
+    } catch { /* не критично */ }
+  }, 1500);
+  if (typeof saveTimer.unref === 'function') saveTimer.unref();
+}
+
+function seenMap(station) {
+  loadSeen();
+  const key = String(station || DEFAULT_STATION);
+  if (!seenByStation.has(key)) seenByStation.set(key, new Map());
+  return seenByStation.get(key);
+}
+
+function wasSeen(station, id) {
+  if (!id) return true;
+  return seenMap(station).has(String(id));
+}
+
+function markSeen(station, id) {
+  const map = seenMap(station);
+  map.set(String(id), Date.now());
+  if (map.size > SEEN_MAX) {
+    const oldest = [...map.entries()].sort((a, b) => a[1] - b[1]).slice(0, map.size - SEEN_MAX);
+    for (const [key] of oldest) map.delete(key);
+  }
+  saveSeenSoon();
+}
+
 export async function getWave(limit = 20, station = DEFAULT_STATION, sources = null) {
   const want = clampWant(limit);
   const wanted = normalizeSources(sources);
@@ -103,7 +178,40 @@ export async function getWave(limit = 20, station = DEFAULT_STATION, sources = n
     };
   }
 
-  const items = interleave(usable, want);
+  // выкидываем то, что уже показывали, чтобы волна не ходила по кругу
+  let items = interleave(usable, want).filter((track) => !wasSeen(station, track.id));
+  items.forEach((track) => markSeen(station, track.id));
+
+  // если новинок мало — добираем ещё пару раз у тех же источников
+  for (let attempt = 0; attempt < 2 && items.length < want; attempt += 1) {
+    const extra = await Promise.all(
+      wanted.map(async (source) => {
+        try {
+          if (source === 'yandex') return await yandexBatch(want, station);
+          if (source === 'soundcloud') return await soundcloudBatch(want);
+          if (source === 'spotify') return await spotifyBatch(want);
+          return null;
+        } catch { return null; }
+      }),
+    );
+    const usableExtra = extra.filter((b) => b && Array.isArray(b.items) && b.items.length);
+    if (!usableExtra.length) break;
+
+    const more = interleave(usableExtra, want - items.length)
+      .filter((track) => track.id && !items.some((item) => item.id === track.id) && !wasSeen(station, track.id));
+    if (!more.length) break;
+
+    more.forEach((track) => markSeen(station, track.id));
+    items = items.concat(more);
+  }
+
+  // всё уже показано — начинаем круг заново, чтобы лента не вставала
+  if (!items.length) {
+    seenMap(station).clear();
+    items = interleave(usable, want);
+    items.forEach((track) => markSeen(station, track.id));
+  }
+
   // «источник» в ответе определяем только по тем, кто реально дал треки
   const single = usable.length === 1;
 

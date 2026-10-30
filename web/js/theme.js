@@ -62,6 +62,10 @@ export const DEFAULTS = {
   scheme: 'dark',
   accent: '#ffd23f',
   accentAuto: true,
+  lyricsSize: 100,
+  coverRadius: 22,
+  lyricsAuto: false,
+  barSeek: true,
   wallpaper: 'cover',
   density: 'normal',
   radius: 22,
@@ -121,6 +125,10 @@ function normalizeTheme(raw) {
   if (SCHEMES.has(raw.scheme)) out.scheme = raw.scheme;
   if (typeof raw.accent === 'string' && /^#[0-9a-f]{6}$/i.test(raw.accent)) out.accent = raw.accent;
   if (typeof raw.accentAuto === 'boolean') out.accentAuto = raw.accentAuto;
+  if (Number.isFinite(raw.lyricsSize)) out.lyricsSize = clamp(Math.round(raw.lyricsSize), 85, 150);
+  if (Number.isFinite(raw.coverRadius)) out.coverRadius = clamp(Math.round(raw.coverRadius), 0, 34);
+  if (typeof raw.lyricsAuto === 'boolean') out.lyricsAuto = raw.lyricsAuto;
+  if (typeof raw.barSeek === 'boolean') out.barSeek = raw.barSeek;
   if (WALLPAPERS.has(raw.wallpaper)) out.wallpaper = raw.wallpaper;
   if (DENSITIES.has(raw.density)) out.density = raw.density;
   if (Number.isFinite(raw.radius)) out.radius = clamp(Math.round(raw.radius), 0, 34);
@@ -250,6 +258,9 @@ export function applyTheme({ emitEvent = false } = {}) {
   body.dataset.anim = theme.anim ? 'on' : 'off';
 
   body.style.setProperty('--radius', `${theme.radius}px`);
+  body.style.setProperty('--cover-radius', `${theme.coverRadius}px`);
+  body.style.setProperty('--np-lyrics-scale', String((theme.lyricsSize || 100) / 100));
+  body.classList.toggle('hide-pl-seek', theme.barSeek === false);
   body.style.setProperty('--radius-sm', `${Math.max(3, Math.round(theme.radius * 0.64))}px`);
   body.style.setProperty('--blur', `${theme.blur}px`);
   body.style.setProperty('--grain', theme.grain ? '' : '0');

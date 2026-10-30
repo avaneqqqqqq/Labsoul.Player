@@ -283,8 +283,16 @@ function shellHtml() {
             </div>
           </div>
           <div class="ctl">
+            <div class="ctl__label">Акцент из обложки<small>подстраивать цвет под текущий трек</small></div>
+            <label class="toggle"><input type="checkbox" data-toggle="accentAuto" ${theme.accentAuto ? 'checked' : ''}><span class="toggle__track"></span></label>
+          </div>
+          <div class="ctl">
             <div class="ctl__label">Зерно<small>плёночная текстура поверх</small></div>
             <label class="toggle"><input type="checkbox" data-toggle="grain" ${theme.grain ? 'checked' : ''}><span class="toggle__track"></span></label>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Перемотка в панели<small>полоса прогресса внизу</small></div>
+            <label class="toggle"><input type="checkbox" data-toggle="barSeek" ${theme.barSeek ? 'checked' : ''}><span class="toggle__track"></span></label>
           </div>
         </div>
 
@@ -312,6 +320,24 @@ function shellHtml() {
           <div class="ctl">
             <div class="ctl__label">Карточек в ряд<small>сетка на широком экране</small></div>
             <div class="seg" id="seg-cols">${segButtons('cols', [['auto', 'Авто'], ['3', '3'], ['4', '4'], ['5', '5'], ['6', '6']])}</div>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Скругление обложки<small>только у картинки трека</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="0" max="34" step="1" value="${theme.coverRadius}" data-range="coverRadius" aria-label="Скругление обложки">
+              <span class="rng-val" data-val-for="coverRadius">${theme.coverRadius}px</span>
+            </div>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Размер текста песни<small>панель с текстом в полноэкранном</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="85" max="150" step="5" value="${theme.lyricsSize}" data-range="lyricsSize" aria-label="Размер текста песни">
+              <span class="rng-val" data-val-for="lyricsSize">${theme.lyricsSize}%</span>
+            </div>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Текст сразу<small>открывать текст при входе в полноэкранный</small></div>
+            <label class="toggle"><input type="checkbox" data-toggle="lyricsAuto" ${theme.lyricsAuto ? 'checked' : ''}><span class="toggle__track"></span></label>
           </div>
           <div class="ctl">
             <div class="ctl__label">Анимации<small>переходы и hover-эффекты</small></div>
@@ -382,7 +408,7 @@ function sync() {
     const key = input.dataset.range;
     if (document.activeElement !== input) input.value = theme[key];
     const out = root.querySelector(`[data-val-for="${key}"]`);
-    if (out) out.textContent = `${theme[key]}px`;
+    if (out) out.textContent = key === 'lyricsSize' ? `${theme[key]}%` : `${theme[key]}px`;
     input.style.setProperty('--p', `${((Number(theme[key]) - Number(input.min)) / (Number(input.max) - Number(input.min))) * 100}%`);
   }
 

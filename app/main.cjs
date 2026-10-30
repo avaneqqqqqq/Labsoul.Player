@@ -165,9 +165,10 @@ function createWindow(port) {
   mainWindow.on('move', positionBanner);
   mainWindow.on('resize', positionBanner);
 
+  // Сворачивание оставляет окно в панели задач — в трей уходит только по
+  // явной команде «Свернуть в трей» из меню.
   mainWindow.on('minimize', () => {
     hideUpdateBanner();
-    if (tray) mainWindow.hide();
   });
 
   mainWindow.on('closed', () => {

@@ -54,12 +54,23 @@ body.np-open { overflow: hidden; }
   z-index: 1;
   display: grid;
   grid-template-columns: minmax(200px, 40vh) minmax(0, 1fr);
-  gap: clamp(24px, 4vw, 52px);
+  grid-template-areas: "left side" "transport transport";
+  gap: clamp(20px, 3vw, 44px);
   align-items: center;
   width: min(1080px, 90vw);
 }
 
+/* перемотка и кнопки едут под обложку и растягиваются на всю ширину */
+.np__transport {
+  grid-area: transport;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+}
+
 .np__art {
+  border-radius: var(--cover-radius, 26px);
   position: relative;
   aspect-ratio: 1 / 1;
   border-radius: 26px;
@@ -122,8 +133,9 @@ body.np-open { overflow: hidden; }
 .np__line {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: clamp(16px, 3vh, 28px);
+  gap: 14px;
+  margin-top: 0;
+  width: 100%;
 }
 
 .np__time {
@@ -139,8 +151,9 @@ body.np-open { overflow: hidden; }
 .np__btns {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: clamp(12px, 2.5vh, 22px);
+  justify-content: center;
+  gap: 14px;
+  margin-top: 0;
 }
 
 .np__btns .pl-btn { width: 44px; height: 44px; }
@@ -201,7 +214,8 @@ body.np-open { overflow: hidden; }
     width: 88vw;
   }
 
-  .np__art { width: min(64vw, 280px); }
+  .np__art {
+  border-radius: var(--cover-radius, 26px); width: min(64vw, 280px); }
   .np__side { align-items: center; }
   .np__line { width: 100%; }
   .np__btns, .np__extra { justify-content: center; }
@@ -214,9 +228,14 @@ body.np-open { overflow: hidden; }
 /* когда текст открыт — обложка остаётся, но уступает место панели */
 .np.is-lyrics .np__inner {
   grid-template-columns: minmax(150px, 26vh) minmax(0, 1fr) minmax(300px, 40%);
+  grid-template-areas: "left side lyrics" "transport transport lyrics";
   width: min(1260px, 94vw);
   align-items: stretch;
 }
+
+.np__left { grid-area: left; }
+.np__side { grid-area: side; }
+.np__lyrics { grid-area: lyrics; }
 
 .np__lyrics {
   display: none;
@@ -289,6 +308,7 @@ body.np-open { overflow: hidden; }
 }
 
 .np__lyric {
+  font-size: calc(clamp(14px, 1.15vw, 17px) * var(--np-lyrics-scale, 1));
   position: relative;
   display: flex;
   align-items: center;
