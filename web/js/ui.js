@@ -134,6 +134,17 @@ async function loadUpdate() {
   });
 }
 
+/**
+ * Проверка внешнего вида полноэкранного плеера без запуска трека:
+ * открыть labsoul с параметром ?np в адресе (используется для QA).
+ */
+function maybeOpenNowPlayingDemo() {
+  try {
+    if (!new URLSearchParams(location.search).has('np')) return;
+    setTimeout(() => openNowPlaying(), 400);
+  } catch { /* не критично */ }
+}
+
 function syncNetUi() {
   modeChip();
   syncBanner();
@@ -300,8 +311,13 @@ function onPlayerEvent(snap, event) {
 function onPlayerClick(event) {
   const target = event.target instanceof Element ? event.target.closest('[data-pl]') : null;
   if (!target) {
-    // клик по названию/обложке — переключить воспроизведение
-    const meta = event.target instanceof Element ? event.target.closest('.pl-now__meta, .pl-now__art') : null;
+    // обложка открывает полноэкранный плеер, название/исполнитель — пауза/воспроизведение
+    const art = event.target instanceof Element ? event.target.closest('.pl-now__art') : null;
+    if (art) {
+      if (player.currentTrack()) openNowPlaying();
+      return;
+    }
+    const meta = event.target instanceof Element ? event.target.closest('.pl-now__meta') : null;
     if (meta) player.toggle();
     return;
   }
@@ -352,6 +368,193 @@ function onPlayerInput(event) {
     player.setVolume(Number(target.value) / 100);
     target.style.setProperty('--p', `${target.value}%`);
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Полноэкранный плеер                                                 */
+/* ------------------------------------------------------------------ */
+
+const nowPlaying = { el: null, unsub: null, onKey: null };
+
+function npTemplate() {
+  return `
+    <div class="np__bg" data-np-bg></div>
+    <div class="np__inner">
+      <button class="np__close" type="button" data-np="close" title="Закрыть (Esc)" aria-label="Закрыть">${icon('x')}</button>
+      <div class="np__art" data-np-art></div>
+      <div class="np__side">
+        <span class="np__src" data-np-src></span>
+        <h2 class="np__title" data-np-title>Ничего не играет</h2>
+        <div class="np__artist" data-np-artist></div>
+        <div class="np__album" data-np-album></div>
+        <div class="np__line">
+          <span class="np__time" data-np-time>0:00</span>
+          <input class="rng np__seek" type="range" min="0" max="1000" step="1" value="0" aria-label="Перемотка">
+          <span class="np__time" data-np-dur>0:00</span>
+        </div>
+        <div class="np__btns">
+          <button class="pl-btn" type="button" data-np="shuffle" title="Перемешать" aria-label="Перемешать">${icon('shuffle')}</button>
+          <button class="pl-btn" type="button" data-np="prev" title="Предыдущий" aria-label="Предыдущий">${icon('prev')}</button>
+          <button class="pl-btn pl-btn--main np__play" type="button" data-np="toggle" title="Играть" aria-label="Играть">${icon('play')}</button>
+          <button class="pl-btn" type="button" data-np="next" title="Следующий" aria-label="Следующий">${icon('next')}</button>
+          <button class="pl-btn" type="button" data-np="repeat" title="Повтор" aria-label="Повтор">${icon('repeat')}</button>
+        </div>
+        <div class="np__extra">
+          <button class="np__chip" type="button" data-np="like">${icon('heart')}<span>В избранное</span></button>
+          <button class="np__chip" type="button" data-np="queue">${icon('queue')}<span>Очередь</span></button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function syncNowPlaying() {
+  if (!nowPlaying.el) return;
+  const snap = player.getState();
+  const track = snap.current;
+  const el = nowPlaying.el;
+  const duration = snap.duration || track?.duration || 0;
+
+  const setText = (selector, value) => {
+    const node = el.querySelector(selector);
+    if (node) node.textContent = value;
+  };
+
+  el.classList.toggle('is-empty', !track);
+  if (!track) {
+    setText('[data-np-title]', 'Ничего не играет');
+    setText('[data-np-artist]', 'Выберите трек в Волне или поиске');
+    setText('[data-np-album]', '');
+    setText('[data-np-src]', '');
+    const bg = el.querySelector('[data-np-bg]');
+    if (bg) bg.style.backgroundImage = 'none';
+    return;
+  }
+
+  setText('[data-np-title]', track.title || 'Без названия');
+  setText('[data-np-artist]', artistsLine(track));
+  setText('[data-np-album]', track.album || '');
+  setText('[data-np-src]', SOURCE_NAMES[track.source] || track.source);
+
+  const art = el.querySelector('[data-np-art]');
+  if (art) {
+    art.setAttribute('style', trackStyle(track));
+    art.innerHTML = coverImg(track, { eager: true });
+  }
+  const bg = el.querySelector('[data-np-bg]');
+  if (bg && track.cover) bg.style.backgroundImage = `url("${track.cover}")`;
+
+  setText('[data-np-time]', fmtClock(snap.time));
+  setText('[data-np-dur]', fmtClock(duration));
+
+  const seek = el.querySelector('.np__seek');
+  if (seek) {
+    seek.disabled = !track;
+    if (!ui.seeking) seek.value = String(duration ? Math.round((snap.time / duration) * 1000) : 0);
+    const percent = duration ? Math.min(100, Math.max(0, (snap.time / duration) * 100)) : 0;
+    seek.style.setProperty('--p', `${percent}%`);
+  }
+
+  const toggle = el.querySelector('[data-np="toggle"]');
+  if (toggle) {
+    toggle.innerHTML = icon(snap.playing ? 'pause' : 'play');
+    toggle.title = snap.playing ? 'Пауза' : 'Играть';
+  }
+  const shuffle = el.querySelector('[data-np="shuffle"]');
+  if (shuffle) shuffle.classList.toggle('on', !!snap.shuffle);
+  const repeat = el.querySelector('[data-np="repeat"]');
+  if (repeat) {
+    repeat.innerHTML = icon(snap.repeat === 'one' ? 'repeat-one' : 'repeat');
+    repeat.classList.toggle('on', snap.repeat !== 'off');
+  }
+  const like = el.querySelector('[data-np="like"]');
+  if (like) {
+    const liked = isLiked(track.id);
+    like.classList.toggle('is-on', liked);
+    const label = like.querySelector('span');
+    if (label) label.textContent = liked ? 'В избранном' : 'В избранное';
+  }
+}
+
+function openNowPlaying() {
+  if (nowPlaying.el) return;
+
+  const el = document.createElement('div');
+  el.className = 'np';
+  el.setAttribute('role', 'dialog');
+  el.setAttribute('aria-modal', 'true');
+  el.setAttribute('aria-label', 'Сейчас играет');
+  el.innerHTML = npTemplate();
+  document.body.appendChild(el);
+  document.body.classList.add('np-open');
+  nowPlaying.el = el;
+
+  syncNowPlaying();
+
+  el.addEventListener('click', (event) => {
+    const button = event.target instanceof Element ? event.target.closest('[data-np]') : null;
+    if (!button) {
+      // клик по фону закрывает
+      if (event.target === el) closeNowPlaying();
+      return;
+    }
+    const action = button.dataset.np;
+    if (action === 'close') { closeNowPlaying(); return; }
+    if (action === 'toggle') { player.toggle(); syncNowPlaying(); return; }
+    if (action === 'next') { player.next(); syncNowPlaying(); return; }
+    if (action === 'prev') { player.prev(); syncNowPlaying(); return; }
+    if (action === 'shuffle') { player.toggleShuffle(); syncNowPlaying(); return; }
+    if (action === 'repeat') { player.cycleRepeat(); syncNowPlaying(); return; }
+    if (action === 'queue') { closeNowPlaying(); if (!app.ui.queueOpen) toggleQueue(); return; }
+    if (action === 'like') {
+      const track = player.currentTrack();
+      if (!track) return;
+      const liked = toggleLike(track);
+      toast(liked ? `В избранном: ${track.title}` : 'Убрано из избранного', { icon: 'heart' });
+      syncNowPlaying();
+    }
+  });
+
+  el.addEventListener('input', (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || !target.classList.contains('np__seek')) return;
+    const snap = player.getState();
+    const duration = snap.duration || snap.current?.duration || 0;
+    player.seek((Number(target.value) / 1000) * duration);
+  });
+
+  nowPlaying.onKey = (event) => {
+    if (event.key === 'Escape') { closeNowPlaying(); return; }
+    if (event.key === ' ' && !(event.target instanceof HTMLInputElement)) {
+      event.preventDefault();
+      player.toggle();
+    }
+  };
+  document.addEventListener('keydown', nowPlaying.onKey);
+
+  nowPlaying.unsub = player.subscribe((_snap, event) => {
+    if (event === 'time') {
+      const snap = player.getState();
+      const duration = snap.duration || snap.current?.duration || 0;
+      const time = nowPlaying.el?.querySelector('[data-np-time]');
+      if (time) time.textContent = fmtClock(snap.time);
+      const seek = nowPlaying.el?.querySelector('.np__seek');
+      if (seek && !ui.seeking && duration) {
+        seek.value = String(Math.round((snap.time / duration) * 1000));
+        seek.style.setProperty('--p', `${(snap.time / duration) * 100}%`);
+      }
+      return;
+    }
+    syncNowPlaying();
+  });
+}
+
+function closeNowPlaying() {
+  if (!nowPlaying.el) return;
+  if (nowPlaying.unsub) { nowPlaying.unsub(); nowPlaying.unsub = null; }
+  if (nowPlaying.onKey) { document.removeEventListener('keydown', nowPlaying.onKey); nowPlaying.onKey = null; }
+  nowPlaying.el.remove();
+  nowPlaying.el = null;
+  document.body.classList.remove('np-open');
 }
 
 /* ------------------------------------------------------------------ */
@@ -702,6 +905,7 @@ export function initShell() {
   modeChip();
   syncBanner();
   syncQuickTheme();
+  maybeOpenNowPlayingDemo();
 
   // битые обложки убираем, чтобы остался аккуратный градиент и не проступал alt-текст
   document.addEventListener('error', (event) => {
