@@ -21,6 +21,7 @@ import { decryptBuffer, parseRange } from './streaming.mjs';
 import { resolveLink, findCandidates } from './linkimport.mjs';
 import { checkForUpdate } from './update.mjs';
 import * as localLibrary from './local.mjs';
+import * as lyrics from './lyrics.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -552,6 +553,30 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (route[0] === 'lyrics' && route[1] && route[2]) {
+    // текст песни: ищем по названию/исполнителю/длительности, с кэшем
+    try {
+      const provider = providers[route[1]];
+      const track = provider && typeof provider.track === 'function'
+        ? await provider.track(decodeURIComponent(route[2]))
+        : null;
+      if (!track) {
+        sendJson(res, 200, { available: false, synced: [], plain: '', reason: 'NO_TRACK' });
+        return;
+      }
+      const found = await lyrics.findLyrics({
+        title: track.title,
+        artist: (track.artists || []).join(', '),
+        album: track.album,
+        duration: track.duration,
+      });
+      sendJson(res, 200, found);
+    } catch (err) {
+      sendJson(res, 200, { available: false, synced: [], plain: '', reason: err.code || 'ERROR', message: err.message });
+    }
+    return;
+  }
+
   if (route[0] === 'stream' && route[1] && route[2]) {
     await handleStream(req, res, route[1], decodeURIComponent(route[2]));
     return;
@@ -731,6 +756,8 @@ const server = http.createServer((req, res) => {
     if (!res.headersSent) sendError(res, err);
   }
 });
+
+lyrics.configure();
 
 server.listen(PORT, '127.0.0.1', async () => {
   await loadProviders();

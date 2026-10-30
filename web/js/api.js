@@ -353,6 +353,17 @@ export async function getLikes(sources = ['yandex'], limit = 100) {
   }
 }
 
+/** Текст песни с таймингами (LRC) — ищется на сервере по названию и исполнителю. */
+export async function getLyrics(source, sourceId) {
+  if (isDemo()) return { available: false, synced: [], plain: '' };
+  try {
+    return await request(`/api/lyrics/${encodeURIComponent(source)}/${encodeURIComponent(sourceId)}`, { timeout: 30000 });
+  } catch (err) {
+    if (isNetworkError(err)) degrade(err);
+    return { available: false, synced: [], plain: '', reason: err?.code || 'ERROR' };
+  }
+}
+
 /** Категории станций: жанры, настроения, занятия (данные ротора Яндекса). */
 export async function getWaveStations() {
   if (isDemo()) return { categories: [] };

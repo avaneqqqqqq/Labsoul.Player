@@ -3,7 +3,7 @@
    Экраны живут в js/screens/* и сами рисуют только #content.
    ========================================================================= */
 
-import { getUpdate, isDemo, net, ping } from './api.js';
+import { getLyrics, getUpdate, isDemo, net, ping } from './api.js';
 import { player } from './audio.js';
 import {
   coverImg,
@@ -136,12 +136,33 @@ async function loadUpdate() {
 
 /**
  * Проверка внешнего вида полноэкранного плеера без запуска трека:
- * открыть labsoul с параметром ?np в адресе (используется для QA).
+ *   ?np       — открыть плеер;
+ *   ?np&lyrics — ещё и панель текста с демонстрационными строками.
  */
 function maybeOpenNowPlayingDemo() {
   try {
-    if (!new URLSearchParams(location.search).has('np')) return;
-    setTimeout(() => openNowPlaying(), 400);
+    const params = new URLSearchParams(location.search);
+    if (!params.has('np')) return;
+    setTimeout(() => {
+      openNowPlaying();
+      if (!params.has('lyrics')) return;
+
+      const state = lyricsState();
+      state.open = true;
+      state.status = 'ready';
+      state.key = 'demo';
+      state.provider = 'demo';
+      state.synced = [
+        { time: 0, text: 'Тёплое место, но улицы ждут' },
+        { time: 6, text: 'отпечатков наших ног' },
+        { time: 12, text: 'Звёздная пыль — на сапогах' },
+        { time: 18, text: 'Мягкое кресло, клетчатый плед' },
+        { time: 24, text: 'Не нажатый вовремя курок' },
+        { time: 30, text: 'Солнечный день — в окне' },
+        { time: 36, text: 'И мы с тобой наедине' },
+      ];
+      renderLyrics();
+    }, 400);
   } catch { /* не критично */ }
 }
 
@@ -374,14 +395,172 @@ function onPlayerInput(event) {
 /* Полноэкранный плеер                                                 */
 /* ------------------------------------------------------------------ */
 
-const nowPlaying = { el: null, unsub: null, onKey: null };
+const nowPlaying = { el: null, unsub: null, onKey: null, lyrics: null };
+
+/* ------------------------------------------------------------------ */
+/* Текст песни в полноэкранном плеере                                   */
+/* ------------------------------------------------------------------ */
+
+function lyricsState() {
+  if (!nowPlaying.lyrics) {
+    nowPlaying.lyrics = { key: null, status: 'idle', synced: [], plain: '', provider: null, instrumental: false, open: false, index: -1 };
+  }
+  return nowPlaying.lyrics;
+}
+
+const lyricsKeyOf = (track) => (track ? `${track.source}:${track.sourceId}` : null);
+
+function renderLyrics() {
+  const el = nowPlaying.el;
+  if (!el) return;
+  const box = el.querySelector('[data-np-lyrics]');
+  const trackBox = el.querySelector('[data-np-lyrics-track]');
+  if (!box || !trackBox) return;
+
+  const state = lyricsState();
+  box.hidden = !state.open;
+  el.classList.toggle('is-lyrics', state.open);
+
+  const toggle = el.querySelector('[data-np="lyrics"]');
+  if (toggle) {
+    toggle.classList.toggle('is-on', state.open);
+    toggle.setAttribute('aria-pressed', String(state.open));
+  }
+
+  if (!state.open) return;
+
+  if (state.status === 'loading') {
+    trackBox.innerHTML = '<div class="np__lyrics-note">Ищем текст…</div>';
+    return;
+  }
+
+  if (state.status === 'ready' && state.synced.length) {
+    trackBox.innerHTML = state.synced
+      .map((line, index) => `<div class="np__lyric" data-lyric="${index}">${esc(line.text)}</div>`)
+      .join('');
+    state.index = -1;
+    syncLyrics(player.getState().time, true);
+    return;
+  }
+
+  if (state.status === 'ready' && state.plain) {
+    const lines = state.plain.split('\n').map((line) => line.trim()).filter(Boolean);
+    trackBox.innerHTML = `${lines.map((line) => `<div class="np__lyric np__lyric--plain">${esc(line)}</div>`).join('')}
+      <div class="np__lyrics-note np__lyrics-note--small">без синхронизации</div>`;
+    return;
+  }
+
+  trackBox.innerHTML = `<div class="np__lyrics-note">${state.instrumental ? 'Инструментальная композиция' : 'Текст не найден'}</div>`;
+}
+
+/** Подсвечивает текущую строку и плавно подводит её к центру. */
+function syncLyrics(time, force = false) {
+  const state = lyricsState();
+  if (!state.open || state.status !== 'ready' || !state.synced.length) return;
+
+  const el = nowPlaying.el;
+  if (!el) return;
+  const trackBox = el.querySelector('[data-np-lyrics-track]');
+  const scroll = el.querySelector('[data-np-lyrics-scroll]');
+  if (!trackBox || !scroll) return;
+
+  const at = Number(time) || 0;
+  let index = -1;
+  for (let i = 0; i < state.synced.length; i += 1) {
+    if (state.synced[i].time <= at + 0.25) index = i;
+    else break;
+  }
+
+  if (!force && index === state.index) return;
+  state.index = index;
+
+  for (let i = 0; i < trackBox.children.length; i += 1) {
+    const node = trackBox.children[i];
+    if (!(node instanceof HTMLElement)) continue;
+    node.classList.toggle('is-active', i === index);
+    node.classList.toggle('is-past', i < index);
+  }
+
+  const active = trackBox.children[Math.max(0, index)];
+  if (active instanceof HTMLElement) {
+    const offset = active.offsetTop + active.offsetHeight / 2 - scroll.clientHeight / 2;
+    trackBox.style.transform = `translateY(${-Math.max(0, offset)}px)`;
+  }
+}
+
+async function loadLyrics(track) {
+  const state = lyricsState();
+  const key = lyricsKeyOf(track);
+
+  if (!track) {
+    state.key = null;
+    state.status = 'none';
+    state.synced = [];
+    state.plain = '';
+    renderLyrics();
+    return;
+  }
+
+  if (state.key === key && (state.status === 'ready' || state.status === 'none')) {
+    renderLyrics();
+    return;
+  }
+
+  state.key = key;
+  state.status = 'loading';
+  state.synced = [];
+  state.plain = '';
+  state.instrumental = false;
+  renderLyrics();
+
+  try {
+    const data = await getLyrics(track.source, track.sourceId);
+    if (state.key !== key) return; // трек успел смениться
+
+    if (data?.available && Array.isArray(data.synced) && data.synced.length) {
+      state.status = 'ready';
+      state.synced = data.synced;
+      state.plain = data.plain || '';
+      state.provider = data.provider || null;
+    } else if (data?.available && data.plain) {
+      state.status = 'ready';
+      state.synced = [];
+      state.plain = data.plain;
+      state.provider = data.provider || null;
+    } else {
+      state.status = 'none';
+      state.instrumental = Boolean(data?.instrumental);
+    }
+  } catch {
+    if (state.key === key) state.status = 'none';
+  }
+
+  renderLyrics();
+}
+
+function toggleLyrics() {
+  const state = lyricsState();
+  state.open = !state.open;
+  if (state.open) {
+    loadLyrics(player.getState().current);
+    return;
+  }
+  renderLyrics();
+}
 
 function npTemplate() {
   return `
     <div class="np__bg" data-np-bg></div>
     <div class="np__inner">
       <button class="np__close" type="button" data-np="close" title="Закрыть (Esc)" aria-label="Закрыть">${icon('x')}</button>
-      <div class="np__art" data-np-art></div>
+      <div class="np__left">
+        <div class="np__art" data-np-art></div>
+        <div class="np__lyrics" data-np-lyrics hidden>
+          <div class="np__lyrics-scroll" data-np-lyrics-scroll>
+            <div class="np__lyrics-track" data-np-lyrics-track></div>
+          </div>
+        </div>
+      </div>
       <div class="np__side">
         <span class="np__eyebrow" data-np-eyebrow>Сейчас играет</span>
         <span class="np__src" data-np-src></span>
@@ -404,6 +583,7 @@ function npTemplate() {
         <div class="np__extra">
           <button class="np__chip" type="button" data-np="like">${icon('heart')}<span>В избранное</span></button>
           <button class="np__chip" type="button" data-np="queue">${icon('queue')}<span>Очередь</span></button>
+          <button class="np__chip np__chip--lyrics" type="button" data-np="lyrics" aria-pressed="false">${icon('type')}<span>Текст</span></button>
         </div>
       </div>
     </div>`;
@@ -484,6 +664,12 @@ function syncNowPlaying() {
     const label = like.querySelector('span');
     if (label) label.textContent = liked ? 'В избранном' : 'В избранное';
   }
+
+  // текст песни: панель открыта — подгружаем текст для нового трека
+  const lyricsPanel = nowPlaying.lyrics;
+  if (lyricsPanel?.open && lyricsPanel.key !== lyricsKeyOf(track)) {
+    loadLyrics(track);
+  }
 }
 
 function openNowPlaying() {
@@ -498,6 +684,8 @@ function openNowPlaying() {
   document.body.appendChild(el);
   document.body.classList.add('np-open');
   nowPlaying.el = el;
+  // каждый раз открываем с закрытой панелью текста
+  nowPlaying.lyrics = null;
 
   syncNowPlaying();
 
@@ -516,6 +704,7 @@ function openNowPlaying() {
     if (action === 'shuffle') { player.toggleShuffle(); syncNowPlaying(); return; }
     if (action === 'repeat') { player.cycleRepeat(); syncNowPlaying(); return; }
     if (action === 'queue') { closeNowPlaying(); if (!app.ui.queueOpen) toggleQueue(); return; }
+    if (action === 'lyrics') { toggleLyrics(); return; }
     if (action === 'like') {
       const track = player.currentTrack();
       if (!track) return;
@@ -553,6 +742,7 @@ function openNowPlaying() {
         seek.value = String(Math.round((snap.time / duration) * 1000));
         seek.style.setProperty('--p', `${(snap.time / duration) * 100}%`);
       }
+      syncLyrics(snap.time);
       return;
     }
     syncNowPlaying();
