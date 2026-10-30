@@ -1,0 +1,54 @@
+name: release
+
+# Собирает установщик и публикует его в GitHub Releases.
+# Запускается при пуше тега вида v0.2.1 или вручную (workflow_dispatch).
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Тест темы
+        run: npm test
+
+      - name: Сборка и публикация
+        run: >
+          npx electron-builder --win nsis --publish always
+          -c.publish.provider=github
+          -c.publish.owner=${{ github.repository_owner }}
+          -c.publish.repo=${{ github.event.repository.name }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Артефакты (на случай падения публикации)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temnikovo-dans-windows
+          path: |
+            app/dist/*.exe
+            app/dist/latest.yml
+          if-no-files-found: warn
+          retention-days: 7
