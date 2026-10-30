@@ -19,7 +19,9 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OWNER = process.env.GH_OWNER || 'avaneqqqqqq';
-const REPO = process.env.GH_REPO || 'Ymuz.mod';
+let REPO = process.env.GH_REPO || 'Labsoul.Player';
+// старое имя на случай, если репозиторий ещё не переименован
+const REPO_FALLBACK = 'Ymuz.mod';
 const BRANCH = process.env.GH_BRANCH || 'main';
 const API = 'https://api.github.com';
 
@@ -133,6 +135,15 @@ const isBinary = (buffer) => buffer.includes(0);
 /* --------------------------------- main ---------------------------------- */
 
 async function main() {
+  // автовыбор имени репозитория
+  // репозиторий мог быть переименован: пробуем новое имя, иначе старое
+  try {
+    await apiPublic(`/repos/${OWNER}/${REPO}`);
+  } catch {
+    console.log(`  репозиторий ${REPO} недоступен, пробую ${REPO_FALLBACK}`);
+    REPO = REPO_FALLBACK;
+  }
+
   console.log(`\nlabsoul → github.com/${OWNER}/${REPO} (${BRANCH})`);
 
   let headSha = null;

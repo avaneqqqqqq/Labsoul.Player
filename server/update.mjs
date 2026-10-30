@@ -13,7 +13,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const REPO = process.env.LABSOUL_REPO || 'avaneqqqqqq/Ymuz.mod';
+const REPO = process.env.LABSOUL_REPO || 'avaneqqqqqq/Labsoul.Player';
+// старое имя репозитория: GitHub перенаправляет старые ссылки, поэтому клиенты
+// на предыдущих сборках продолжают получать обновления
+const REPO_LEGACY = 'avaneqqqqqq/Ymuz.mod';
 const CACHE_TTL_MS = 60 * 60 * 1000; // час: не дёргаем GitHub на каждое открытие
 const TIMEOUT_MS = 10000;
 
@@ -64,14 +67,25 @@ export async function checkForUpdate() {
   }
 
   try {
-    const res = await fetch(`https://api.github.com/repos/${REPO}/releases?per_page=30`, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'labsoul-update-check',
-      },
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!res.ok) throw new Error(`GitHub ответил ${res.status}`);
+    const load = async (repo) => {
+      const response = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=30`, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'labsoul-update-check',
+        },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!response.ok) throw new Error(`GitHub ответил ${response.status}`);
+      return response;
+    };
+
+    // после переименования репозитория старые сборки ходят по прежнему адресу
+    let res;
+    try {
+      res = await load(REPO);
+    } catch {
+      res = await load(REPO_LEGACY);
+    }
 
     const list = await res.json();
     const ours = (Array.isArray(list) ? list : [])

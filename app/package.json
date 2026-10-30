@@ -76,7 +76,7 @@
     "publish": {
       "provider": "github",
       "owner": "avaneqqqqqq",
-      "repo": "Ymuz.mod",
+      "repo": "Labsoul.Player",
       "releaseType": "release"
     },
     "afterPack": "build/afterpack.cjs"
