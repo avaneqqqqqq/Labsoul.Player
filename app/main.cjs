@@ -482,6 +482,35 @@ async function signInYandex() {
 
 ipcMain.handle('auth:yandex', () => signInYandex());
 
+/* --------------------------- своя музыка --------------------------------- */
+
+ipcMain.handle('local:pick', async () => {
+  const result = await dialog.showOpenDialog(mainWindow || undefined, {
+    title: 'Добавить свою музыку',
+    buttonLabel: 'Добавить',
+    properties: ['openFile', 'multiSelections', 'openDirectory'],
+    filters: [{ name: 'Аудио', extensions: ['mp3', 'flac', 'm4a', 'aac', 'ogg', 'opus', 'wav', 'webm'] }],
+  });
+
+  if (result.canceled || !result.filePaths.length) return { ok: false, canceled: true };
+
+  try {
+    const res = await fetch('http://127.0.0.1:' + currentPort + '/api/local/import', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ paths: result.filePaths }),
+      signal: AbortSignal.timeout(120000),
+    });
+    const data = await res.json().catch(() => ({}));
+    log('своя музыка: добавлено ' + (data.added || 0) + ', пропущено ' + (data.skipped || 0));
+    return { ok: res.ok, added: data.added || 0, skipped: data.skipped || 0, errors: data.errors || [] };
+  } catch (err) {
+    log('своя музыка: ошибка импорта ' + ((err && err.message) || err));
+    return { ok: false, error: (err && err.message) || 'не удалось добавить файлы' };
+  }
+});
+
+
 /* ----------------------- уведомление об обновлении ----------------------- */
 
 const BANNER_W = 560;

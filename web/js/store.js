@@ -6,13 +6,18 @@
 import {
   getHistory,
   getLikes,
+  getLocalTracks,
   getSettings,
   getStatus,
   getWave,
+  getWaveStations,
+  importLocalPaths,
   net,
   onNetChange,
+  removeLocalTrack,
   saveSettings,
   search,
+  uploadLocalFile,
 } from './api.js';
 import { readJSON, writeJSON } from './utils.js';
 
@@ -68,6 +73,14 @@ export const app = {
   settings: null,
   statusLoading: false,
   likes: [],
+  // своя музыка с диска
+  local: {
+    items: [],
+    loading: false,
+    importing: false,
+    error: null,
+    loadedAt: 0,
+  },
   library: {
     // какие сервисы показывать в «Избранном»
     sources: readLibrarySources(),
@@ -80,6 +93,10 @@ export const app = {
   wave: {
     items: [],
     station: 'user:onyourwave',
+    stations: [],
+    stationsLoading: false,
+    category: 'personal',
+    stationsError: null,
     // из каких источников собирать ленту; выбор пользователя переживает перезапуск
     sources: readWaveSources(),
     batchId: null,
@@ -322,6 +339,45 @@ export function setWaveSources(sources) {
   return next;
 }
 
+/** Категории станций и выбор станции «Моей волны». */
+export async function loadWaveStations({ force = false } = {}) {
+  if (app.wave.stationsLoading) return;
+  if (!force && app.wave.stations.length) return;
+  app.wave.stationsLoading = true;
+  app.wave.stationsError = null;
+  emit('wave-stations');
+  try {
+    const data = await getWaveStations();
+    app.wave.stations = Array.isArray(data?.categories) ? data.categories : [];
+    if (!app.wave.stations.some((c) => c.type === app.wave.category)) {
+      app.wave.category = app.wave.stations[0]?.type || 'personal';
+    }
+  } catch (err) {
+    app.wave.stationsError = err?.message || 'Не удалось загрузить категории';
+  } finally {
+    app.wave.stationsLoading = false;
+    emit('wave-stations');
+  }
+}
+
+export function setWaveCategory(type) {
+  const next = String(type || 'personal');
+  if (next === app.wave.category) return app.wave.category;
+  app.wave.category = next;
+  emit('wave-stations');
+  return next;
+}
+
+export function setWaveStation(stationId) {
+  const next = String(stationId || 'user:onyourwave');
+  if (next === app.wave.station) return app.wave.station;
+  app.wave.station = next;
+  resetWave();
+  emit('wave');
+  loadWaveMore({ force: true });
+  return next;
+}
+
 export function toggleWaveSource(sourceKey) {  if (!WAVE_SOURCE_KEYS.includes(sourceKey)) return app.wave.sources;
   const current = app.wave.sources.slice();
   const index = current.indexOf(sourceKey);
@@ -406,6 +462,82 @@ export function libraryTracks() {
     }
   }
   return merged;
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Своя музыка                                                          */
+/* ------------------------------------------------------------------ */
+
+export async function loadLocalTracks({ force = false } = {}) {
+  if (app.local.loading) return;
+  if (!force && app.local.loadedAt && Date.now() - app.local.loadedAt < 15_000) return;
+  app.local.loading = true;
+  app.local.error = null;
+  emit('local');
+  try {
+    app.local.items = await getLocalTracks();
+    app.local.loadedAt = Date.now();
+  } catch (err) {
+    app.local.error = err?.message || 'Не удалось прочитать локальную библиотеку';
+  } finally {
+    app.local.loading = false;
+    emit('local');
+  }
+}
+
+/** Добавить файлы/папки по путям (десктоп: диалог или перетаскивание). */
+export async function addLocalPaths(paths) {
+  const list = (Array.isArray(paths) ? paths : [paths]).filter((p) => typeof p === 'string' && p.trim());
+  if (!list.length) return { ok: false, added: 0, skipped: 0 };
+  app.local.importing = true;
+  emit('local');
+  try {
+    const result = await importLocalPaths(list);
+    await loadLocalTracks({ force: true });
+    return result;
+  } finally {
+    app.local.importing = false;
+    emit('local');
+  }
+}
+
+/** Добавить файлы, выбранные в браузере (путей нет — заливаем содержимое). */
+export async function addLocalFiles(files) {
+  const list = Array.from(files || []).filter(Boolean);
+  if (!list.length) return { ok: false, added: 0 };
+  app.local.importing = true;
+  emit('local');
+  let added = 0;
+  const errors = [];
+  try {
+    for (const file of list) {
+      try {
+        await uploadLocalFile(file);
+        added += 1;
+      } catch (err) {
+        errors.push(file.name + ': ' + (err?.message || 'ошибка'));
+      }
+    }
+    await loadLocalTracks({ force: true });
+    return { ok: true, added, errors };
+  } finally {
+    app.local.importing = false;
+    emit('local');
+  }
+}
+
+export async function deleteLocalTrack(sourceId) {
+  try {
+    await removeLocalTrack(sourceId);
+    app.local.items = app.local.items.filter((track) => track.sourceId !== String(sourceId) && track.id !== String(sourceId));
+    emit('local');
+    return true;
+  } catch (err) {
+    app.local.error = err?.message || 'Не удалось удалить трек';
+    emit('local');
+    return false;
+  }
 }
 
 /** Ошибки серверных источников — для честных подсказок в интерфейсе. */

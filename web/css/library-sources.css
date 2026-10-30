@@ -40,3 +40,52 @@
   color: var(--text);
   font-weight: 600;
 }
+
+/* --- своя музыка: drag&drop, путь, список ------------------------------ */
+
+.local-add { display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px; }
+
+.local-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 26px 18px; text-align: center;
+  border: 2px dashed var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--hover); cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+}
+.local-drop svg { width: 22px; height: 22px; color: var(--accent); }
+.local-drop b { font-size: 14px; }
+.local-drop span { font-size: 12.5px; color: var(--dim); }
+.local-drop.is-over { border-color: var(--accent); background: rgba(255, 255, 255, .1); }
+
+.local-path { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.local-path .input { flex: 1 1 300px; min-width: 0; }
+
+.local-hint { font-size: 12.5px; color: var(--dim); }
+.local-hint--err { color: #ff9b86; }
+
+.local-list { display: flex; flex-direction: column; gap: 2px; }
+.local-track { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border-radius: var(--radius-xs); }
+.local-track:hover { background: var(--hover); }
+.local-track.is-current { background: rgba(255, 255, 255, .07); }
+
+.local-track__play {
+  width: 30px; height: 30px; border-radius: 50%; flex: none;
+  border: 1px solid var(--border); background: transparent; color: var(--text);
+  display: grid; place-items: center; cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.local-track__play:hover { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.local-track__play svg { width: 13px; height: 13px; }
+
+.local-track__info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.local-track__info b { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.local-track__info span { font-size: 12px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.local-track__dur { font-size: 12px; color: var(--mute); font-variant-numeric: tabular-nums; flex: none; }
+
+.local-track__del {
+  width: 26px; height: 26px; border: none; background: transparent; color: var(--mute);
+  border-radius: 8px; display: grid; place-items: center; cursor: pointer; flex: none;
+}
+.local-track__del:hover { color: #ff9b86; background: rgba(255, 255, 255, .06); }
+.local-track__del svg { width: 14px; height: 14px; }

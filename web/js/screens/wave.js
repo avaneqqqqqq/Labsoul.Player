@@ -18,7 +18,10 @@ import {
 import {
   app,
   loadWaveMore,
+  loadWaveStations,
   resetWave,
+  setWaveCategory,
+  setWaveStation,
   subscribe as storeSubscribe,
   toggleWaveSource,
 } from '../store.js';
@@ -76,6 +79,37 @@ function sourcesHtml() {
     </div>`;
 }
 
+/** Категории станций и сами станции: жанры, настроения, занятия. */
+function stationsHtml() {
+  const categories = app.wave.stations || [];
+  if (!categories.length) return '';
+
+  const active = categories.find((c) => c.type === app.wave.category) || categories[0];
+  const catChips = categories
+    .map(
+      (c) => `<button class="wcat${c.type === active.type ? ' is-on' : ''}" type="button"
+        data-wave-cat="${esc(c.type)}" aria-pressed="${c.type === active.type}">${esc(c.label)}</button>`,
+    )
+    .join('');
+
+  const stationChips = (active.stations || [])
+    .map((station) => {
+      const on = station.id === app.wave.station;
+      return `<button class="wsrc${on ? ' is-on' : ''}" type="button" data-wave-station="${esc(station.id)}"
+        aria-pressed="${on}" title="${esc(station.name)}"><i aria-hidden="true"></i>${esc(station.name)}</button>`;
+    })
+    .join('');
+
+  return `<div class="wave-stations">
+    <div class="wave-stations__row">
+      <span class="wave-sources__label">категория</span>${catChips}
+    </div>
+    <div class="wave-stations__row">
+      <span class="wave-sources__label">станция</span>${stationChips}
+    </div>
+  </div>`;
+}
+
 function heroHtml() {
   const st = currentState();
   const focus = focusTrack();
@@ -122,6 +156,7 @@ function heroHtml() {
           </button>
         </div>
         ${sourcesHtml()}
+        ${stationsHtml()}
       </div>
       <div class="wave-hero__side">
         <div class="wave-stat"><b>${items.length}</b><span>${plural(items.length, ['трек', 'трека', 'треков'])}<br>в ленте</span></div>
@@ -307,10 +342,20 @@ function onContentScroll() {
 
 function onScreenClick(event) {
   const target = event.target instanceof Element
-    ? event.target.closest('[data-wave], [data-wave-source]')
+    ? event.target.closest('[data-wave], [data-wave-source], [data-wave-cat], [data-wave-station]')
     : null;
   if (!target) return;
   event.preventDefault();
+
+  // категория и станция «Моей волны»
+  if (target.dataset.waveCat) {
+    setWaveCategory(target.dataset.waveCat);
+    return;
+  }
+  if (target.dataset.waveStation) {
+    setWaveStation(target.dataset.waveStation);
+    return;
+  }
 
   // переключатель источника волны
   if (target.dataset.waveSource) {
@@ -380,6 +425,10 @@ export const waveScreen = {
 
     screen.unsubs.push(unbindTracks);
     screen.unsubs.push(storeSubscribe((_state, event) => {
+      if (event === 'wave-stations') {
+        paint();
+        return;
+      }
       if (event === 'wave') {
         paint();
         checkFill();
@@ -411,6 +460,7 @@ export const waveScreen = {
 
     paint();
     setupObserver();
+    loadWaveStations();
     const content = document.getElementById('content');
     content?.addEventListener('scroll', onContentScroll, { passive: true });
     screen.unsubs.push(() => content?.removeEventListener('scroll', onContentScroll));

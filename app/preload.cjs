@@ -6,7 +6,7 @@
  * а в браузере (без Electron) эти методы просто отсутствуют.
  */
 
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 function subscribe(channel, callback) {
   if (typeof callback !== 'function') return () => {};
@@ -22,6 +22,23 @@ contextBridge.exposeInMainWorld('playerDesktop', {
   /** Войти в Яндекс.Музыку: открывает окно OAuth и сохраняет токен на сервере. */
   signInYandex() {
     return ipcRenderer.invoke('auth:yandex');
+  },
+
+  /**
+   * Путь файла, перетащенного в окно. В Electron 32 свойство File.path убрано,
+   * поэтому путь берём через webUtils (документированный способ).
+   */
+  getPathForFile(file) {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return null;
+    }
+  },
+
+  /** Диалог выбора файлов/папок для своей музыки: возвращает {ok, added, skipped}. */
+  pickMusic() {
+    return ipcRenderer.invoke('local:pick');
   },
 
   /** Подписка на события авторизации: callback({source}). */

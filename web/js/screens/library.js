@@ -15,10 +15,14 @@ import {
 } from '../components.js';
 import {
   app,
+  addLocalFiles,
+  addLocalPaths,
+  deleteLocalTrack,
   libraryErrors,
   libraryTracks,
   loadHistory,
   loadLibraryLikes,
+  loadLocalTracks,
   subscribe as storeSubscribe,
   toggleLibrarySource,
 } from '../store.js';
@@ -30,7 +34,7 @@ let tab = 'history';
 let tabExplicit = false;
 try {
   const saved = sessionStorage.getItem(TAB_KEY);
-  if (saved === 'likes' || saved === 'history') {
+  if (saved === 'likes' || saved === 'history' || saved === 'local') {
     tab = saved;
     tabExplicit = true;
   }
@@ -54,7 +58,11 @@ function autoTab() {
     tab = 'history';
     return;
   }
-  tab = libraryTracks().length ? 'likes' : 'history';
+  if (libraryTracks().length) {
+    tab = 'likes';
+    return;
+  }
+  tab = (app.local.items || []).length ? 'local' : 'history';
 }
 
 function historyTracks() {
@@ -99,6 +107,9 @@ function toolbarHtml() {
       </button>
       <button type="button" role="tab" data-tab="likes" class="${tab === 'likes' ? 'on' : ''}" aria-selected="${tab === 'likes'}">
         Избранное <span class="chip__count">${libraryTracks().length}</span>
+      </button>
+      <button type="button" role="tab" data-tab="local" class="${tab === 'local' ? 'on' : ''}" aria-selected="${tab === 'local'}">
+        Своя музыка <span class="chip__count">${(app.local.items || []).length}</span>
       </button>
     </div>
     <div class="lib-toolbar__spacer"></div>
@@ -230,11 +241,72 @@ function likesBody() {
   })).join('')}</div>`;
 }
 
+function localDuration(seconds) {
+  const value = Math.max(0, Math.round(Number(seconds) || 0));
+  if (!value) return '—';
+  return `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}`;
+}
+
+/** Своя музыка: перетаскивание, путь и выбор файлов. */
+function localBody() {
+  const items = app.local.items || [];
+  const importing = app.local.importing;
+
+  const header = `
+    <div class="local-add">
+      <div class="local-drop" id="local-drop">
+        ${icon('upload')}
+        <b>Перетащите файлы или папки сюда</b>
+        <span>mp3, flac, m4a, aac, ogg, opus, wav — или укажите путь ниже</span>
+      </div>
+      <div class="local-path">
+        <input id="local-path" class="input" type="text" spellcheck="false"
+          placeholder="C:\\Music\\Альбом — файл или папка" aria-label="Путь к файлу или папке">
+        <button class="btn btn--ghost btn--sm" type="button" data-lib="add-path">Добавить по пути</button>
+        <button class="btn btn--accent btn--sm" type="button" data-lib="pick"${importing ? ' disabled' : ''}>
+          ${icon('plus')} Выбрать файлы…
+        </button>
+        <input id="local-file" type="file" accept="audio/*,.mp3,.flac,.m4a,.ogg,.opus,.wav" multiple hidden>
+      </div>
+      ${importing ? '<div class="local-hint">Добавляю файлы…</div>' : ''}
+      ${app.local.error ? `<div class="local-hint local-hint--err">${esc(app.local.error)}</div>` : ''}
+    </div>`;
+
+  if (!items.length) {
+    return `${header}<div class="lib-empty">${emptyState({
+      iconName: 'music',
+      title: 'Своей музыки пока нет',
+      text: 'Перетащите аудиофайлы в это окно, вставьте путь к папке или выберите файлы кнопкой — треки останутся в библиотеке и играются без интернета.',
+      actions: `<button class="btn btn--accent btn--sm" type="button" data-lib="pick">${icon('plus')} Добавить музыку</button>`,
+    })}</div>`;
+  }
+
+  const currentId = player.getState().current?.id;
+  return `${header}
+    <div class="local-list">
+      ${items.map((track, index) => `
+        <div class="local-track${track.id === currentId ? ' is-current' : ''}" data-local-id="${esc(track.id)}">
+          <button class="local-track__play" type="button" data-lib-play="${index}" title="Слушать" aria-label="Слушать">
+            ${icon('play')}
+          </button>
+          <div class="local-track__info">
+            <b>${esc(track.title)}</b>
+            <span>${esc((track.artists || []).join(', '))}${track.album ? ` · ${esc(track.album)}` : ''}</span>
+          </div>
+          <span class="local-track__dur">${localDuration(track.duration)}</span>
+          <button class="local-track__del" type="button" data-lib-del="${esc(track.sourceId)}"
+            title="Убрать из библиотеки" aria-label="Убрать">${icon('trash')}</button>
+        </div>`).join('')}
+    </div>`;
+}
+
 function bodyHtml() {
   const history = historyBody();
   const likes = likesBody();
+  const local = localBody();
   return `<div data-tab-body="history"${tab === 'history' ? '' : ' hidden'}>${history}</div>
-    <div data-tab-body="likes"${tab === 'likes' ? '' : ' hidden'}>${likes}</div>`;
+    <div data-tab-body="likes"${tab === 'likes' ? '' : ' hidden'}>${likes}</div>
+    <div data-tab-body="local"${tab === 'local' ? '' : ' hidden'}>${local}</div>`;
 }
 
 function paint({ bodyOnly = false } = {}) {
@@ -285,23 +357,150 @@ function onClick(event) {
     toggleLibrarySource(sourceButton.dataset.libSrc);
     return;
   }
+
+  // своя музыка: слушать и удалить
+  const playButton = event.target instanceof Element ? event.target.closest('[data-lib-play]') : null;
+  if (playButton) {
+    const index = Number(playButton.dataset.libPlay) || 0;
+    const list = app.local.items || [];
+    if (list.length) player.playTracks(list, Math.min(index, list.length - 1), { context: { type: 'local' } });
+    return;
+  }
+
+  const delButton = event.target instanceof Element ? event.target.closest('[data-lib-del]') : null;
+  if (delButton) {
+    const id = delButton.dataset.libDel;
+    deleteLocalTrack(id).then((ok) => {
+      toast(ok ? 'Убрано из библиотеки' : 'Не удалось убрать трек', { type: ok ? 'ok' : 'err' });
+    });
+    return;
+  }
+
   const tabButton = event.target instanceof Element ? event.target.closest('[data-tab]') : null;
   if (tabButton) {
-    const next = tabButton.dataset.tab === 'likes' ? 'likes' : 'history';
+    const next = tabButton.dataset.tab === 'likes' ? 'likes' : tabButton.dataset.tab === 'local' ? 'local' : 'history';
     rememberTab(next);
     paint();
     if (next === 'likes') loadLibraryLikes();
+    if (next === 'local') loadLocalTracks();
     return;
   }
   const action = event.target instanceof Element ? event.target.closest('[data-lib]') : null;
   if (!action) return;
   switch (action.dataset.lib) {
-    case 'refresh': loadHistory(); toast('История обновляется', { icon: 'refresh' }); break;
+    case 'refresh': loadHistory(); loadLocalTracks({ force: true }); toast('Библиотека обновляется', { icon: 'refresh' }); break;
     case 'play-all': playAll(); break;
     case 'shuffle-all': playAll({ shuffle: true }); break;
     case 'queue-all': queueAll(); break;
+    case 'pick': pickLocalMusic(); break;
+    case 'add-path': addLocalByPath(); break;
     default: break;
   }
+}
+
+/** Кнопка «Выбрать файлы…»: в приложении — системный диалог, в браузере — выбор файлов. */
+async function pickLocalMusic() {
+  const bridge = window.playerDesktop;
+  if (bridge && typeof bridge.pickMusic === 'function') {
+    try {
+      const result = await bridge.pickMusic();
+      if (result && result.ok) {
+        toast(
+          `Добавлено: ${result.added}${result.skipped ? `, пропущено ${result.skipped}` : ''}`,
+          { icon: 'check' },
+        );
+        await loadLocalTracks({ force: true });
+      } else if (result && result.error) {
+        toast(result.error, { type: 'err' });
+      }
+    } catch (err) {
+      toast(err?.message || 'Не удалось открыть выбор файлов', { type: 'err' });
+    }
+    return;
+  }
+  const input = screen.root?.querySelector('#local-file');
+  if (input) input.click();
+}
+
+/** Добавление по вставленному пути (файл или папка). */
+async function addLocalByPath() {
+  const input = screen.root?.querySelector('#local-path');
+  const value = (input && input.value ? input.value : '').trim();
+  if (!value) {
+    toast('Укажите путь к файлу или папке', { type: 'warn' });
+    return;
+  }
+  try {
+    const result = await addLocalPaths([value]);
+    if (result && result.ok !== false) {
+      toast(
+        `Добавлено: ${result.added}${result.skipped ? `, пропущено ${result.skipped}` : ''}`,
+        { icon: 'check' },
+      );
+      if (input) input.value = '';
+    } else {
+      toast('Не удалось добавить по этому пути', { type: 'err' });
+    }
+  } catch (err) {
+    toast(err?.message || 'Не удалось добавить по пути', { type: 'err' });
+  }
+}
+
+/** Перетаскивание: в приложении берём настоящие пути, в браузере заливаем файлы. */
+function bindDropzone(container) {
+  const zone = () => container.querySelector('#local-drop');
+  const onDragOver = (event) => {
+    if (!event.dataTransfer) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    const el = zone();
+    if (el) el.classList.add('is-over');
+  };
+  const onDragLeave = (event) => {
+    const el = zone();
+    if (el && !el.contains(event.relatedTarget)) el.classList.remove('is-over');
+  };
+  const onDrop = async (event) => {
+    event.preventDefault();
+    const el = zone();
+    if (el) el.classList.remove('is-over');
+
+    const files = Array.from(event.dataTransfer?.files || []);
+    if (!files.length) return;
+
+    const bridge = window.playerDesktop;
+    const paths = files.map((file) => {
+      if (bridge && typeof bridge.getPathForFile === 'function') return bridge.getPathForFile(file);
+      return file.path || null;
+    });
+
+    try {
+      if (paths.length && paths.every(Boolean)) {
+        const result = await addLocalPaths(paths);
+        toast(
+          `Добавлено: ${result?.added || 0}${result?.skipped ? `, пропущено ${result.skipped}` : ''}`,
+          { icon: 'check' },
+        );
+      } else {
+        const result = await addLocalFiles(files);
+        toast(
+          `Добавлено: ${result?.added || 0}${result?.errors?.length ? `, ошибок: ${result.errors.length}` : ''}`,
+          { icon: 'check' },
+        );
+      }
+    } catch (err) {
+      toast(err?.message || 'Не удалось добавить файлы', { type: 'err' });
+    }
+  };
+
+  container.addEventListener('dragover', onDragOver);
+  container.addEventListener('dragleave', onDragLeave);
+  container.addEventListener('drop', onDrop);
+  return () => {
+    container.removeEventListener('dragover', onDragOver);
+    container.removeEventListener('dragleave', onDragLeave);
+    container.removeEventListener('drop', onDrop);
+  };
 }
 
 export const libraryScreen = {
@@ -331,6 +530,25 @@ export const libraryScreen = {
   mount(container) {
     screen.root = container;
     container.addEventListener('click', onClick);
+    const unbindDrop = bindDropzone(container);
+
+    const onChange = async (event) => {
+      const input = event.target;
+      if (!(input instanceof HTMLInputElement) || input.id !== 'local-file') return;
+      const files = Array.from(input.files || []);
+      input.value = '';
+      if (!files.length) return;
+      try {
+        const result = await addLocalFiles(files);
+        toast(
+          `Добавлено: ${result?.added || 0}${result?.errors?.length ? `, ошибок: ${result.errors.length}` : ''}`,
+          { icon: 'check' },
+        );
+      } catch (err) {
+        toast(err?.message || 'Не удалось загрузить файлы', { type: 'err' });
+      }
+    };
+    container.addEventListener('change', onChange);
     const unbindTracks = bindTrackActions(container, {
       getList: () => currentList(),
       feedback: false,
@@ -339,10 +557,11 @@ export const libraryScreen = {
     screen.unsubs.push(unbindTracks);
     screen.unsubs.push(storeSubscribe((_state, event) => {
       if (event === 'history') paint();
-      if (event === 'likes' || event === 'library' || event === 'status') paint();
+      if (event === 'likes' || event === 'library' || event === 'status' || event === 'local') paint();
       if (event === 'net') {
         if (app.history.items.length === 0) loadHistory();
         loadLibraryLikes({ force: true });
+        loadLocalTracks({ force: true });
       }
     }));
     screen.unsubs.push(player.subscribe((_snap, event) => {
@@ -350,11 +569,14 @@ export const libraryScreen = {
       syncRows();
     }));
     screen.unsubs.push(() => container.removeEventListener('click', onClick));
+    screen.unsubs.push(unbindDrop);
+    screen.unsubs.push(() => container.removeEventListener('change', onChange));
 
     paint();
     if (!app.history.items.length && !app.history.loading) loadHistory();
     // избранное подтягиваем сразу: полоска сервисов должна показывать живые статусы
     loadLibraryLikes();
+    loadLocalTracks();
   },
 
   destroy() {

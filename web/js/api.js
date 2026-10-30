@@ -65,14 +65,18 @@ export const isDemo = () => net.mode !== 'online';
 /* Низкий уровень                                                      */
 /* ------------------------------------------------------------------ */
 
-async function request(path, { method = 'GET', body = null, timeout = 7000 } = {}) {
+async function request(path, { method = 'GET', body = null, rawBody = null, timeout = 7000 } = {}) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
     const res = await fetch(path, {
       method,
-      headers: body ? { 'content-type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
+      headers: body
+        ? { 'content-type': 'application/json' }
+        : rawBody
+          ? { 'content-type': (rawBody.type || 'application/octet-stream') }
+          : undefined,
+      body: body ? JSON.stringify(body) : rawBody || undefined,
       signal: controller.signal,
       credentials: 'same-origin',
       cache: 'no-store',
@@ -306,6 +310,33 @@ export async function getUpdate() {
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Своя музыка (локальные файлы)                                        */
+/* ------------------------------------------------------------------ */
+
+export async function getLocalTracks() {
+  if (isDemo()) return [];
+  const data = await request('/api/local', { timeout: 15000 });
+  return Array.isArray(data?.items) ? data.items.map(normalizeTrack).filter(Boolean) : [];
+}
+
+/** Импорт по путям (десктоп: из диалога или перетаскиванием). */
+export async function importLocalPaths(paths) {
+  const list = (Array.isArray(paths) ? paths : [paths]).filter(Boolean);
+  if (!list.length) return { ok: false, added: 0, skipped: 0 };
+  return await request('/api/local/import', { method: 'POST', body: { paths: list }, timeout: 180000 });
+}
+
+/** Загрузка файла из браузера (когда пути к файлу нет). */
+export async function uploadLocalFile(file) {
+  const name = encodeURIComponent(file.name || 'track.mp3');
+  return await request(`/api/local/upload?name=${name}`, { method: 'PUT', rawBody: file, timeout: 300000 });
+}
+
+export async function removeLocalTrack(sourceId) {
+  return await request(`/api/local/${encodeURIComponent(sourceId)}`, { method: 'DELETE' });
+}
+
 /**
  * Избранное (лайки) по источникам: какие сервисы переданы, те и опрашиваются.
  * Сервис без права доступа к аккаунту вернёт группу с ошибкой — это нормально.
@@ -319,6 +350,17 @@ export async function getLikes(sources = ['yandex'], limit = 100) {
   } catch (err) {
     if (isNetworkError(err)) degrade(err);
     throw err;
+  }
+}
+
+/** Категории станций: жанры, настроения, занятия (данные ротора Яндекса). */
+export async function getWaveStations() {
+  if (isDemo()) return { categories: [] };
+  try {
+    return await request('/api/wave/stations', { timeout: 30000 });
+  } catch (err) {
+    if (isNetworkError(err)) degrade(err);
+    return { categories: [] };
   }
 }
 

@@ -20,6 +20,7 @@ import * as waveEngine from './wave.mjs';
 import { decryptBuffer, parseRange } from './streaming.mjs';
 import { resolveLink, findCandidates } from './linkimport.mjs';
 import { checkForUpdate } from './update.mjs';
+import * as localLibrary from './local.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -89,6 +90,16 @@ async function loadProviders() {
         store.log(`[providers] ${testId}: отладочный не загружен (${err.message})`);
       }
     }
+  }
+
+  // «своя музыка» не сетевой источник: грузим отдельно, чтобы не попадать
+  // в поиск по каталогам и в статусы сервисов
+  try {
+    providers.local = await import('./providers/local.mjs');
+    store.log('[providers] local: загружен');
+  } catch (err) {
+    providers.local = makeStub('local');
+    store.log('[providers] local: не загружен (' + err.message + ')');
   }
 
   waveEngine.bind(providers);
@@ -246,7 +257,7 @@ async function getDescriptor(source, sourceId, force = false) {
   const provider = providers[source];
   if (!provider) throw badRequest('Неизвестный источник');
   const desc = await provider.stream(sourceId);
-  if (!desc || (!desc.url && !desc.buffer)) {
+  if (!desc || (!desc.url && !desc.buffer && !desc.filePath)) {
     const err = new Error('Источник не вернул поток');
     err.code = 'NOT_PLAYABLE';
     throw err;
@@ -329,6 +340,44 @@ async function getBuffered(source, sourceId, desc) {
   return bufferCache.get(key);
 }
 
+/** Отдача файла пользователя с диска: Range нужен для перемотки в <audio>. */
+function serveLocalFile(filePath, req, res, contentType) {
+  let stat;
+  try {
+    stat = fs.statSync(filePath);
+  } catch {
+    const err = new Error('Файл не найден на диске');
+    err.code = 'NOT_FOUND';
+    throw err;
+  }
+
+  const total = stat.size;
+  res.setHeader('Content-Type', contentType || 'application/octet-stream');
+  res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Cache-Control', 'private, max-age=600');
+
+  const range = parseRange(req.headers.range, total);
+  if (range) {
+    if (range.unsatisfiable) {
+      res.writeHead(416, { 'Content-Range': `bytes */${total}` });
+      res.end();
+      return;
+    }
+    const { start, end } = range;
+    res.writeHead(206, {
+      'Content-Range': `bytes ${start}-${end}/${total}`,
+      'Content-Length': end - start + 1,
+    });
+    if (req.method === 'HEAD') { res.end(); return; }
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+    return;
+  }
+
+  res.writeHead(200, { 'Content-Length': total });
+  if (req.method === 'HEAD') { res.end(); return; }
+  fs.createReadStream(filePath).pipe(res);
+}
+
 function serveBuffer(buffer, req, res, contentType) {
   const total = buffer.length;
   res.setHeader('Content-Type', contentType || 'audio/mpeg');
@@ -400,6 +449,11 @@ async function handleStream(req, res, source, sourceId) {
   if (!provider) throw badRequest('Неизвестный источник');
 
   const desc = await getDescriptor(source, sourceId);
+  // своя музыка: отдаём файл с диска, с поддержкой Range
+  if (desc.filePath) {
+    serveLocalFile(desc.filePath, req, res, desc.contentType);
+    return;
+  }
   if (desc.buffer) {
     serveBuffer(desc.buffer, req, res, desc.contentType);
     return;
@@ -503,6 +557,21 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (route[0] === 'wave' && route[1] === 'stations') {
+    // категории станций: жанры, настроения, занятия — из ротора Яндекса
+    try {
+      const yandexProvider = providers.yandex;
+      if (!yandexProvider || typeof yandexProvider.stations !== 'function') {
+        throw Object.assign(new Error('Категории доступны только с Яндекс.Музыкой'), { code: 'NOT_SUPPORTED' });
+      }
+      const categories = await yandexProvider.stations();
+      sendJson(res, 200, { categories });
+    } catch (err) {
+      sendJson(res, 200, { categories: [], error: err.code || 'UPSTREAM', message: err.message });
+    }
+    return;
+  }
+
   if (route[0] === 'wave') {
     if (route[1] === 'feedback') {
       if (req.method !== 'POST') throw badRequest('Ожидается POST');
@@ -550,6 +619,34 @@ async function handleApi(req, res, url) {
 
     const candidates = await findCandidates(resolved, providers);
     sendJson(res, 200, { ...resolved, candidates });
+    return;
+  }
+
+  if (route[0] === 'local') {
+    if (route[1] === 'import' && req.method === 'POST') {
+      const body = await readJson(req);
+      const list = Array.isArray(body?.paths) ? body.paths : [];
+      if (!list.length) throw badRequest('Нужен список путей к файлам или папкам');
+      const result = await localLibrary.importPaths(list);
+      sendJson(res, 200, { ok: true, added: result.added, skipped: result.skipped, errors: result.errors });
+      return;
+    }
+
+    if (route[1] === 'upload' && (req.method === 'PUT' || req.method === 'POST')) {
+      const name = url.searchParams.get('name') || 'track.mp3';
+      const track = await localLibrary.addUpload(name, req);
+      sendJson(res, 200, { ok: true, track });
+      return;
+    }
+
+    if (req.method === 'DELETE' && route[1]) {
+      const removed = localLibrary.removeTrack(decodeURIComponent(route[1]));
+      if (!removed) throw Object.assign(new Error('Такого трека нет'), { code: 'NOT_FOUND' });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    sendJson(res, 200, { items: localLibrary.listTracks(), count: localLibrary.count() });
     return;
   }
 

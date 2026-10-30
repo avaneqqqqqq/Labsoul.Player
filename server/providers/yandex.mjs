@@ -329,6 +329,74 @@ export async function likes(limit = 100) {
   return tracks;
 }
 
+/* ------------------------- категории «Моей волны» ------------------------ */
+
+const STATION_LABELS = {
+  personal: 'Персональные',
+  genre: 'Жанры',
+  mood: 'Настроение',
+  activity: 'Занятие',
+  epoch: 'Эпоха',
+  tempo: 'Темп',
+  editorial: 'Подборки',
+  'local-language': 'Языки',
+  'micro-genre': 'Микро-жанры',
+  author: 'Авторские',
+  locale: 'Страны',
+  other: 'Ещё',
+};
+
+// Технические миксы дублируют обычные категории — в интерфейсе они не нужны.
+const STATION_SKIP = /^mix-by-/;
+
+let stationsCache = null;
+
+/**
+ * Категории станций ротора: жанры, настроения, занятия и т.д.
+ * /rotor/stations/list отдаёт ~700 станций, где id — объект {type, tag},
+ * поэтому собираем полный id как «type:tag» и группируем по типу.
+ */
+export async function stations() {
+  if (stationsCache) return stationsCache;
+
+  const data = await request('/rotor/stations/list');
+  const list = Array.isArray(data?.result) ? data.result : [];
+  const byType = new Map();
+
+  // персональная станция всегда доступна отдельно
+  byType.set('personal', [{ id: 'user:onyourwave', name: 'Моя волна', icon: null }]);
+
+  for (const item of list) {
+    const station = item?.station || item;
+    const idObject = station?.id;
+    if (!idObject || typeof idObject !== 'object') continue;
+    const type = idObject.type;
+    const tag = idObject.tag || (idObject.name ? String(idObject.name) : null);
+    if (!type || !tag) continue;
+    const id = `${type}:${tag}`;
+    if (!byType.has(type)) byType.set(type, []);
+    const bucket = byType.get(type);
+    if (bucket.length >= 120) continue;
+    if (bucket.some((s) => s.id === id)) continue;
+    bucket.push({
+      id,
+      name: station.name || tag,
+      icon: station.icon?.imageUrl ? `https://${String(station.icon.imageUrl).replace('%%', '200x200')}` : null,
+    });
+  }
+
+  stationsCache = [...byType.entries()]
+    .filter(([type, items]) => items.length && !STATION_SKIP.test(type))
+    .map(([type, items]) => ({
+      type,
+      label: STATION_LABELS[type] || type,
+      stations: items,
+    }))
+    .sort((a, b) => (a.type === 'personal' ? -1 : b.type === 'personal' ? 1 : a.label.localeCompare(b.label, 'ru')));
+
+  return stationsCache;
+}
+
 const FEEDBACK_TYPES = {
   like: 'like',
   dislike: 'dislike',
