@@ -20,6 +20,10 @@ const TIMEOUT_MS = 10000;
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 function currentVersion() {
+  // 1) в упакованном приложении версию передаёт Electron (app.getVersion());
+  // 2) в исходниках читаем package.json проекта;
+  // 3) иначе считаем неизвестной.
+  if (process.env.PLAYER_VERSION) return String(process.env.PLAYER_VERSION).trim();
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(HERE, '..', 'package.json'), 'utf8'));
     return String(pkg.version || '0.0.0');

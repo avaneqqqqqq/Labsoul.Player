@@ -93,6 +93,7 @@ function startServer(port) {
       ...process.env,
       PORT: String(port),
       PLAYER_DATA_DIR: DATA_DIR,
+      PLAYER_VERSION: app.getVersion(),
       ELECTRON_RUN_AS_NODE: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
