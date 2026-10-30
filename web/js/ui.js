@@ -427,6 +427,12 @@ function renderLyrics() {
     toggle.setAttribute('aria-pressed', String(state.open));
   }
 
+  const badge = el.querySelector('[data-np-lyrics-badge]');
+  if (badge) {
+    const source = state.provider === 'lrclib' ? 'lrclib' : state.provider === 'netease' ? 'netease' : '';
+    badge.textContent = state.status === 'ready' ? source : '';
+  }
+
   if (!state.open) return;
 
   if (state.status === 'loading') {
@@ -436,7 +442,10 @@ function renderLyrics() {
 
   if (state.status === 'ready' && state.synced.length) {
     trackBox.innerHTML = state.synced
-      .map((line, index) => `<div class="np__lyric" data-lyric="${index}">${esc(line.text)}</div>`)
+      .map((line, index) => `<div class="np__lyric" data-lyric="${index}" data-lyric-time="${line.time}" title="Перейти к строке">
+        <span class="np__lyric-text">${esc(line.text)}</span>
+        <button class="np__lyric-share" type="button" data-np-share="${index}" title="Поделиться строкой" aria-label="Поделиться строкой">${icon('external')}</button>
+      </div>`)
       .join('');
     state.index = -1;
     syncLyrics(player.getState().time, true);
@@ -445,7 +454,11 @@ function renderLyrics() {
 
   if (state.status === 'ready' && state.plain) {
     const lines = state.plain.split('\n').map((line) => line.trim()).filter(Boolean);
-    trackBox.innerHTML = `${lines.map((line) => `<div class="np__lyric np__lyric--plain">${esc(line)}</div>`).join('')}
+    state.plainLines = lines;
+    trackBox.innerHTML = `${lines.map((line, index) => `<div class="np__lyric np__lyric--plain" data-plain-line="${index}">
+        <span class="np__lyric-text">${esc(line)}</span>
+        <button class="np__lyric-share" type="button" data-np-share-plain="${index}" title="Поделиться строкой" aria-label="Поделиться строкой">${icon('external')}</button>
+      </div>`).join('')}
       <div class="np__lyrics-note np__lyrics-note--small">без синхронизации</div>`;
     return;
   }
@@ -548,6 +561,53 @@ function toggleLyrics() {
   renderLyrics();
 }
 
+/** Клик по строке — перемотка на её время. */
+function seekToLyric(index) {
+  const state = lyricsState();
+  const line = state.synced[index];
+  if (!line) return;
+  player.seek(Math.max(0, line.time + 0.05));
+  syncLyrics(line.time + 0.05, true);
+}
+
+async function copyToClipboard(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch { /* нет разрешения — пробуем старый способ */ }
+  try {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand('copy');
+    area.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** «Поделиться строкой»: копируем строку с треком в буфер. */
+async function shareLyric(index, plain = false) {
+  const state = lyricsState();
+  const track = player.getState().current;
+  const line = plain ? state.plainLines?.[index] : state.synced[index];
+  const text = typeof line === 'string' ? line : line?.text;
+  if (!text) return;
+
+  const meta = track ? `${artistsLine(track)} — ${track.title}` : '';
+  const payload = meta ? `«${text}»\n${meta} · labsoul` : `«${text}» · labsoul`;
+  const copied = await copyToClipboard(payload);
+  toast(copied ? 'Строка скопирована' : 'Не удалось скопировать строку', {
+    type: copied ? 'ok' : 'err',
+    icon: copied ? 'check' : 'alert',
+  });
+}
+
 function npTemplate() {
   return `
     <div class="np__bg" data-np-bg></div>
@@ -555,11 +615,6 @@ function npTemplate() {
       <button class="np__close" type="button" data-np="close" title="Закрыть (Esc)" aria-label="Закрыть">${icon('x')}</button>
       <div class="np__left">
         <div class="np__art" data-np-art></div>
-        <div class="np__lyrics" data-np-lyrics hidden>
-          <div class="np__lyrics-scroll" data-np-lyrics-scroll>
-            <div class="np__lyrics-track" data-np-lyrics-track></div>
-          </div>
-        </div>
       </div>
       <div class="np__side">
         <span class="np__eyebrow" data-np-eyebrow>Сейчас играет</span>
@@ -584,6 +639,16 @@ function npTemplate() {
           <button class="np__chip" type="button" data-np="like">${icon('heart')}<span>В избранное</span></button>
           <button class="np__chip" type="button" data-np="queue">${icon('queue')}<span>Очередь</span></button>
           <button class="np__chip np__chip--lyrics" type="button" data-np="lyrics" aria-pressed="false">${icon('type')}<span>Текст</span></button>
+        </div>
+      </div>
+      <div class="np__lyrics" data-np-lyrics hidden>
+        <div class="np__lyrics-head">
+          <span class="np__lyrics-title">текст песни</span>
+          <span class="np__lyrics-badge" data-np-lyrics-badge></span>
+        </div>
+        <div class="np__lyrics-scroll" data-np-lyrics-scroll>
+          <div class="np__lyrics-rail" aria-hidden="true"></div>
+          <div class="np__lyrics-track" data-np-lyrics-track></div>
         </div>
       </div>
     </div>`;
@@ -690,6 +755,25 @@ function openNowPlaying() {
   syncNowPlaying();
 
   el.addEventListener('click', (event) => {
+    // строка текста: кнопка «поделиться» или перемотка на её время
+    const shareButton = event.target instanceof Element
+      ? event.target.closest('[data-np-share], [data-np-share-plain]')
+      : null;
+    if (shareButton) {
+      if (shareButton.dataset.npShare !== undefined && shareButton.dataset.npShare !== '') {
+        shareLyric(Number(shareButton.dataset.npShare));
+      } else {
+        shareLyric(Number(shareButton.dataset.npSharePlain), true);
+      }
+      return;
+    }
+
+    const lyricLine = event.target instanceof Element ? event.target.closest('[data-lyric]') : null;
+    if (lyricLine) {
+      seekToLyric(Number(lyricLine.dataset.lyric));
+      return;
+    }
+
     const button = event.target instanceof Element ? event.target.closest('[data-np]') : null;
     if (!button) {
       // клик по фону закрывает
