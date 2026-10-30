@@ -27,6 +27,8 @@
       "main.cjs",
       "preload.cjs",
       "oauth.cjs",
+      "banner.html",
+      "banner-preload.cjs",
       "package.json",
       "build/icon.png"
     ],

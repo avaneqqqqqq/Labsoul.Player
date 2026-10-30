@@ -160,7 +160,12 @@ function createWindow(port) {
     log(`окно не загрузилось: ${code} ${description}`);
   });
 
+  // баннер обновления едет вместе с окном и прячется при сворачивании
+  mainWindow.on('move', positionBanner);
+  mainWindow.on('resize', positionBanner);
+
   mainWindow.on('minimize', () => {
+    hideUpdateBanner();
     if (tray) mainWindow.hide();
   });
 
@@ -477,6 +482,136 @@ async function signInYandex() {
 
 ipcMain.handle('auth:yandex', () => signInYandex());
 
+/* ----------------------- уведомление об обновлении ----------------------- */
+
+const BANNER_W = 560;
+const BANNER_H = 78;
+let bannerWin = null;
+let pendingUpdate = null;
+
+const appSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+
+function readAppSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(appSettingsPath(), 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+function writeAppSettings(patch) {
+  try {
+    const next = { ...readAppSettings(), ...(patch || {}) };
+    fs.mkdirSync(path.dirname(appSettingsPath()), { recursive: true });
+    fs.writeFileSync(appSettingsPath(), JSON.stringify(next, null, 2), 'utf8');
+  } catch { /* настройки окна — не критично */ }
+}
+
+function positionBanner() {
+  if (!bannerWin || bannerWin.isDestroyed() || !mainWindow || mainWindow.isDestroyed()) return;
+  const bounds = mainWindow.getBounds();
+  bannerWin.setBounds({
+    x: bounds.x + Math.round((bounds.width - BANNER_W) / 2),
+    y: bounds.y + 38,
+    width: BANNER_W,
+    height: BANNER_H,
+  });
+}
+
+/** Плавающая плашка поверх окна плеера — как в прежней оболочке. */
+function showUpdateBanner(info) {
+  pendingUpdate = info;
+  if (bannerWin && !bannerWin.isDestroyed()) {
+    bannerWin.webContents.send('banner:state', info);
+    positionBanner();
+    bannerWin.showInactive();
+    return;
+  }
+
+  bannerWin = new BrowserWindow({
+    width: BANNER_W,
+    height: BANNER_H,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    hasShadow: false,
+    parent: mainWindow || undefined,
+    webPreferences: {
+      preload: path.join(__dirname, 'banner-preload.cjs'),
+      contextIsolation: true,
+      sandbox: false,
+      nodeIntegration: false,
+    },
+  });
+
+  bannerWin.loadFile(path.join(__dirname, 'banner.html'));
+  bannerWin.webContents.on('did-finish-load', () => {
+    bannerWin.webContents.send('banner:state', info);
+    positionBanner();
+    bannerWin.showInactive();
+  });
+  bannerWin.on('closed', () => { bannerWin = null; });
+  log(`баннер обновления: доступна версия ${info.version}`);
+}
+
+function hideUpdateBanner() {
+  if (bannerWin && !bannerWin.isDestroyed()) bannerWin.close();
+}
+
+ipcMain.on('banner:action', (_event, action) => {
+  if (action === 'download') {
+    if (pendingUpdate && pendingUpdate.url) shell.openExternal(pendingUpdate.url);
+    hideUpdateBanner();
+    return;
+  }
+  if (action === 'later') {
+    // запоминаем версию, чтобы не всплывать с тем же обновлением каждый запуск
+    writeAppSettings({ dismissedUpdate: (pendingUpdate && pendingUpdate.version) || '' });
+    hideUpdateBanner();
+  }
+});
+
+/** Спрашиваем локальный сервер (он кэширует ответ GitHub на час). */
+async function checkUpdates({ manual = false } = {}) {
+  try {
+    const res = await fetch(`http://127.0.0.1:${currentPort}/api/update`, {
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await res.json();
+    log(`обновления: текущая ${data.current}, доступна ${data.latest ? data.latest.version : 'нет'}`);
+
+    if (!data.updateAvailable || !data.latest) {
+      if (manual) {
+        dialog.showMessageBox({
+          type: 'info',
+          title: 'Обновления',
+          message: `У вас последняя версия${data.current ? ` (${data.current})` : ''}`,
+        });
+      }
+      hideUpdateBanner();
+      return;
+    }
+
+    const dismissed = readAppSettings().dismissedUpdate;
+    if (!manual && dismissed === data.latest.version) return;
+
+    showUpdateBanner({
+      version: data.latest.version,
+      url: data.latest.url,
+      current: data.current,
+    });
+  } catch (err) {
+    log('проверка обновлений не удалась: ' + err.message);
+    if (manual) dialog.showErrorBox('Не удалось проверить обновления', err.message);
+  }
+}
+
 /* -------------------------------- трей ----------------------------------- */
 
 function createTray() {
@@ -520,6 +655,10 @@ function buildMenu() {
             click: () => signInYandex(),
           },
           { type: 'separator' },
+          {
+            label: 'Проверить обновления…',
+            click: () => checkUpdates({ manual: true }),
+          },
           {
             label: 'Открыть папку данных',
             click: () => shell.openPath(DATA_DIR),
@@ -591,6 +730,17 @@ if (!app.requestSingleInstanceLock()) {
     createWindow(currentPort);
     buildMenu();
     createTray();
+
+    // проверка обновлений: не сразу, чтобы не мешать старту
+    setTimeout(() => checkUpdates(), 4000);
+
+    // проверка внешнего вида уведомления без реального релиза: labsoul.exe --fake-update
+    if (process.argv.includes('--fake-update')) {
+      setTimeout(
+        () => showUpdateBanner({ version: '9.9.9', url: 'https://github.com/avaneqqqqqq/Ymuz.mod/releases', current: '0.1.0' }),
+        2500,
+      );
+    }
 
     // медиа-клавиши клавиатуры
     const send = (action) => mainWindow && mainWindow.webContents.send('media-key', action);
