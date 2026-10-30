@@ -77,6 +77,16 @@ function createMusicWindow() {
 
   musicWin.loadURL(MUSIC_URL);
 
+  musicWin.on('move', positionBanner);
+  musicWin.on('resize', positionBanner);
+  musicWin.on('minimize', hideBanner);
+  musicWin.on('restore', () => {
+    if (bannerWin && !bannerWin.isDestroyed()) {
+      positionBanner();
+      bannerWin.showInactive();
+    }
+  });
+
   // ссылки наружу — в системный браузер, а не в приложение
   musicWin.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:/i.test(url)) shell.openExternal(url);
@@ -175,6 +185,90 @@ ipcMain.on('theme:close', () => {
 
 ipcMain.handle('theme:get', () => currentTheme);
 
+/* ---------------- баннер обновления ---------------- */
+
+const BANNER_W = 560;
+const BANNER_H = 76;
+let bannerWin = null;
+let lastUpdateVersion = null;
+
+const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
+function loadSettings() {
+  try { return JSON.parse(fs.readFileSync(settingsPath(), 'utf8')); } catch { return {}; }
+}
+function saveSettings(s) {
+  try {
+    fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
+    fs.writeFileSync(settingsPath(), JSON.stringify(s, null, 2), 'utf8');
+  } catch { /* не критично */ }
+}
+
+function positionBanner() {
+  if (!bannerWin || bannerWin.isDestroyed() || !musicWin || musicWin.isDestroyed()) return;
+  const b = musicWin.getBounds();
+  bannerWin.setBounds({
+    x: b.x + Math.round((b.width - BANNER_W) / 2),
+    y: b.y + 34,
+    width: BANNER_W,
+    height: BANNER_H,
+  });
+}
+
+function showUpdateBanner(version, ready) {
+  lastUpdateVersion = version;
+  if (loadSettings().dismissedUpdate === version && !ready) return;
+
+  if (bannerWin && !bannerWin.isDestroyed()) {
+    bannerWin.webContents.send('banner:state', { version, ready });
+    positionBanner();
+    bannerWin.showInactive();
+    return;
+  }
+
+  bannerWin = new BrowserWindow({
+    width: BANNER_W,
+    height: BANNER_H,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    skipTaskbar: true,
+    show: false,
+    parent: musicWin || undefined,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-banner.js'),
+      contextIsolation: true,
+      sandbox: false,
+      nodeIntegration: false,
+    },
+  });
+
+  bannerWin.loadFile(path.join(__dirname, 'banner.html'));
+  bannerWin.webContents.on('did-finish-load', () => {
+    bannerWin.webContents.send('banner:state', { version, ready });
+    positionBanner();
+    bannerWin.showInactive();
+  });
+  bannerWin.on('closed', () => { bannerWin = null; });
+}
+
+function hideBanner() {
+  if (bannerWin && !bannerWin.isDestroyed()) bannerWin.hide();
+}
+
+ipcMain.on('banner:action', (_event, action) => {
+  if (action === 'restart') {
+    if (updaterReady) autoUpdater.quitAndInstall();
+    return;
+  }
+  if (action === 'later') {
+    const s = loadSettings();
+    s.dismissedUpdate = lastUpdateVersion || '';
+    saveSettings(s);
+  }
+  hideBanner();
+});
+
 /* ---------------- автообновление ---------------- */
 
 const UPDATE_JSON = path.join(__dirname, 'update.json');
@@ -211,22 +305,20 @@ function configureUpdater() {
   autoUpdater.allowPrerelease = false;
 
   autoUpdater.on('checking-for-update', () => console.info('[update] проверяю…'));
-  autoUpdater.on('update-available', (info) => console.info('[update] новая версия:', info.version));
-  autoUpdater.on('update-not-available', (info) => console.info('[update] актуально:', info.version));
+  autoUpdater.on('update-available', (info) => {
+    console.info('[update] новая версия:', info.version);
+    showUpdateBanner(info.version, false);
+  });
+  autoUpdater.on('update-not-available', (info) => {
+    console.info('[update] актуально:', info.version);
+    hideBanner();
+  });
   autoUpdater.on('download-progress', (p) => console.info(`[update] ${p.percent.toFixed(0)}%`));
   autoUpdater.on('error', (err) => console.warn('[update] ошибка:', err.message));
 
-  autoUpdater.on('update-downloaded', async (info) => {
-    const { response } = await dialog.showMessageBox({
-      type: 'info',
-      buttons: ['Перезапустить', 'Позже'],
-      defaultId: 0,
-      cancelId: 1,
-      title: 'Обновление готово',
-      message: `Temnikovo Dans ${info.version} скачан`,
-      detail: 'Перезапустить приложение сейчас, чтобы применить обновление?',
-    });
-    if (response === 0) autoUpdater.quitAndInstall();
+  autoUpdater.on('update-downloaded', (info) => {
+    console.info('[update] скачано:', info.version);
+    showUpdateBanner(info.version, true);
   });
 
   updaterReady = true;
