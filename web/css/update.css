@@ -1,0 +1,31 @@
+/* =========================================================================
+   labsoul — индикатор доступного обновления в подвале сайдбара.
+   Обычная плашка версии превращается в ссылку на страницу релиза.
+   ========================================================================= */
+
+.side-foot__chip--update {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, .06);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), transform var(--transition);
+}
+
+.side-foot__chip--update:hover {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.side-foot__chip--update:active {
+  transform: translateY(1px);
+}
+
+.side-foot__chip--update:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.side-foot__chip--update svg {
+  width: 12px;
+  height: 12px;
+}

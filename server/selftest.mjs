@@ -14,6 +14,7 @@
 
 import crypto from 'node:crypto';
 import { decryptBuffer, parseRange } from './streaming.mjs';
+import { isNewer, parseVersion, isLabsoulRelease } from './update.mjs';
 
 let passed = 0;
 const failures = [];
@@ -172,6 +173,41 @@ check('мусор в заголовке игнорируется', () => {
 
 check('пустой файл не отдаёт диапазонов', () => {
   equal(parseRange('bytes=0-10', 0), null);
+});
+
+/* --------------------------- проверка обновлений ------------------------- */
+
+console.log('\n\x1b[1m4. Проверка обновлений\x1b[0m');
+
+check('версия разбирается из тега', () => {
+  equal(parseVersion('v1.2.3'), [1, 2, 3]);
+  equal(parseVersion('0.10.0'), [0, 10, 0]);
+  equal(parseVersion('мусор'), null);
+  equal(parseVersion(undefined), null);
+});
+
+check('сравнение версий числовое, а не строчное', () => {
+  assert(isNewer('0.2.0', '0.1.0'), '0.2.0 должно быть новее 0.1.0');
+  assert(!isNewer('0.1.0', '0.1.0'), 'равные версии не новее');
+  assert(isNewer('0.1.10', '0.1.9'), '0.1.10 новее 0.1.9');
+  assert(!isNewer('0.1.0', '0.10.0'), '0.1.0 не новее 0.10.0');
+  assert(isNewer('1.0.0', '0.99.99'), 'мажор важнее');
+});
+
+check('релизы старого мода не считаются обновлением', () => {
+  assert(
+    !isLabsoulRelease({ tag_name: 'v0.2.1', assets: [{ name: 'TemnikovoDans-0.2.1-x64.exe' }] }),
+    'релиз мода не должен распознаваться как наш',
+  );
+  assert(
+    isLabsoulRelease({ tag_name: 'v0.1.0', assets: [{ name: 'labsoul-0.1.0-setup.exe' }] }),
+    'наш установщик должен распознаваться',
+  );
+  assert(
+    !isLabsoulRelease({ draft: true, assets: [{ name: 'labsoul-0.1.0-setup.exe' }] }),
+    'черновик не должен считаться опубликованным',
+  );
+  assert(!isLabsoulRelease(null), 'пустой релиз не должен ломать проверку');
 });
 
 /* ------------------------------- итог ----------------------------------- */

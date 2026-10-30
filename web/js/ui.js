@@ -3,7 +3,7 @@
    Экраны живут в js/screens/* и сами рисуют только #content.
    ========================================================================= */
 
-import { isDemo, net, ping } from './api.js';
+import { getUpdate, isDemo, net, ping } from './api.js';
 import { player } from './audio.js';
 import {
   coverImg,
@@ -103,10 +103,42 @@ function syncBanner() {
   ui.banner.hidden = !show;
 }
 
+let updateChecked = false;
+
+/** Проверяем обновления один раз за сессию (сервер кэширует ответ на час). */
+async function loadUpdate() {
+  if (updateChecked || isDemo()) return;
+  updateChecked = true;
+  let info = null;
+  try {
+    info = await getUpdate();
+  } catch {
+    return;
+  }
+  if (!info || !info.updateAvailable || !info.latest) return;
+
+  const chip = document.getElementById('side-version');
+  if (!chip) return;
+  chip.classList.add('side-foot__chip--update');
+  chip.setAttribute('role', 'link');
+  chip.tabIndex = 0;
+  chip.title = `Доступна версия ${info.latest.version} — открыть страницу релиза`;
+  chip.innerHTML = `${icon('arrow-up')}<span>${String(info.latest.version)}</span>`;
+  const open = () => window.open(info.latest.url, '_blank', 'noopener');
+  chip.addEventListener('click', open);
+  chip.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      open();
+    }
+  });
+}
+
 function syncNetUi() {
   modeChip();
   syncBanner();
   renderSources();
+  if (net.mode === 'online') loadUpdate();
 }
 
 /* ------------------------------------------------------------------ */

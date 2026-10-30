@@ -292,6 +292,20 @@ export async function linkLookup(url) {
   return await request(`/api/link?url=${encodeURIComponent(value)}`, { timeout: 20000 });
 }
 
+/**
+ * Проверка наличия новой версии (публичные релизы GitHub, без токенов).
+ * Возвращает { current, latest, updateAvailable }.
+ */
+export async function getUpdate() {
+  if (isDemo()) return { current: null, latest: null, updateAvailable: false };
+  try {
+    return await request('/api/update', { timeout: 12000 });
+  } catch (err) {
+    if (isNetworkError(err)) degrade(err);
+    return { current: null, latest: null, updateAvailable: false };
+  }
+}
+
 export async function getWave(limit = 20, station = 'user:onyourwave', sources = null) {
   const list = Array.isArray(sources) && sources.length ? sources : null;
   if (isDemo()) return normalizeWave(demoWave(limit, list));

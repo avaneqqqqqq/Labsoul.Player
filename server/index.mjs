@@ -19,6 +19,7 @@ import * as store from './store.mjs';
 import * as waveEngine from './wave.mjs';
 import { decryptBuffer, parseRange } from './streaming.mjs';
 import { resolveLink, findCandidates } from './linkimport.mjs';
+import { checkForUpdate } from './update.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -518,6 +519,11 @@ async function handleApi(req, res, url) {
     const sources = fromQuery ? fromQuery.split(',') : saved;
     const result = await waveEngine.getWave(limit, station, sources);
     sendJson(res, 200, result);
+    return;
+  }
+
+  if (route[0] === 'update') {
+    sendJson(res, 200, await checkForUpdate());
     return;
   }
 
