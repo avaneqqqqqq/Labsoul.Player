@@ -195,6 +195,7 @@ function playerTemplate(snap) {
         <span class="pl-now__a">${track ? esc(artistsLine(track)) : 'Выберите трек в Волне или поиске'}</span>
       </div>
       ${track ? `<button class="row__btn pl-now__like${liked ? ' on' : ''}" type="button" data-pl="like" title="${liked ? 'Убрать из избранного' : 'В избранное'}" aria-label="${liked ? 'Убрать из избранного' : 'В избранное'}">${icon('heart')}</button>` : ''}
+      ${track ? `<button class="row__btn pl-now__close" type="button" data-pl="close" title="Закрыть плеер" aria-label="Закрыть плеер">${icon('x')}</button>` : ''}
     </div>
 
     <div class="pl-center">
@@ -358,6 +359,11 @@ function onPlayerClick(event) {
       break;
     }
     case 'mute': player.toggleMute(); break;
+    case 'close': {
+      player.closeTrack();
+      toast('Плеер закрыт', { icon: 'x', duration: 1600 });
+      break;
+    }
     case 'like': {
       const track = player.currentTrack();
       if (!track) break;

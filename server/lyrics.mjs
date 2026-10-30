@@ -75,7 +75,8 @@ const cacheKey = ({ title, artist, duration }) =>
 
 /* ------------------------------ LRC-парсер ------------------------------ */
 
-const TIME_TAG = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\]/g;
+// NetEase иногда отдаёт расширенные метки вида [00:00.00-1] и [mm:ss:xx]
+const TIME_TAG = /\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?(?:[-:\u2013]\d+)?\]/g;
 
 /** Разбирает LRC в отсортированный список строк; понимает несколько меток в строке. */
 export function parseLrc(lrc) {
@@ -121,6 +122,18 @@ export function stripLrc(lrc) {
     .trim();
 }
 
+/**
+ * Чистит обычный текст: убирает строки-кредиты и «[00:00.00-1] текст».
+ * Возвращает список значимых строк.
+ */
+export function cleanPlainLines(plain) {
+  return String(plain || '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .map((line) => line.replace(TIME_TAG, '').replace(/^\[[^\]]*\]\s*/, '').trim())
+    .filter((line) => line && !/^\[[a-z]+:/i.test(line) && !isCreditLine(line));
+}
+
 /* ------------------------------- запросы -------------------------------- */
 
 async function fetchJson(url, headers = { Accept: 'application/json', 'User-Agent': USER_AGENT }, timeoutMs = LRCLIB_TIMEOUT_MS) {
@@ -150,8 +163,9 @@ function similarity(a, b) {
 function normalizeLrclib(data, provider = 'lrclib') {
   if (!data) return null;
   const synced = data.syncedLyrics ? parseLrc(data.syncedLyrics) : [];
-  const plain = String(data.plainLyrics || (synced.length ? synced.map((line) => line.text).join('\n') : '')).trim();
-  if (!synced.length && !plain) {
+  const plainLines = cleanPlainLines(data.plainLyrics || (synced.length ? synced.map((line) => line.text).join('\n') : ''));
+  const plain = plainLines.join('\n').trim();
+  if (!synced.length && plainLines.length < 2) {
     return data.instrumental
       ? { available: false, instrumental: true, synced: [], plain: '', provider }
       : null;
@@ -231,9 +245,13 @@ async function neteaseLyrics({ title, artist, duration }) {
       const lyricUrl = `${NETEASE}/song/lyric?id=${song.id}&lv=-1&kv=-1&tv=-1`;
       const data = await fetchJson(lyricUrl, NETEASE_HEADERS, NETEASE_TIMEOUT_MS);
       const lrc = data?.lrc?.lyric || '';
-      const synced = parseLrc(lrc);
-      const plain = synced.length ? synced.map((line) => line.text).join('\n') : stripLrc(lrc);
-      if (!plain) continue;
+      const synced = cleanSynced(parseLrc(lrc));
+      const plainLines = synced.length
+        ? synced.map((line) => line.text)
+        : cleanPlainLines(stripLrc(lrc));
+      const plain = plainLines.join('\n').trim();
+      // запись без самого текста (только «作词/作曲») — пропускаем
+      if (!synced.length && plainLines.length < 2) continue;
       return {
         available: true,
         instrumental: false,
@@ -257,16 +275,24 @@ async function neteaseLyrics({ title, artist, duration }) {
 /* --------------------------- чистка разметки --------------------------- */
 
 const CREDIT_LINE = /^(作词|作曲|编曲|制作人?|出品|监制|录音|混音|母带|和声|吉他|贝斯|鼓|键盘|弦乐|lyrics?|composer|producer|arranger|written|mixed|mastered|performed)\b/i;
-const CREDIT_PAIR = /^[^:：]{2,14}\s*[:：]\s*\S/;
+const CREDIT_PAIR = /^[^:：]{2,20}\s*[:：]\s*\S/;
+
+/** Строка-кредит: «作词 : Кино», «Producer: X» и подобное. */
+export function isCreditLine(value) {
+  const line = String(value || '').trim().replace(/^\[\d{1,3}:\d{2}[^\]]*\]\s*/, '');
+  if (!line) return true;
+  if (CREDIT_LINE.test(line)) return true;
+  // «роль : имя» — но не просто строка с двоеточием внутри текста песни
+  if (CREDIT_PAIR.test(line) && line.length < 60 && !/[.!?…]$/.test(line)) return true;
+  return false;
+}
 
 /** Убирает служебные строки: «作词 : Кино», «Producer: X» и подобное. */
 export function cleanSynced(lines) {
   return (lines || []).filter((line) => {
     const value = String(line.text || '').trim();
     if (!value) return false;
-    if (CREDIT_LINE.test(value)) return false;
-    if (CREDIT_PAIR.test(value) && value.length < 40) return false;
-    return true;
+    return !isCreditLine(value);
   });
 }
 
@@ -314,14 +340,19 @@ export async function lookup(rawMeta) {
 
 /** Чистит служебные строки и, если слова остались без времени, пересобирает plain. */
 function postProcess(result) {
-  if (!result?.synced?.length) return result;
+  if (!result) return result;
+
   const synced = cleanSynced(result.synced);
-  if (!synced.length) return { ...result, synced: [], available: Boolean(result.plain) };
-  return {
-    ...result,
-    synced,
-    plain: result.plain || synced.map((line) => line.text).join('\n'),
-  };
+  const plainLines = cleanPlainLines(result.plain || '');
+  if (synced.length) {
+    return { ...result, synced, plain: plainLines.length ? plainLines.join('\n') : synced.map((line) => line.text).join('\n') };
+  }
+
+  // синхронизации нет: отдаём текст, только если это действительно текст, а не кредиты
+  if (plainLines.length >= 2) {
+    return { ...result, synced: [], available: true, plain: plainLines.join('\n') };
+  }
+  return { ...result, synced: [], available: false, plain: '', instrumental: false };
 }
 
 // отрицательный ответ кэшируем недолго: источники бывают перегружены

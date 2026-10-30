@@ -638,6 +638,23 @@ export function stop() {
   seek(0);
 }
 
+/** Закрыть музыку: остановить звук и очистить текущий трек с очередью. */
+export function closeTrack() {
+  commitHistory();
+  stopSimulation();
+  stopReal();
+  state.queue = [];
+  state.index = -1;
+  state.current = null;
+  state.playing = false;
+  state.loading = false;
+  state.time = 0;
+  state.duration = 0;
+  state.context = null;
+  emit('queue');
+  emit('state');
+}
+
 export function getState() {
   return snapshot();
 }
@@ -751,6 +768,7 @@ export const player = {
   shuffleQueue,
   clearQueue,
   stop,
+  closeTrack,
   getState,
   currentTrack,
   sendWaveFeedback,

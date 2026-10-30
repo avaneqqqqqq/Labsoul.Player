@@ -815,6 +815,20 @@ body[data-variant="vinyl"] .pl-now__art img { border-radius: 50%; }
 .pl-now.is-empty .pl-now__t { color: var(--dim); }
 body.hide-pl-like .pl-now__like { display: none; }
 
+/* крестик закрытия музыки в нижней панели */
+.pl-now__close {
+  flex: none;
+  color: var(--mute);
+  transition: color var(--transition), background var(--transition);
+}
+
+.pl-now__close:hover {
+  color: #ff8a7a;
+  background: rgba(255, 255, 255, .08);
+}
+
+.pl-now__close svg { width: 14px; height: 14px; }
+
 .pl-center { display: flex; flex-direction: column; align-items: center; gap: 5px; min-width: 0; width: 100%; }
 .pl-btns { display: flex; align-items: center; gap: 5px; }
 .pl-btn {
