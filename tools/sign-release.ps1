@@ -10,9 +10,8 @@
     (signAndEditExecutable: false), а подпись ставится здесь.
 
     ВАЖНО: после подписи меняется содержимое файла, поэтому sha512 в latest.yml
-    пересчитывается этим же скриптом. Файл blockmap после подписи недействителен —
-    он удаляется, и автообновление скачивает установщик целиком (это нормальный
-    режим, дифференциальные обновления просто не используются).
+    и blockmap пересобираются этим же скриптом. Благодаря blockmap автообновление
+    дифференциальное: клиент докачивает только изменившиеся блоки, а не все 78 МБ.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File tools\sign-release.ps1 -Pfx .\cert.pfx -Password "пароль"
@@ -61,6 +60,23 @@ if ($check.Status -eq "NotTrusted" -or $check.Status -eq "UnknownError") {
     Write-Host "Сертификат самоподписанный: на этой машине может быть не доверен, на чужих — тоже." -ForegroundColor Yellow
 }
 
+# --- blockmap заново: после подписи старый недействителен ---
+# Именно blockmap включает дифференциальное обновление: клиент качает только
+# изменившиеся блоки вместо всех 78 МБ.
+$appBuilder = Join-Path $root "app\node_modules\app-builder-bin\win\x64\app-builder.exe"
+$blockmap = "$exe.blockmap"
+if (Test-Path $appBuilder) {
+    if (Test-Path $blockmap) { Remove-Item $blockmap -Force }
+    & $appBuilder blockmap --input=$exe --output=$blockmap 2>&1 | Out-Null
+    if (Test-Path $blockmap) {
+        Write-Host "blockmap пересобран: $([math]::Round((Get-Item $blockmap).Length / 1KB, 1)) КБ (обновления будут дифференциальными)" -ForegroundColor Green
+    } else {
+        Write-Host "blockmap собрать не удалось — обновление скачает установщик целиком" -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "app-builder.exe не найден — blockmap не пересобран (обновление будет полным)" -ForegroundColor Yellow
+}
+
 # --- пересчёт latest.yml под подписанный файл ---
 $version = (Get-Content (Join-Path $root "package.json") -Raw | ConvertFrom-Json).version
 $bytes = [System.IO.File]::ReadAllBytes($exe)
@@ -82,9 +98,6 @@ releaseDate: '$((Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ"
 $yamlPath = Join-Path $dist "latest.yml"
 [System.IO.File]::WriteAllText($yamlPath, $yaml, (New-Object System.Text.UTF8Encoding($false)))
 
-# blockmap после изменения файла недействителен — убираем, чтобы не врал
-Get-ChildItem $dist -Filter "*.blockmap" -ErrorAction SilentlyContinue | Remove-Item -Force
-
 $sha256 = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()
 Write-Host ""
 Write-Host "latest.yml обновлён:" -ForegroundColor Green
@@ -93,4 +106,5 @@ Write-Host "  размер : $size байт"
 Write-Host "  sha512 : $($hash.Substring(0, 32))…"
 Write-Host "  sha256 : $sha256"
 Write-Host ""
-Write-Host "Файл для публикации: $exe"
+Write-Host "Публиковать вместе: $name, latest.yml" -ForegroundColor Cyan
+Write-Host "blockmap — тоже в релиз, иначе дифференциальное обновление не сработает." -ForegroundColor Cyan
