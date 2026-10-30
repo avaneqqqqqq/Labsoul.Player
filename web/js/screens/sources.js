@@ -44,6 +44,15 @@ function stateOf(key) {
   if (src.connected) {
     return { cls: 'ok', label: 'Подключено', detail: src.user ? `аккаунт ${src.user}` : 'готово к работе' };
   }
+  // «токена ещё нет» — это нормальное рабочее состояние, а не поломка:
+  // красную ошибку показываем только когда сервис реально отверг доступ
+  if (src.error === 'NO_TOKEN' || src.error === 'NOT_INSTALLED') {
+    return {
+      cls: 'warn',
+      label: 'Нужен токен',
+      detail: src.error === 'NOT_INSTALLED' ? 'источник недоступен в этой сборке' : 'вход ещё не выполнен',
+    };
+  }
   if (src.error) return { cls: 'err', label: 'Ошибка', detail: humanizeError(src.error) };
   return { cls: 'warn', label: 'Не подключено', detail: 'нужен токен или ключ' };
 }

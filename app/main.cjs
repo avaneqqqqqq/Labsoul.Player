@@ -286,6 +286,15 @@ function signInYandexOAuth() {
       try {
         const href = await authWindow.webContents.executeJavaScript('location.href', true);
         await considerUrl(href);
+        if (settled) return;
+        // Яндекс мог показать страницу ошибки приложения (например, отключённый client_id):
+        // тогда молча ждать бессмысленно — сообщаем наверх, чтобы перейти к запасному пути
+        const title = await authWindow.webContents
+          .executeJavaScript('document.title', true)
+          .catch(() => '');
+        if (title && /не существует|недействительн|ошибка|error|invalid|не найден/i.test(title)) {
+          finish({ ok: false, error: 'oauth_page_error', message: `Яндекс не принял приложение: ${title}` });
+        }
       } catch { /* окно уже закрывается */ }
     }, 900);
 
@@ -351,14 +360,19 @@ function signInYandexSite() {
 
     const onHeaders = (details, callback) => {
       const headers = details.requestHeaders || {};
-      const auth = headers.Authorization || headers.authorization;
-      const token = oauth.tokenFromAuthorizationHeader(auth);
-      if (token) acceptToken(token);
+      // смотрим все запросы окна, но реагируем только на яндексовые хосты:
+      // сервис может ходить и в api.music.yandex.net, и в другие свои поддомены
+      const host = String(details.url || '').toLowerCase();
+      if (/yandex\./.test(host)) {
+        const auth = headers.Authorization || headers.authorization;
+        const token = oauth.tokenFromAuthorizationHeader(auth);
+        if (token) acceptToken(token);
+      }
       callback({ requestHeaders: headers });
     };
 
     try {
-      sess.webRequest.onBeforeSendHeaders({ urls: ['https://api.music.yandex.net/*'] }, onHeaders);
+      sess.webRequest.onBeforeSendHeaders({ urls: ['<all_urls>'] }, onHeaders);
     } catch (err) {
       finish({ ok: false, error: 'SNIFF_FAILED', message: err.message });
       return;
@@ -406,22 +420,54 @@ function signInYandexSite() {
     }, 5 * 60 * 1000);
     authWindow.on('closed', () => clearTimeout(timer));
 
+    // подсказка поверх страницы сервиса: пользователю должно быть понятно, что делать
+    authWindow.webContents.on('did-finish-load', () => {
+      authWindow.webContents
+        .executeJavaScript(
+          `(() => {
+             if (document.getElementById('labsoul-hint')) return;
+             const bar = document.createElement('div');
+             bar.id = 'labsoul-hint';
+             bar.textContent = 'labsoul: войдите в аккаунт — окно закроется само и подключение произойдёт';
+             bar.style.cssText = 'position:fixed;z-index:2147483647;left:0;right:0;top:0;padding:10px 14px;' +
+               'background:#ffd23f;color:#17140a;font:600 13px/1.4 system-ui,sans-serif;text-align:center;' +
+               'box-shadow:0 2px 12px rgba(0,0,0,.35)';
+             document.documentElement.appendChild(bar);
+             document.body.style.paddingTop = '42px';
+           })()`,
+          true,
+        )
+        .catch(() => { /* служебная подсказка, на ошибку не влияет */ });
+    });
+
     authWindow.loadURL('https://music.yandex.ru/');
   });
 }
 
-/** Кнопка «Войти»: сначала окно сервиса, при неудаче — запасной OAuth-вход. */
+/**
+ * Кнопка «Войти». Порядок попыток:
+ *   1. классический OAuth Яндекса — вход и «Разрешить», токен приходит сразу в адресе;
+ *   2. окно самого сервиса — пользователь просто входит, токен перехватывается из запросов;
+ *   3. если оба пути не сработали — предложение вставить токен вручную.
+ */
 async function signInYandex() {
-  const first = await signInYandexSite();
-  if (first.ok) return first;
-  if (first.error === 'closed' || first.error === 'already_open') return first;
+  const oauthResult = await signInYandexOAuth();
+  if (oauthResult.ok) return oauthResult;
+  // закрытие окна или отказ пользователя — это осознанные действия, не повторяем
+  if (oauthResult.error === 'closed' || oauthResult.error === 'access_denied') return oauthResult;
+
+  const siteResult = await signInYandexSite();
+  if (siteResult.ok) return siteResult;
+  if (siteResult.error === 'closed') return siteResult;
 
   const choice = dialog.showMessageBoxSync(mainWindow || undefined, {
     type: 'question',
     title: 'Вход в Яндекс.Музыку',
-    message: first.message || 'Не удалось войти автоматически',
-    detail: 'Можно попробовать вход через OAuth-окно Яндекса или вставить токен вручную в разделе «Подключения».',
-    buttons: ['Попробовать OAuth-окно', 'Вставить токен вручную'],
+    message: siteResult.message || oauthResult.message || 'Не удалось войти автоматически',
+    detail:
+      'Можно попробовать ещё раз или вставить токен вручную в разделе «Подключения» (DevTools → Network → ' +
+      'Authorization: OAuth …).',
+    buttons: ['Попробовать ещё раз', 'Вставить токен вручную'],
     defaultId: 0,
     cancelId: 1,
   });
