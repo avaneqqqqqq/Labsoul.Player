@@ -1,0 +1,81 @@
+{
+  "name": "temnikovo-dans",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Temnikovo Dans — обёртка для музыки: тема, блоки, эквалайзер",
+  "main": "main.js",
+  "author": "Temnikovo Dans",
+  "license": "MIT",
+  "scripts": {
+    "start": "node launch.cjs",
+    "dev": "node launch.cjs --dev",
+    "test": "node test-theme.cjs",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^32.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "ru.temnikovo.dans",
+    "productName": "Temnikovo Dans",
+    "electronDist": "node_modules/electron/dist",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "theme.js",
+      "preload-editor.js",
+      "blocks.json",
+      "patches.css",
+      "package.json",
+      "build/icon.png",
+      "update.json"
+    ],
+    "extraResources": [
+      {
+        "from": "..",
+        "to": "editor",
+        "filter": [
+          "index.html",
+          "css/**",
+          "js/**",
+          "*.md"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "signAndEditExecutable": false,
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "TemnikovoDans-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Temnikovo Dans",
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "TemnikovoDans-${version}-setup.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "avaneqqqqqq",
+      "repo": "Ymuz.mod",
+      "releaseType": "release"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  }
+}
