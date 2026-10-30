@@ -452,16 +452,28 @@ function renderLyrics() {
 
   if (!state.open) return;
 
+  // служебные пометки («纯音乐，请欣赏» и подобное) не показываем никогда
+  const isPlaceholder = (value) => /(纯音乐|此歌曲为没有填词的纯音乐|没有填词|instrumental|no lyrics)/i.test(String(value || ''));
+  const notable = (lines) => (lines || []).filter((line) => !isPlaceholder(typeof line === 'string' ? line : line.text));
+
   if (state.status === 'loading') {
     trackBox.innerHTML = '<div class="np__lyrics-note">Ищем текст…</div>';
     return;
   }
 
   if (state.status === 'ready' && state.synced.length) {
+    const lines = notable(state.synced);
+    if (!lines.length) {
+      scrollBox?.classList.remove('is-plain');
+      trackBox.innerHTML = '<div class="np__lyrics-note">Инструментальная композиция</div>';
+      return;
+    }
     scrollBox?.classList.remove('is-plain');
     trackBox.style.transform = '';
     trackBox.innerHTML = state.synced
-      .map((line, index) => `<div class="np__lyric" data-lyric="${index}" data-lyric-time="${line.time}" title="Перейти к строке">
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => !isPlaceholder(line.text))
+      .map(({ line, index }) => `<div class="np__lyric" data-lyric="${index}" data-lyric-time="${line.time}" title="Перейти к строке">
         <span class="np__lyric-text">${esc(line.text)}</span>
         <button class="np__lyric-share" type="button" data-np-share="${index}" title="Поделиться строкой" aria-label="Поделиться строкой">${icon('external')}</button>
       </div>`)
@@ -472,8 +484,14 @@ function renderLyrics() {
   }
 
   if (state.status === 'ready' && state.plain) {
-    const lines = state.plain.split('\n').map((line) => line.trim()).filter(Boolean);
+    const lines = notable(state.plain.split('\n').map((line) => line.trim()).filter(Boolean)).filter(Boolean);
     state.plainLines = lines;
+    if (!lines.length) {
+      scrollBox?.classList.remove('is-plain');
+      trackBox.style.transform = '';
+      trackBox.innerHTML = '<div class="np__lyrics-note">Инструментальная композиция</div>';
+      return;
+    }
     // текст без таймингов — обычная прокрутка, как в Яндекс.Музыке
     scrollBox?.classList.add('is-plain');
     trackBox.style.transform = '';
@@ -510,15 +528,17 @@ function syncLyrics(time, force = false) {
   if (!force && index === state.index) return;
   state.index = index;
 
-  for (let i = 0; i < trackBox.children.length; i += 1) {
-    const node = trackBox.children[i];
-    if (!(node instanceof HTMLElement)) continue;
-    node.classList.toggle('is-active', i === index);
-    node.classList.toggle('is-past', i < index);
+  // строки могли быть отфильтрованы — ориентируемся на data-lyric, а не на порядок
+  const nodes = Array.from(trackBox.children).filter((node) => node instanceof HTMLElement && node.hasAttribute('data-lyric'));
+  let active = null;
+  for (const node of nodes) {
+    const lineIndex = Number(node.dataset.lyric);
+    node.classList.toggle('is-active', lineIndex === index);
+    node.classList.toggle('is-past', lineIndex < index);
+    if (lineIndex === index) active = node;
   }
 
-  const active = trackBox.children[Math.max(0, index)];
-  if (active instanceof HTMLElement) {
+  if (active) {
     const offset = active.offsetTop + active.offsetHeight / 2 - scroll.clientHeight / 2;
     trackBox.style.transform = `translateY(${-Math.max(0, offset)}px)`;
   }

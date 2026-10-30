@@ -158,6 +158,48 @@ function similarity(a, b) {
   return common / Math.max(leftWords.size, rightWords.size);
 }
 
+/* ---------------------------- язык и совпадения --------------------------- */
+
+const SCRIPT_TESTS = {
+  latin: /[a-z]/gi,
+  cyrillic: /[а-яё]/gi,
+  cjk: /[\u3400-\u9fff\uf900-\ufaff]/g,
+  hangul: /[\uac00-\ud7af\u1100-\u11ff]/g,
+  kana: /[\u3040-\u30ff]/g,
+};
+
+/** Доли письменностей в тексте: {latin, cyrillic, cjk, hangul, kana}. */
+export function scriptShares(value) {
+  const text = String(value || '');
+  const letters = text.replace(/[^\p{L}]/gu, '');
+  const total = letters.length || 1;
+  const shares = {};
+  for (const [name, regex] of Object.entries(SCRIPT_TESTS)) {
+    const matches = letters.match(regex);
+    shares[name] = (matches ? matches.length : 0) / total;
+  }
+  return shares;
+}
+
+/** Текст на «чужой» письменности по отношению к названию трека. */
+export function languageMismatch(title, lyrics) {
+  if (!title || !lyrics) return false;
+  const track = scriptShares(title);
+  const found = scriptShares(String(lyrics).slice(0, 600));
+
+  const trackIsEuropean = track.latin + track.cyrillic > 0.7;
+  const trackIsAsian = track.cjk + track.hangul + track.kana > 0.7;
+
+  // европейское название, а в тексте заметная доля азиатской письменности —
+  // почти наверняка чужой трек (корейский/китайский оригинал под нашим названием)
+  if (trackIsEuropean && (found.cjk + found.hangul + found.kana) > 0.25) return true;
+
+  // азиатское название, а текст латиницей/кириллицей — тоже чужой
+  if (trackIsAsian && (found.latin + found.cyrillic) > 0.6) return true;
+
+  return false;
+}
+
 /* -------------------------------- LRCLIB -------------------------------- */
 
 function normalizeLrclib(data, provider = 'lrclib') {
@@ -206,13 +248,17 @@ async function lrclibSearch({ title, artist, duration }) {
   const scored = data
     .map((item) => {
       const delta = duration && item.duration ? Math.abs(Number(item.duration) - Number(duration)) : 999;
-      return { item, score: (item.syncedLyrics ? 0 : 100) + delta };
+      return { item, delta, nameScore: similarity(item.trackName, title) };
     })
-    .sort((a, b) => a.score - b.score);
+    .filter(({ delta, nameScore }) => nameScore >= 0.6 && (!duration || delta === 999 || delta <= 12)) 
+    .sort((a, b) => (b.item.syncedLyrics ? 1 : 0) - (a.item.syncedLyrics ? 1 : 0) || a.delta - b.delta);
 
   for (const { item } of scored) {
     const normalized = normalizeLrclib(item);
-    if (normalized?.available) return normalized;
+    if (!normalized?.available) continue;
+    const joined = normalized.plain || normalized.synced.map((line) => line.text).join('\n');
+    if (languageMismatch(title, joined)) continue;
+    return normalized;
   }
   return null;
 }
@@ -232,15 +278,39 @@ async function neteaseLyrics({ title, artist, duration }) {
     .map((song) => {
       const songSeconds = Math.round((song.duration || 0) / 1000);
       const delta = duration && songSeconds ? Math.abs(songSeconds - Number(duration)) : 999;
-      const nameScore = similarity(song.name, title);
-      const artistScore = similarity((song.artists || []).map((a) => a.name).join(' '), artist);
-      // приоритет: похожее название и исполнитель, затем близкая длительность
-      return { song, score: (1 - nameScore) * 100 + (1 - artistScore) * 40 + delta };
+      return {
+        song,
+        delta,
+        nameScore: similarity(song.name, title),
+        artistScore: similarity((song.artists || []).map((a) => a.name).join(' '), artist),
+      };
     })
-    .sort((a, b) => a.score - b.score);
+    // название должно реально совпадать, длительность — не расходиться сильно
+    .filter(({ nameScore, artistScore, delta }) => {
+      if (nameScore < 0.55) return false;
+      if (duration && delta !== 999 && delta > 12) return false;
+      if (artist && artistScore < 0.3 && nameScore < 0.85) return false;
+      return true;
+    })
+    .sort((a, b) => (b.nameScore + b.artistScore) - (a.nameScore + a.artistScore) || a.delta - b.delta);
 
-  for (const { song, score } of scored.slice(0, 3)) {
-    if (score > 220) continue;
+  // второй проход: название может отличаться (ремиксы, транслит),
+  // но длительность и исполнитель должны сойтись почти точно
+  const loose = songs
+    .map((song) => {
+      const songSeconds = Math.round((song.duration || 0) / 1000);
+      return {
+        song,
+        delta: duration && songSeconds ? Math.abs(songSeconds - Number(duration)) : 999,
+        artistScore: similarity((song.artists || []).map((a) => a.name).join(' '), artist),
+      };
+    })
+    .filter(({ delta, artistScore }) => delta !== 999 && delta <= 3 && artistScore >= 0.45)
+    .sort((a, b) => b.artistScore - a.artistScore || a.delta - b.delta);
+
+  const candidates = [...scored.slice(0, 3), ...loose.slice(0, 2).filter((c) => !scored.slice(0, 3).includes(c))];
+
+  for (const { song } of candidates) {
     try {
       const lyricUrl = `${NETEASE}/song/lyric?id=${song.id}&lv=-1&kv=-1&tv=-1`;
       const data = await fetchJson(lyricUrl, NETEASE_HEADERS, NETEASE_TIMEOUT_MS);
@@ -268,6 +338,8 @@ async function neteaseLyrics({ title, artist, duration }) {
       }
       // запись без самого текста (только «作词/作曲») — пропускаем
       if (!synced.length && plainLines.length < 2) continue;
+      // чужой язык (корейский/китайский текст под русским или английским названием)
+      if (languageMismatch(title, synced.length ? synced.map((l) => l.text).join('\n') : plain)) continue;
       return {
         available: true,
         instrumental: false,
@@ -311,11 +383,12 @@ export function isCreditLine(value) {
   return false;
 }
 
-/** Убирает служебные строки: «作词 : Кино», «Producer: X» и подобное. */
+/** Убирает служебные строки: «作词 : Кино», «Producer: X», «纯音乐» и подобное. */
 export function cleanSynced(lines) {
   return (lines || []).filter((line) => {
     const value = String(line.text || '').trim();
     if (!value) return false;
+    if (looksInstrumental(value)) return false;
     return !isCreditLine(value);
   });
 }
@@ -404,20 +477,28 @@ async function geniusLyrics({ title, artist }) {
   if (!hits.length) return null;
 
   const scored = hits
-    .map((song) => {
-      const nameScore = similarity(song.title || song.full_title, title);
-      const artistScore = similarity(song.primary_artist?.name || '', artist);
-      return { song, score: (1 - nameScore) * 100 + (1 - artistScore) * 40 };
+    .map((song) => ({
+      song,
+      nameScore: similarity(song.title || song.full_title, title),
+      artistScore: similarity(song.primary_artist?.name || '', artist),
+    }))
+    .filter(({ song, nameScore, artistScore }) => {
+      // романизированные версии и переводы — не наш текст
+      if (/romaniz|translation|transliterat/i.test(String(song.title || song.full_title || ''))) return false;
+      if (/romanizations?/i.test(String(song.primary_artist?.name || ''))) return false;
+      if (nameScore < 0.6) return false;
+      if (artist && artistScore < 0.3 && nameScore < 0.9) return false;
+      return true;
     })
-    .sort((a, b) => a.score - b.score);
+    .sort((a, b) => (b.nameScore + b.artistScore) - (a.nameScore + a.artistScore));
 
-  for (const { song, score } of scored.slice(0, 2)) {
-    if (score > 130) continue;
+  for (const { song } of scored.slice(0, 2)) {
     try {
       const page = await fetch(song.url, { headers: GENIUS_HEADERS, signal: AbortSignal.timeout(NETEASE_TIMEOUT_MS) });
       if (!page.ok) continue;
       const plain = extractGeniusLyrics(await page.text());
       if (plain.split('\n').length < 2) continue;
+      if (languageMismatch(title, plain)) continue;
       return {
         available: true,
         instrumental: false,
