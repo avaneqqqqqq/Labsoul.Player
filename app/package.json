@@ -1,15 +1,14 @@
 {
-  "name": "temnikovo-dans",
-  "version": "0.2.1",
+  "name": "labsoul-desktop",
+  "productName": "labsoul",
+  "version": "0.1.0",
   "private": true,
-  "description": "Temnikovo Dans — обёртка для музыки: тема, блоки, эквалайзер",
-  "main": "main.js",
-  "author": "Temnikovo Dans",
+  "description": "labsoul — десктопная оболочка плеера",
+  "main": "main.cjs",
+  "author": "labsoul",
   "license": "MIT",
   "scripts": {
-    "start": "node launch.cjs",
-    "dev": "node launch.cjs --dev",
-    "test": "node test-theme.cjs",
+    "start": "electron .",
     "dist": "electron-builder --win nsis"
   },
   "devDependencies": {
@@ -17,35 +16,34 @@
     "electron-builder": "^25.1.8"
   },
   "build": {
-    "appId": "ru.temnikovo.dans",
-    "productName": "Temnikovo Dans",
+    "appId": "ru.labsoul.player",
+    "productName": "labsoul",
     "electronDist": "node_modules/electron/dist",
     "directories": {
       "output": "dist",
       "buildResources": "build"
     },
     "files": [
-      "main.js",
-      "theme.js",
-      "preload-editor.js",
-      "blocks.json",
-      "patches.css",
+      "main.cjs",
+      "preload.cjs",
+      "oauth.cjs",
       "package.json",
-      "build/icon.png",
-      "update.json",
-      "banner.html",
-      "preload-banner.js"
+      "build/icon.png"
     ],
     "extraResources": [
       {
-        "from": "..",
-        "to": "editor",
-        "filter": [
-          "index.html",
-          "css/**",
-          "js/**",
-          "*.md"
-        ]
+        "from": "../server",
+        "to": "server",
+        "filter": ["**/*.mjs"]
+      },
+      {
+        "from": "../web",
+        "to": "web",
+        "filter": ["**/*"]
+      },
+      {
+        "from": "../README.md",
+        "to": "README.md"
       }
     ],
     "win": {
@@ -54,21 +52,18 @@
       "target": [
         {
           "target": "nsis",
-          "arch": [
-            "x64"
-          ]
+          "arch": ["x64"]
         }
       ],
-      "artifactName": "TemnikovoDans-${version}-${arch}.${ext}"
+      "artifactName": "labsoul-${version}-${arch}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Temnikovo Dans",
-      "deleteAppDataOnUninstall": false,
-      "artifactName": "TemnikovoDans-${version}-setup.${ext}"
+      "shortcutName": "labsoul",
+      "artifactName": "labsoul-${version}-setup.${ext}"
     },
     "publish": {
       "provider": "github",
@@ -76,8 +71,5 @@
       "repo": "Ymuz.mod",
       "releaseType": "release"
     }
-  },
-  "dependencies": {
-    "electron-updater": "^6.8.11"
   }
 }

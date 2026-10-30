@@ -1,0 +1,331 @@
+'use strict';
+
+/**
+ * Провайдер Яндекс.Музыки.
+ *
+ * Авторизация: OAuth-токен.
+ * Поток: GET /get-file-info с HMAC-SHA256-подписью; при transports=raw отдаётся
+ *        прямая ссылка на CDN, при transports=encraw — зашифрованный поток
+ *        (AES-128-CTR, ключ приходит в ответе полем key).
+ * «Моя волна»: rotor-станция user:onyourwave.
+ */
+
+import crypto from 'node:crypto';
+
+// Базовый адрес можно переопределить: удобно для своего прокси/зеркала и для
+// тестов, где api.music.yandex.net подменяется локальным мок-сервером.
+const API = (process.env.YANDEX_API_BASE || 'https://api.music.yandex.net').replace(/\/+$/, '');
+const CLIENT_HEADER = 'YandexMusicWebNext/1.0.0';
+// Ключ подписи web-клиента музыкального сервиса (используется открытыми клиентами).
+const SIGN_KEY = '7tvSmFbyf5hJnIHhCimDDD';
+const TIMEOUT = 15000;
+
+const cfg = { token: '', quality: 'nq' };
+let cachedUser = null;
+let lastError = null;
+
+export const id = 'yandex';
+
+/* ------------------------------ утилиты --------------------------------- */
+
+function fail(code, message) {
+  const err = new Error(message);
+  err.code = code;
+  return err;
+}
+
+function authHeaders() {
+  return {
+    Authorization: `OAuth ${cfg.token}`,
+    'X-Yandex-Music-Client': CLIENT_HEADER,
+    Accept: 'application/json',
+  };
+}
+
+async function request(pathname, { method = 'GET', body, headers = {} } = {}) {
+  if (!cfg.token) throw fail('NO_TOKEN', 'Не задан OAuth-токен Яндекс.Музыки');
+  let res;
+  try {
+    res = await fetch(API + pathname, {
+      method,
+      headers: {
+        ...authHeaders(),
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+        ...headers,
+      },
+      body: body ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+  } catch (err) {
+    throw fail('UPSTREAM', `Яндекс.Музыка недоступна: ${err.message}`);
+  }
+
+  const text = await res.text();
+  if (res.status === 401 || res.status === 403) {
+    throw fail('AUTH_FAILED', 'Яндекс.Музыка отклонила токен (401/403)');
+  }
+  if (!res.ok) {
+    throw fail('UPSTREAM', `Яндекс.Музыка ответила ${res.status}: ${text.slice(0, 200)}`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw fail('UPSTREAM', 'Яндекс.Музыка вернула не-JSON ответ');
+  }
+}
+
+/** Прямой GET по абсолютному адресу (CDN, без OAuth-заголовков). */
+async function fetchJson(url) {
+  const res = await fetch(url, {
+    headers: { 'X-Yandex-Music-Client': CLIENT_HEADER, Accept: 'application/json' },
+    signal: AbortSignal.timeout(TIMEOUT),
+  });
+  if (!res.ok) throw fail('UPSTREAM', `CDN ответил ${res.status}`);
+  return res.json();
+}
+
+/* --------------------------- нормализация ------------------------------- */
+
+function coverUrl(uri, size = '400x400') {
+  if (!uri) return null;
+  const path = String(uri).replace('%%', size);
+  return path.startsWith('http') ? path : `https://${path}`;
+}
+
+export function mapTrack(t) {
+  if (!t || !t.id) return null;
+  const albums = Array.isArray(t.albums) ? t.albums : [];
+  const album = albums[0] || null;
+  const artists = (Array.isArray(t.artists) ? t.artists : []).map((a) => a && a.name).filter(Boolean);
+  const available = t.available !== false && !(album && album.available === false);
+
+  return {
+    id: `ym:${t.id}`,
+    source: 'yandex',
+    sourceId: String(t.id),
+    title: t.title || 'Без названия',
+    artists: artists.length ? artists : ['Неизвестный исполнитель'],
+    album: album ? album.title || null : null,
+    cover: coverUrl(album && album.coverUri) || coverUrl(t.coverUri),
+    duration: t.durationMs ? Math.round(t.durationMs / 1000) : Number(t.duration) || 0,
+    playable: Boolean(available),
+    reason: available ? null : 'geo',
+    explicit: Boolean(t.contentWarning),
+  };
+}
+
+/* ------------------------- интерфейс провайдера -------------------------- */
+
+export function configure(next) {
+  if (!next || typeof next !== 'object') return;
+  if (typeof next.token === 'string') {
+    const token = next.token.trim();
+    if (token !== cfg.token) {
+      cfg.token = token;
+      cachedUser = null;
+    }
+  }
+  if (typeof next.quality === 'string' && ['lq', 'nq', 'lossless'].includes(next.quality)) {
+    cfg.quality = next.quality;
+  }
+}
+
+export async function status() {
+  if (!cfg.token) return { connected: false, error: 'NO_TOKEN' };
+  try {
+    const data = await request('/account/status');
+    const account = data?.result?.account || data?.account || {};
+    cachedUser = account.displayName || account.login || account.uid || 'пользователь';
+    lastError = null;
+    return { connected: true, user: cachedUser };
+  } catch (err) {
+    lastError = err.code || 'UPSTREAM';
+    cachedUser = null;
+    return { connected: false, error: lastError, message: err.message };
+  }
+}
+
+export async function search(query, limit = 20) {
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const data = await request(
+    `/search?text=${encodeURIComponent(q)}&type=track&page=0&page_size=${Math.min(Math.max(limit, 1), 50)}&nocorrect=false`,
+  );
+  const tracks = data?.result?.tracks?.results || data?.result?.tracks || [];
+  return (Array.isArray(tracks) ? tracks : []).map(mapTrack).filter(Boolean);
+}
+
+export async function track(sourceId) {
+  const data = await request(`/tracks/${encodeURIComponent(String(sourceId))}`);
+  const list = data?.result || data;
+  const raw = Array.isArray(list) ? list[0] : list;
+  const mapped = mapTrack(raw);
+  if (!mapped) throw fail('NOT_FOUND', 'Трек не найден');
+  return mapped;
+}
+
+/* ---------------------------- получение потока --------------------------- */
+
+function signFileInfo(ts, trackId, quality, codecs, transports) {
+  const material = `${ts}${trackId}${quality}${codecs}${transports}`;
+  return crypto.createHmac('sha256', SIGN_KEY).update(material).digest('base64').replace(/=+$/, '');
+}
+
+async function getFileInfo(trackId, { quality, codecs, transports }) {
+  const ts = Math.floor(Date.now() / 1000);
+  const sign = signFileInfo(ts, trackId, quality, codecs, transports);
+  const url =
+    `${API}/get-file-info?ts=${ts}&trackId=${encodeURIComponent(trackId)}` +
+    `&quality=${quality}&codecs=${codecs}&transports=${transports}&sign=${encodeURIComponent(sign)}`;
+
+  let data;
+  try {
+    const res = await fetch(url, {
+      headers: { ...authHeaders(), Referer: 'https://music.yandex.ru/' },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    const text = await res.text();
+    if (!res.ok) throw fail('UPSTREAM', `get-file-info ${res.status}`);
+    data = JSON.parse(text);
+  } catch (err) {
+    throw err.code ? err : fail('UPSTREAM', `get-file-info: ${err.message}`);
+  }
+
+  const info = data?.downloadInfo || data?.result?.downloadInfo || data?.result;
+  if (!info) throw fail('NOT_PLAYABLE', 'Сервис не вернул информацию о файле');
+
+  const urls = Array.isArray(info.urls) ? info.urls : info.url ? [info.url] : [];
+  if (!urls.length) throw fail('NOT_PLAYABLE', 'Нет доступных ссылок на файл');
+
+  return {
+    url: decodeURIComponent(urls[0]),
+    key: info.key || null,
+    codec: info.codec || codecs,
+    bitrate: info.bitrate || 0,
+  };
+}
+
+export async function stream(sourceId) {
+  const trackId = String(sourceId);
+  // Набор попыток: сначала тот же формат, что у обычных клиентов (mp3),
+  // затем шифрованный поток, из которого сервер сам снимет защиту.
+  const quality = cfg.quality === 'lossless' ? 'lossless' : cfg.quality === 'lq' ? 'lq' : 'nq';
+  const attempts =
+    quality === 'lossless'
+      ? [
+          { quality: 'lossless', codecs: 'flac', transports: 'raw' },
+          { quality: 'lossless', codecs: 'flac', transports: 'encraw' },
+          { quality: 'nq', codecs: 'mp3', transports: 'raw' },
+        ]
+      : [
+          { quality, codecs: 'mp3', transports: 'raw' },
+          { quality, codecs: 'mp3', transports: 'encraw' },
+          { quality: 'lq', codecs: 'mp3', transports: 'raw' },
+        ];
+
+  let lastErr = null;
+  for (const attempt of attempts) {
+    try {
+      const info = await getFileInfo(trackId, attempt);
+      const lossless = String(info.codec).includes('flac');
+      const isMp4 = String(info.codec).includes('mp4');
+      const result = {
+        url: info.url,
+        contentType: lossless ? 'audio/flac' : isMp4 ? 'audio/mp4' : 'audio/mpeg',
+        repeatable: false,
+      };
+      if (info.key && attempt.transports === 'encraw') {
+        result.decrypt = { algo: 'aes-128-ctr', keyHex: info.key, nonceLen: 12 };
+      }
+      return result;
+    } catch (err) {
+      lastErr = err;
+      if (err.code === 'AUTH_FAILED' || err.code === 'NO_TOKEN') throw err;
+    }
+  }
+  throw lastErr || fail('NOT_PLAYABLE', 'Не удалось получить поток');
+}
+
+/* ------------------------------- ротор ---------------------------------- */
+
+const DEFAULT_STATION = 'user:onyourwave';
+
+export async function wave(limit = 20, station = DEFAULT_STATION) {
+  const want = Math.min(Math.max(Number(limit) || 20, 1), 50);
+  const items = [];
+  const seen = new Set();
+  let batchId = null;
+  let batches = 0;
+
+  while (items.length < want && batches < 6) {
+    batches += 1;
+    const data = await request(`/rotor/station/${encodeURIComponent(station)}/tracks?settings2=true`);
+    const result = data?.result || data;
+    batchId = result?.batchId || batchId;
+    const sequence = Array.isArray(result?.sequence) ? result.sequence : [];
+    let added = 0;
+    for (const step of sequence) {
+      const mapped = mapTrack(step?.track);
+      if (mapped && !seen.has(mapped.id)) {
+        seen.add(mapped.id);
+        items.push(mapped);
+        added += 1;
+      }
+    }
+    // станция больше не отдаёт треков — дальше цикл бессмысленен
+    if (!added || !sequence.length) break;
+  }
+
+  return { station, batchId, items: items.slice(0, want) };
+}
+
+const FEEDBACK_TYPES = {
+  like: 'like',
+  dislike: 'dislike',
+  skip: 'skip',
+  started: 'trackStarted',
+  finished: 'trackFinished',
+};
+
+export async function feedback(event) {
+  const type = FEEDBACK_TYPES[event?.type];
+  if (!type) return { ok: true, skipped: true };
+  if (!cfg.token) return { ok: true, skipped: true };
+
+  const station = event.station || DEFAULT_STATION;
+  const body = {
+    type,
+    trackId: String(event.sourceId || event.trackId || ''),
+    batchId: event.batchId || '',
+    timestamp: new Date().toISOString(),
+  };
+  if (typeof event.position === 'number' && Number.isFinite(event.position)) {
+    body.totalPlayedSeconds = Math.max(0, Math.round(event.position));
+  }
+
+  try {
+    await request(`/rotor/station/${encodeURIComponent(station)}/feedback`, { method: 'POST', body });
+    return { ok: true };
+  } catch (err) {
+    // дизлайк/скип не должен валить UI из-за сетевой ошибки
+    logFeedbackFailure(err);
+    return { ok: false, error: err.code || 'UPSTREAM' };
+  }
+}
+
+function logFeedbackFailure(err) {
+  console.warn('[yandex] feedback:', err && err.message);
+}
+
+/** Служебное: проверить токен и получить 2 трека — используется в doctor-скрипте. */
+export async function diagnose() {
+  const st = await status();
+  if (!st.connected) return { connected: false, error: st.error };
+  const found = await search('Мираж', 3).catch((e) => ({ error: e.message }));
+  return {
+    connected: true,
+    user: st.user,
+    quality: cfg.quality,
+    searchSample: Array.isArray(found) ? found.map((t) => `${t.artists[0]} — ${t.title}`) : found,
+  };
+}

@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0a0a0c">
+<title>labsoul — свой плеер</title>
+<meta name="description" content="labsoul — свой плеер: Яндекс.Музыка, SoundCloud, Spotify и лента «Волна» в одном окне.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%23ffd23f'/%3E%3Cpath d='M4 12h2l1.5-4 2 8 2.5-11 2.5 14 2.5-9 1.5 4H20' fill='none' stroke='%2317140a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/screens.css">
+<link rel="stylesheet" href="css/wave-sources.css">
+<link rel="stylesheet" href="css/auth.css">
+<link rel="stylesheet" href="css/import.css">
+</head>
+<body data-scheme="dark" data-variant="glass" data-density="normal" data-font="ui" data-anim="on" data-playing="false" data-route="wave">
+
+<a class="skip-link" href="#content">Перейти к содержимому</a>
+<div id="wall" aria-hidden="true"></div>
+<div class="grain" aria-hidden="true"></div>
+
+<div class="app" id="app">
+  <aside class="sidebar">
+    <a class="brand" href="#wave" aria-label="labsoul — на главную">
+      <span class="brand__mark"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wave"></use></svg></span>
+      <span class="brand__text">
+        <span class="brand__name">labsoul<span class="brand__dot">.</span></span>
+        <span class="brand__sub">свой плеер · три сервиса</span>
+      </span>
+    </a>
+
+    <nav class="nav" aria-label="Разделы">
+      <button class="nav__item" data-route="wave" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-wave"></use></svg><span>Волна</span>
+        <i class="nav__badge" id="nav-wave-badge" hidden></i>
+      </button>
+      <button class="nav__item" data-route="search" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"></use></svg><span>Поиск</span>
+      </button>
+      <button class="nav__item" data-route="library" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-library"></use></svg><span>Библиотека</span>
+        <i class="nav__count" id="nav-lib-count"></i>
+      </button>
+      <button class="nav__item" data-route="sources" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-connection"></use></svg><span>Подключения</span>
+        <i class="nav__badge nav__badge--warn" id="nav-src-badge" hidden>!</i>
+      </button>
+      <button class="nav__item" data-route="design" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-palette"></use></svg><span>Оформление</span>
+      </button>
+    </nav>
+
+    <div class="side-sep"></div>
+    <div class="side-title">Источники</div>
+    <div class="side-list" id="side-sources" aria-label="Подключённые сервисы">
+      <div class="src-row is-skeleton"><i class="src-dot"></i><span class="src-row__name">Яндекс.Музыка</span><span class="src-row__state">…</span></div>
+      <div class="src-row is-skeleton"><i class="src-dot"></i><span class="src-row__name">SoundCloud</span><span class="src-row__state">…</span></div>
+      <div class="src-row is-skeleton"><i class="src-dot"></i><span class="src-row__name">Spotify</span><span class="src-row__state">…</span></div>
+    </div>
+
+    <div class="side-foot">
+      <span class="side-foot__chip" id="side-mode" title="Режим работы">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-dot"></use></svg><span>подключение…</span>
+      </span>
+      <span class="side-foot__chip side-foot__chip--quiet">v0.1</span>
+    </div>
+  </aside>
+
+  <section class="main">
+    <header class="topbar">
+      <div class="topbar__nav">
+        <button class="iconbtn iconbtn--ghost" id="btn-back" type="button" title="Назад" aria-label="Назад">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chev-left"></use></svg>
+        </button>
+        <button class="iconbtn iconbtn--ghost" id="btn-forward" type="button" title="Вперёд" aria-label="Вперёд">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-chev-right"></use></svg>
+        </button>
+      </div>
+
+      <label class="search" for="global-search">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-search"></use></svg>
+        <input id="global-search" type="search" placeholder="Треки, исполнители, альбомы" autocomplete="off" spellcheck="false" aria-label="Поиск по всем источникам">
+        <kbd>Ctrl K</kbd>
+      </label>
+
+      <div class="topbar__right">
+        <div class="stylepick" title="Стиль интерфейса" role="group" aria-label="Стиль интерфейса">
+          <button class="sp-a" data-variant="glass" type="button" title="Стекло" aria-label="Стекло"></button>
+          <button class="sp-b" data-variant="vinyl" type="button" title="Пластинка" aria-label="Пластинка"></button>
+          <button class="sp-c" data-variant="neon" type="button" title="Неон" aria-label="Неон"></button>
+          <button class="sp-d" data-variant="paper" type="button" title="Бумага" aria-label="Бумага"></button>
+        </div>
+        <button class="iconbtn" id="btn-scheme" type="button" title="Схема: тёмная / светлая / AMOLED" aria-label="Переключить схему">
+          <svg viewBox="0 0 24 24" aria-hidden="true" id="scheme-icon"><use href="#i-moon"></use></svg>
+        </button>
+        <button class="iconbtn" id="btn-queue-top" type="button" title="Очередь" aria-label="Очередь">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-queue"></use></svg>
+        </button>
+        <button class="iconbtn" data-route="design" type="button" title="Оформление" aria-label="Оформление">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-settings"></use></svg>
+        </button>
+        <div class="avatar" title="Локальный профиль" aria-hidden="true">L</div>
+      </div>
+    </header>
+
+    <div class="banner" id="banner" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"></use></svg>
+      <div class="banner__text">
+        <b>Демо-режим.</b> Сервер не отвечает — показаны локальные треки. Запустите
+        <code>node server/index.mjs</code> и откройте <code id="banner-url">127.0.0.1:5270</code>.
+      </div>
+      <button class="btn btn--ghost btn--sm" id="btn-retry" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-refresh"></use></svg> Проверить снова
+      </button>
+    </div>
+
+    <main class="content" id="content" tabindex="-1"></main>
+  </section>
+
+  <footer class="player" id="player" aria-label="Плеер"></footer>
+</div>
+
+<aside class="queue" id="queue" aria-label="Очередь воспроизведения" aria-hidden="true">
+  <div class="queue__head">
+    <div>
+      <div class="eq-label">Очередь</div>
+      <h2 id="queue-title">Дальше</h2>
+    </div>
+    <div class="queue__head-actions">
+      <button class="iconbtn iconbtn--ghost" id="queue-shuffle" data-q="shuffle" type="button" title="Перемешать очередь" aria-label="Перемешать очередь">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-shuffle"></use></svg>
+      </button>
+      <button class="iconbtn iconbtn--ghost" id="queue-clear" data-q="clear" type="button" title="Очистить очередь" aria-label="Очистить очередь">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-trash"></use></svg>
+      </button>
+      <button class="iconbtn" id="queue-close" data-q="close" type="button" title="Закрыть" aria-label="Закрыть очередь">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
+    </div>
+  </div>
+  <div class="queue__list" id="queue-list"></div>
+  <div class="queue__foot">
+    <span id="queue-total">0 треков</span>
+    <span class="queue__hint">перетащите строку, чтобы изменить порядок</span>
+  </div>
+</aside>
+<div class="scrim" id="scrim" hidden></div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<dialog class="modal" id="modal" aria-labelledby="modal-title">
+  <form method="dialog" class="modal__card" id="modal-card">
+    <div class="modal__head">
+      <h2 id="modal-title">Импорт темы</h2>
+      <button class="iconbtn iconbtn--ghost" value="cancel" type="submit" aria-label="Закрыть">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-x"></use></svg>
+      </button>
+    </div>
+    <div class="modal__body" id="modal-body"></div>
+    <div class="modal__actions">
+      <button class="btn btn--ghost" value="cancel" type="submit">Отмена</button>
+      <button class="btn btn--accent" value="ok" type="submit" id="modal-ok">Применить</button>
+    </div>
+  </form>
+</dialog>
+
+<audio id="audio" preload="metadata" aria-hidden="true"></audio>
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.14v13.72a1 1 0 0 0 1.53.85l10.6-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 4h3.2v16H7zM13.8 4H17v16h-3.2z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6 5h2v14H6zM19 5.6v12.8a.9.9 0 0 1-1.38.78L9 13.2v5.8H7V5h2v5.8l8.62-5.98A.9.9 0 0 1 19 5.6z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM5 5.6a.9.9 0 0 1 1.38-.78L15 10.8V5h2v14h-2v-5.8L6.38 19.18A.9.9 0 0 1 5 18.4z"/></symbol>
+  <symbol id="i-shuffle" viewBox="0 0 24 24"><path d="M17 3l3.5 3.5L17 10V7.5h-1.9c-1 0-1.6.4-2.3 1.5l-1 1.6-1.3-2 .6-1C12.2 5.8 13.3 5.5 15 5.5H17V3zM3 6.5h3c1.7 0 2.8.3 3.9 2l6 9.4c.7 1.1 1.3 1.5 2.3 1.5H21V17h-2.8c-1.6 0-2.7-.4-3.8-2l-6-9.3C7.7 4.3 6.6 4 5 4H3v2.5zM3 17.5h3c1.7 0 2.8-.3 3.9-2l.9-1.4 1.4 2.1-.8 1.3c-1.2 1.8-2.5 2.5-5.4 2.5H3v-2.5zM17 14v2.5h-2c-1.7 0-2.8-.3-3.9-2l-.9-1.4 1.4-2.2.8 1.3c.7 1.1 1.3 1.8 2.3 1.8H17z"/></symbol>
+  <symbol id="i-repeat" viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/></symbol>
+  <symbol id="i-repeat-one" viewBox="0 0 24 24"><path d="M7 7h10v3l4-4-4-4v3H5v6h2V7zm10 10H7v-3l-4 4 4 4v-3h12v-6h-2v4z"/><path d="M12.6 9.4h-1.1L10 10l.3.9.9-.2v3.4h1.4z"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20.7l-1.3-1.2C6.1 15.3 3 12.5 3 9.1 3 6.5 5.1 4.5 7.6 4.5c1.5 0 2.9.7 3.9 1.8l.5.6.5-.6c1-1.1 2.4-1.8 3.9-1.8C18.9 4.5 21 6.5 21 9.1c0 3.4-3.1 6.2-7.7 10.5L12 20.7z"/></symbol>
+  <symbol id="i-thumb-down" viewBox="0 0 24 24"><path d="M15 3H6.4a2 2 0 0 0-2 1.7l-1.2 7A2 2 0 0 0 5.2 14H10v4.6A2.4 2.4 0 0 0 12.4 21L16 14.6V4.4A1.4 1.4 0 0 0 15 3zM18 4h3v10h-3z"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2.6 12h2.2l1.6-4.4 2.2 10.2L11.4 5l2.3 13 2.4-8.4 1.6 4.4h3.7v2h-4.9l-.06-.02-1.2-3.3-2.2 7.6-2.2-9.2L8.6 20 6.7 12H4.4v-2H2.6z"/></symbol>
+  <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 4h4v16H4zM10 4h4v16h-4zM16.2 4l3.4 15.6-3.9.9L12.3 4.9z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M10.5 3a7.5 7.5 0 0 1 5.9 12.1l4.8 4.8-1.4 1.4-4.8-4.8A7.5 7.5 0 1 1 10.5 3zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z"/></symbol>
+  <symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a5 5 0 0 1-.6-9.96A6 6 0 0 1 17.7 9.1 4.5 4.5 0 0 1 17 18H7zm0-2h10a2.5 2.5 0 0 0 .1-5l-.9-.05.1-.9a4 4 0 0 0-7.9-1.2l-.2.7-.7.2A3 3 0 0 0 7 16z"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0 0 18c1.1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.2 0-1 .8-1.8 1.8-1.8H17a4 4 0 0 0 4-4c0-4.4-4-8-9-8zm-4.5 9A1.5 1.5 0 1 1 9 10.5 1.5 1.5 0 0 1 7.5 12zm2-4A1.5 1.5 0 1 1 11 6.5 1.5 1.5 0 0 1 9.5 8zm5 0A1.5 1.5 0 1 1 16 6.5 1.5 1.5 0 0 1 14.5 8zm2 4A1.5 1.5 0 1 1 18 10.5 1.5 1.5 0 0 1 16.5 12z"/></symbol>
+  <symbol id="i-volume" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4V9zm12.5 3a3.5 3.5 0 0 0-1.5-2.9v5.8A3.5 3.5 0 0 0 16.5 12zm-1.5-6.3v2.1a6 6 0 0 1 0 8.4v2.1a8 8 0 0 0 0-12.6z"/></symbol>
+  <symbol id="i-volume-mute" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4V9zm12.3 0L18 10.7l1.7-1.7 1.3 1.3-1.7 1.7 1.7 1.7-1.3 1.3L18 13.3l-1.7 1.7-1.3-1.3 1.7-1.7-1.7-1.7z"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path d="M6 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M9.2 16.2L5 12l-1.4 1.4 5.6 5.6L20.4 7.8 19 6.4z"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M11 4h2v9.2l3.6-3.6L18 11l-6 6-6-6 1.4-1.4L11 13.2V4zM5 18h14v2H5z"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M11 20h2v-9.2l3.6 3.6L18 13l-6-6-6 6 1.4 1.4L11 10.8V20zM5 4h14v2H5z"/></symbol>
+  <symbol id="i-chev-left" viewBox="0 0 24 24"><path d="M15.4 5.4L8.8 12l6.6 6.6L14 20 6 12l8-8z"/></symbol>
+  <symbol id="i-chev-right" viewBox="0 0 24 24"><path d="M8.6 5.4L15.2 12l-6.6 6.6L10 20l8-8-8-8z"/></symbol>
+  <symbol id="i-chev-down" viewBox="0 0 24 24"><path d="M5.4 8.6L12 15.2l6.6-6.6L20 10l-8 8-8-8z"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M12 8.5A3.5 3.5 0 1 0 15.5 12 3.5 3.5 0 0 0 12 8.5zm8.9 2.6l1.6 1.3-1.6 2.8-2-.6a7.4 7.4 0 0 1-1.5 1.5l.3 2.1-3 1.1-1.1-1.8a7.6 7.6 0 0 1-2 0l-1.1 1.9-3-1.2.3-2.1a7.4 7.4 0 0 1-1.5-1.5l-2 .6-1.6-2.8 1.6-1.3a7.4 7.4 0 0 1 0-2L2.6 9.9 4.2 7l2 .6a7.4 7.4 0 0 1 1.5-1.5l-.3-2.1L10.4 3l1.1 1.8a7.6 7.6 0 0 1 2 0L14.6 3l3 1.2-.3 2.1a7.4 7.4 0 0 1 1.5 1.5l2-.6 1.6 2.8-1.6 1.3c.1.3.1.6.1.8z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><path d="M12 6.5A5.5 5.5 0 1 1 6.5 12 5.5 5.5 0 0 1 12 6.5zM11 2h2v3h-2zm0 17h2v3h-2zM2 11h3v2H2zm17 0h3v2h-3zM4.2 5.6L6.4 7.8 5 9.2 2.8 7zm13.4 2.2l2.2-2.2 1.4 1.4-2.2 2.2zM5 14.8l1.4 1.4-2.2 2.2-1.4-1.4zm12.6 0l2.2 2.2-1.4 1.4-2.2-2.2z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><path d="M4 5h16v14H4V5zm2 2v8l4-4 3 3 3-3 2 2V7H6zm3 1.5A1.8 1.8 0 1 1 7.2 10.3 1.8 1.8 0 0 1 9 8.5z"/></symbol>
+  <symbol id="i-type" viewBox="0 0 24 24"><path d="M4 5h16v3h-2V7h-4.5v10H16v2H8v-2h2.5V7H6v1H4V5z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6.4 5L12 10.6 17.6 5 19 6.4 13.4 12 19 17.6 17.6 19 12 13.4 6.4 19 5 17.6 10.6 12 5 6.4z"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 2l2.2 6.6L21 11l-6.8 2.4L12 20l-2.2-6.6L3 11l6.8-2.4z"/></symbol>
+  <symbol id="i-eq" viewBox="0 0 24 24"><path d="M3 11h2.6v9H3zM8.2 5h2.6v15H8.2zM13.4 8h2.6v12h-2.6zM18.6 13H21v7h-2.4z"/></symbol>
+  <symbol id="i-queue" viewBox="0 0 24 24"><path d="M4 5h2v2H4zM9 5h11v2H9zM4 11h2v2H4zM9 11h11v2H9zM4 17h2v2H4zM9 17h8v2H9z"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M9 3h6l1 2h4v2H4V5h4l1-2zM6 9h12l-1 12H7L6 9z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 2l10 18H2L12 2zm-1 6v6h2V8h-2zm0 8v2h2v-2h-2z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 1-7.7 10H2.2A10 10 0 1 0 5 5.6V2H3v7h7V7H6.5A8 8 0 0 1 12 4z"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6h-2V7.4l-6.3 6.3-1.4-1.4L16.6 6H14V4zM5 5h6v2H7v10h10v-4h2v6H5V5z"/></symbol>
+  <symbol id="i-dot" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/></symbol>
+  <symbol id="i-connection" viewBox="0 0 24 24"><path d="M9.5 14.5l-1 1a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0l1 1-1.4 1.4-1-1a1.5 1.5 0 0 0-2.2 0l-3 3a1.5 1.5 0 0 0 2.2 2.2l1-1 1.4 1.4zm5-5l1-1a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0l-1-1 1.4-1.4 1 1a1.5 1.5 0 0 0 2.2 0l3-3a1.5 1.5 0 0 0-2.2-2.2l-1 1-1.4-1.4zM9 13.6L13.6 9 15 10.4 10.4 15z"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="M14 3a7 7 0 0 0-6.7 9l-4.6 4.6V21h4.4l1-1v-2h2v-2h2l1.9-1.9A7 7 0 1 0 14 3zm2.5 5.5a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><path d="M6 10V8a6 6 0 0 1 12 0v2h1v11H5V10h1zm2 0h8V8a4 4 0 0 0-8 0v2z"/></symbol>
+  <symbol id="i-drag" viewBox="0 0 24 24"><path d="M7 5h2v2H7zM11 5h2v2h-2zM15 5h2v2h-2zM7 9h2v2H7zM11 9h2v2h-2zM15 9h2v2h-2zM7 13h2v2H7zM11 13h2v2h-2zM15 13h2v2h-2zM7 17h2v2H7zM11 17h2v2h-2zM15 17h2v2h-2z"/></symbol>
+  <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 5l7 7-1.4 1.4L13 8.8V20h-2V8.8L6.4 13.4 5 12z"/></symbol>
+  <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 19l-7-7 1.4-1.4L11 15.2V4h2v11.2l4.6-4.6L19 12z"/></symbol>
+  <symbol id="i-short" viewBox="0 0 24 24"><path d="M4 12h16v2H4zM8 6h8v2H8zM8 18h8v2H8z"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 19a3 3 0 1 1-2-2.8V5l12-2.5V16a3 3 0 1 1-2-2.8V6.4L9 8.2V19z"/></symbol>
+  <symbol id="i-disc" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 2a7 7 0 1 1 0 14 7 7 0 0 1 0-14zm0 5a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></symbol>
+</svg>
+
+<noscript>
+  <p style="padding:24px;color:#fff;font-family:sans-serif">labsoul нужен JavaScript: интерфейс собирается на ES-модулях без сборщика.</p>
+</noscript>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

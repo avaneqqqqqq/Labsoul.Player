@@ -1,6 +1,0 @@
-{
-  "_comment": "Адрес раздачи обновлений. Сюда кладутся setup.exe, latest.yml и .blockmap. Пусто = автообновление выключено.",
-  "url": "",
-  "channel": "latest",
-  "checkOnStart": true
-}

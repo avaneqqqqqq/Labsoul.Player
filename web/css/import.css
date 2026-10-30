@@ -1,0 +1,66 @@
+/* =========================================================================
+   labsoul — импорт по ссылке (Spotify / Яндекс.Музыка / SoundCloud).
+   Ссылка разбирается на сервере, отсюда — только поле и кнопка.
+   ========================================================================= */
+
+.link-import {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 12px 0 18px;
+  padding: 10px 14px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+}
+
+.link-import__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--mute);
+  white-space: nowrap;
+}
+
+.link-import__label svg {
+  width: 14px;
+  height: 14px;
+}
+
+.link-import__input {
+  flex: 1 1 280px;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: rgba(0, 0, 0, .18);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color var(--transition), background var(--transition);
+}
+
+.link-import__input:focus {
+  border-color: var(--accent);
+  background: rgba(0, 0, 0, .3);
+}
+
+.link-import__input::placeholder {
+  color: var(--mute);
+}
+
+@media (max-width: 700px) {
+  .link-import__label {
+    display: none;
+  }
+
+  .link-import__input {
+    flex-basis: 100%;
+  }
+}

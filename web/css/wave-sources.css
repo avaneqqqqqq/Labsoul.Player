@@ -1,0 +1,100 @@
+/* =========================================================================
+   labsoul — выбор источников «Волны».
+   Небольшой самостоятельный слой: подключается после screens.css и использует
+   только существующие токены темы, поэтому работает во всех схемах и стилях.
+   ========================================================================= */
+
+.wave-sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.wave-sources__label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--mute);
+  margin-right: 2px;
+}
+
+.wsrc {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--hover);
+  color: var(--dim);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition),
+    color var(--transition), opacity var(--transition);
+}
+
+.wsrc > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: .3;
+  transition: opacity var(--transition), background var(--transition), box-shadow var(--transition);
+}
+
+.wsrc > u {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #e5674f;
+  text-decoration: none;
+  margin-left: 1px;
+}
+
+.wsrc:hover {
+  background: rgba(255, 255, 255, .12);
+  color: var(--text);
+}
+
+.wsrc.is-on {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, .1);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.wsrc.is-on > i {
+  background: var(--accent);
+  opacity: 1;
+  box-shadow: 0 0 10px var(--accent);
+}
+
+.wsrc.is-off {
+  opacity: .55;
+}
+
+.wsrc.is-off:hover {
+  opacity: .8;
+}
+
+.wsrc:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* на узких экранах подписи можно сократить, чтобы ряд не прыгал */
+@media (max-width: 700px) {
+  .wave-sources__label {
+    display: none;
+  }
+
+  .wsrc {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+}
