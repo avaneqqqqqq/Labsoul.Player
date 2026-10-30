@@ -12,3 +12,7 @@ data/
 .DS_Store
 Thumbs.db
 *.tmp
+
+# сертификаты подписи кода
+*.pfx
+*.cer

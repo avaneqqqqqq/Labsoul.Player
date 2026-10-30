@@ -1,7 +1,7 @@
 {
   "name": "labsoul-desktop",
   "productName": "labsoul",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "labsoul — десктопная оболочка плеера",
   "main": "main.cjs",
@@ -36,12 +36,16 @@
       {
         "from": "../server",
         "to": "server",
-        "filter": ["**/*.mjs"]
+        "filter": [
+          "**/*.mjs"
+        ]
       },
       {
         "from": "../web",
         "to": "web",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       },
       {
         "from": "../README.md",
@@ -54,7 +58,9 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "artifactName": "labsoul-${version}-${arch}.${ext}"
@@ -73,5 +79,8 @@
       "repo": "Ymuz.mod",
       "releaseType": "release"
     }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
   }
 }

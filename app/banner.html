@@ -12,8 +12,10 @@
     font: 13px/1.35 "Segoe UI", system-ui, -apple-system, sans-serif;
     -webkit-user-select: none;
     user-select: none;
+    overflow: hidden;
   }
   .banner {
+    position: relative;
     display: flex;
     align-items: center;
     gap: 12px;
@@ -24,6 +26,7 @@
     border: 1px solid rgba(255, 210, 63, .45);
     box-shadow: 0 18px 44px -18px rgba(0, 0, 0, .9);
     color: #f2f2f5;
+    overflow: hidden;
   }
   .mark {
     width: 34px;
@@ -38,6 +41,7 @@
     font-size: 15px;
     letter-spacing: -.02em;
   }
+  .mark.busy { background: #6f6f7b; color: #f2f2f5; }
   .text { min-width: 0; flex: 1; }
   .title { font-weight: 600; font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .sub { color: #a2a2ad; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -51,48 +55,120 @@
     background: rgba(255, 255, 255, .06);
     color: #f2f2f5;
     cursor: pointer;
-    transition: background .15s, border-color .15s;
+    transition: background .15s, border-color .15s, opacity .15s;
   }
   button:hover { background: rgba(255, 255, 255, .13); }
   button.primary { background: #ffd23f; border-color: #ffd23f; color: #17140a; font-weight: 600; }
   button.primary:hover { background: #ffdc6b; }
+  button[disabled] { opacity: .55; cursor: default; }
   button:focus-visible { outline: 2px solid #ffd23f; outline-offset: 2px; }
+
+  /* тонкая полоса прогресса по нижней кромке */
+  .progress {
+    position: absolute;
+    left: 0;
+    bottom: 0;
+    height: 3px;
+    width: 0;
+    background: #ffd23f;
+    transition: width .25s ease;
+  }
+  .banner[data-mode="error"] { border-color: rgba(229, 103, 79, .6); }
+  .banner[data-mode="error"] .title { color: #ffb4a3; }
 </style>
 </head>
 <body>
-  <div class="banner">
-    <div class="mark">ls</div>
+  <div class="banner" id="banner" data-mode="available">
+    <div class="mark" id="mark">ls</div>
     <div class="text">
       <div class="title" id="title">Доступно обновление</div>
-      <div class="sub" id="sub">labsoul — новая версия</div>
+      <div class="sub" id="sub">labsoul</div>
     </div>
-    <div class="actions">
-      <button type="button" class="primary" data-action="download">Скачать</button>
-      <button type="button" data-action="later">Позже</button>
+    <div class="actions" id="actions">
+      <button type="button" class="primary" data-action="download" id="primary">Скачать</button>
+      <button type="button" data-action="later" id="secondary">Позже</button>
     </div>
+    <div class="progress" id="progress"></div>
   </div>
 
 <script>
   const bridge = window.labsoulBanner;
+  const banner = document.getElementById('banner');
+  const mark = document.getElementById('mark');
   const title = document.getElementById('title');
   const sub = document.getElementById('sub');
+  const primary = document.getElementById('primary');
+  const secondary = document.getElementById('secondary');
+  const progress = document.getElementById('progress');
 
-  if (bridge && typeof bridge.onState === 'function') {
-    bridge.onState((state) => {
-      if (!state) return;
-      title.textContent = `Доступна версия ${state.version || ''}`.trim();
-      sub.textContent = state.current ? `у вас ${state.current} · labsoul` : 'labsoul';
-    });
+  function render(state) {
+    if (!state) return;
+    const mode = state.mode || 'available';
+    const version = state.version ? String(state.version) : '';
+    const current = state.current ? String(state.current) : '';
+    banner.dataset.mode = mode;
+    progress.style.width = '0%';
+    mark.classList.remove('busy');
+    primary.disabled = false;
+
+    if (mode === 'available') {
+      mark.textContent = 'ls';
+      title.textContent = 'Доступна версия ' + version;
+      sub.textContent = (current ? 'у вас ' + current + ' · ' : '') + 'скачать и установить';
+      primary.textContent = 'Скачать';
+      primary.dataset.action = 'download';
+      secondary.textContent = 'Позже';
+      secondary.dataset.action = 'later';
+      return;
+    }
+
+    if (mode === 'downloading') {
+      mark.textContent = version.split('.')[0] ? version.split('.')[0] : 'ls';
+      mark.classList.add('busy');
+      title.textContent = 'Скачиваем ' + version;
+      sub.textContent = (state.percent || 0) + '% · можно свернуть, загрузка продолжится';
+      primary.textContent = 'Загрузка…';
+      primary.disabled = true;
+      secondary.textContent = 'Скрыть';
+      secondary.dataset.action = 'hide';
+      progress.style.width = Math.max(2, Math.min(100, state.percent || 0)) + '%';
+      return;
+    }
+
+    if (mode === 'ready') {
+      mark.textContent = '✓';
+      title.textContent = 'Версия ' + version + ' готова';
+      sub.textContent = 'перезапустите labsoul, чтобы установить';
+      primary.textContent = 'Перезапустить';
+      primary.dataset.action = 'restart';
+      secondary.textContent = 'Позже';
+      secondary.dataset.action = 'later';
+      progress.style.width = '100%';
+      return;
+    }
+
+    if (mode === 'error') {
+      mark.textContent = '!';
+      mark.classList.add('busy');
+      title.textContent = 'Не удалось скачать обновление';
+      sub.textContent = state.error || 'откройте страницу релиза и скачайте вручную';
+      primary.textContent = 'Страница релиза';
+      primary.dataset.action = 'download';
+      secondary.textContent = 'Скрыть';
+      secondary.dataset.action = 'hide';
+    }
   }
 
-  for (const button of document.querySelectorAll('button[data-action]')) {
-    button.addEventListener('click', () => {
-      if (bridge && typeof bridge.action === 'function') bridge.action(button.dataset.action);
-    });
-  }
+  if (bridge && typeof bridge.onState === 'function') bridge.onState(render);
+
+  document.addEventListener('click', (event) => {
+    const button = event.target.closest('button[data-action]');
+    if (!button || button.disabled) return;
+    if (bridge && typeof bridge.action === 'function') bridge.action(button.dataset.action);
+  });
 
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape' && bridge) bridge.action('later');
+    if (event.key === 'Escape' && bridge) bridge.action('hide');
   });
 </script>
 </body>

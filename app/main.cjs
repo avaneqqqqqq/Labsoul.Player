@@ -487,7 +487,15 @@ ipcMain.handle('auth:yandex', () => signInYandex());
 const BANNER_W = 560;
 const BANNER_H = 78;
 let bannerWin = null;
-let pendingUpdate = null;
+
+/** Состояние обновления: idle → available → downloading → ready | error. */
+const updateFlow = {
+  phase: 'idle',
+  version: null,
+  url: null,
+  percent: 0,
+  error: null,
+};
 
 const appSettingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
@@ -507,6 +515,76 @@ function writeAppSettings(patch) {
   } catch { /* настройки окна — не критично */ }
 }
 
+/* --------------------------- автообновление ------------------------------ */
+
+let updater = null;
+let updaterTried = false;
+
+/** electron-updater подключаем лениво: в dev-режиме он не нужен. */
+function getUpdater() {
+  if (updaterTried) return updater;
+  updaterTried = true;
+  try {
+    ({ autoUpdater: updater } = require('electron-updater'));
+    log('electron-updater загружен');
+  } catch (err) {
+    updater = null;
+    log('electron-updater недоступен: ' + ((err && err.message) || err));
+  }
+  return updater;
+}
+
+function setupUpdater() {
+  const instance = getUpdater();
+  if (!instance) return;
+  if (!IS_PACKAGED) {
+    log('автообновление выключено: режим разработки');
+    return;
+  }
+
+  instance.autoDownload = false;
+  instance.autoInstallOnAppQuit = true;
+  instance.allowPrerelease = false;
+  instance.allowDowngrade = false;
+
+  instance.on('download-progress', (progress) => {
+    updateFlow.percent = Number(progress && progress.percent) || 0;
+    if (updateFlow.phase === 'downloading') sendBannerState();
+  });
+
+  instance.on('update-downloaded', (info) => {
+    updateFlow.phase = 'ready';
+    updateFlow.version = (info && info.version) || updateFlow.version;
+    updateFlow.percent = 100;
+    log('обновление скачано: ' + updateFlow.version);
+    showUpdateBanner();
+  });
+
+  instance.on('error', (err) => {
+    log('ошибка автообновления: ' + ((err && err.message) || err));
+    if (updateFlow.phase === 'downloading' || updateFlow.phase === 'ready') {
+      updateFlow.phase = 'error';
+      updateFlow.error = (err && err.message) || 'не удалось скачать обновление';
+      showUpdateBanner();
+    }
+  });
+
+  log('автообновление включено');
+}
+
+/* ----------------------- уведомление об обновлении ----------------------- */
+
+function bannerState() {
+  return {
+    mode: updateFlow.phase,
+    version: updateFlow.version,
+    current: app.getVersion(),
+    percent: Math.round(updateFlow.percent || 0),
+    url: updateFlow.url,
+    error: updateFlow.error,
+  };
+}
+
 function positionBanner() {
   if (!bannerWin || bannerWin.isDestroyed() || !mainWindow || mainWindow.isDestroyed()) return;
   const bounds = mainWindow.getBounds();
@@ -518,11 +596,14 @@ function positionBanner() {
   });
 }
 
+function sendBannerState() {
+  if (bannerWin && !bannerWin.isDestroyed()) bannerWin.webContents.send('banner:state', bannerState());
+}
+
 /** Плавающая плашка поверх окна плеера — как в прежней оболочке. */
-function showUpdateBanner(info) {
-  pendingUpdate = info;
+function showUpdateBanner() {
   if (bannerWin && !bannerWin.isDestroyed()) {
-    bannerWin.webContents.send('banner:state', info);
+    sendBannerState();
     positionBanner();
     bannerWin.showInactive();
     return;
@@ -552,63 +633,105 @@ function showUpdateBanner(info) {
 
   bannerWin.loadFile(path.join(__dirname, 'banner.html'));
   bannerWin.webContents.on('did-finish-load', () => {
-    bannerWin.webContents.send('banner:state', info);
+    sendBannerState();
     positionBanner();
     bannerWin.showInactive();
   });
   bannerWin.on('closed', () => { bannerWin = null; });
-  log(`баннер обновления: доступна версия ${info.version}`);
+  log('баннер обновления: ' + updateFlow.phase + ' ' + (updateFlow.version || ''));
 }
 
 function hideUpdateBanner() {
   if (bannerWin && !bannerWin.isDestroyed()) bannerWin.close();
 }
 
-ipcMain.on('banner:action', (_event, action) => {
-  if (action === 'download') {
-    if (pendingUpdate && pendingUpdate.url) shell.openExternal(pendingUpdate.url);
+/** Скачиваем обновление через electron-updater; если нельзя — открываем страницу релиза. */
+async function startDownload() {
+  const instance = getUpdater();
+  if (!instance || !IS_PACKAGED) {
+    if (updateFlow.url) shell.openExternal(updateFlow.url);
     hideUpdateBanner();
     return;
   }
-  if (action === 'later') {
-    // запоминаем версию, чтобы не всплывать с тем же обновлением каждый запуск
-    writeAppSettings({ dismissedUpdate: (pendingUpdate && pendingUpdate.version) || '' });
-    hideUpdateBanner();
+
+  updateFlow.phase = 'downloading';
+  updateFlow.percent = 0;
+  updateFlow.error = null;
+  showUpdateBanner();
+
+  try {
+    const check = await instance.checkForUpdates();
+    if (!check || !check.updateInfo) throw new Error('обновление не найдено на сервере релизов');
+    await instance.downloadUpdate();
+  } catch (err) {
+    log('скачивание обновления не удалось: ' + ((err && err.message) || err));
+    updateFlow.phase = 'error';
+    updateFlow.error = (err && err.message) || 'не удалось скачать обновление';
+    showUpdateBanner();
   }
+}
+
+/** Перезапуск с установкой скачанного обновления. */
+function restartToInstall() {
+  const instance = getUpdater();
+  if (instance && updateFlow.phase === 'ready') {
+    try {
+      quitting = true;
+      instance.quitAndInstall(false, true);
+      return;
+    } catch (err) {
+      log('quitAndInstall не сработал: ' + ((err && err.message) || err));
+    }
+  }
+  if (updateFlow.url) shell.openExternal(updateFlow.url);
+  hideUpdateBanner();
+}
+
+ipcMain.on('banner:action', (_event, action) => {
+  if (action === 'download') { startDownload(); return; }
+  if (action === 'restart') { restartToInstall(); return; }
+  if (action === 'later') {
+    writeAppSettings({ dismissedUpdate: updateFlow.version || '' });
+    hideUpdateBanner();
+    return;
+  }
+  if (action === 'hide') hideUpdateBanner();
 });
 
 /** Спрашиваем локальный сервер (он кэширует ответ GitHub на час). */
 async function checkUpdates({ manual = false } = {}) {
   try {
-    const res = await fetch(`http://127.0.0.1:${currentPort}/api/update`, {
+    const res = await fetch('http://127.0.0.1:' + currentPort + '/api/update', {
       signal: AbortSignal.timeout(15000),
     });
     const data = await res.json();
-    log(`обновления: текущая ${data.current}, доступна ${data.latest ? data.latest.version : 'нет'}`);
+    log('обновления: текущая ' + data.current + ', доступна ' + (data.latest ? data.latest.version : 'нет'));
 
     if (!data.updateAvailable || !data.latest) {
       if (manual) {
         dialog.showMessageBox({
           type: 'info',
           title: 'Обновления',
-          message: `У вас последняя версия${data.current ? ` (${data.current})` : ''}`,
+          message: 'У вас последняя версия' + (data.current ? ' (' + data.current + ')' : ''),
         });
       }
       hideUpdateBanner();
       return;
     }
 
+    updateFlow.phase = 'available';
+    updateFlow.version = data.latest.version;
+    updateFlow.url = data.latest.url;
+    updateFlow.percent = 0;
+    updateFlow.error = null;
+
     const dismissed = readAppSettings().dismissedUpdate;
     if (!manual && dismissed === data.latest.version) return;
 
-    showUpdateBanner({
-      version: data.latest.version,
-      url: data.latest.url,
-      current: data.current,
-    });
+    showUpdateBanner();
   } catch (err) {
-    log('проверка обновлений не удалась: ' + err.message);
-    if (manual) dialog.showErrorBox('Не удалось проверить обновления', err.message);
+    log('проверка обновлений не удалась: ' + ((err && err.message) || err));
+    if (manual) dialog.showErrorBox('Не удалось проверить обновления', (err && err.message) || String(err));
   }
 }
 
@@ -730,16 +853,19 @@ if (!app.requestSingleInstanceLock()) {
     createWindow(currentPort);
     buildMenu();
     createTray();
+    setupUpdater();
 
     // проверка обновлений: не сразу, чтобы не мешать старту
     setTimeout(() => checkUpdates(), 4000);
 
     // проверка внешнего вида уведомления без реального релиза: labsoul.exe --fake-update
     if (process.argv.includes('--fake-update')) {
-      setTimeout(
-        () => showUpdateBanner({ version: '9.9.9', url: 'https://github.com/avaneqqqqqq/Ymuz.mod/releases', current: '0.1.0' }),
-        2500,
-      );
+      setTimeout(() => {
+        updateFlow.phase = 'available';
+        updateFlow.version = '9.9.9';
+        updateFlow.url = 'https://github.com/avaneqqqqqq/Ymuz.mod/releases';
+        showUpdateBanner();
+      }, 2500);
     }
 
     // медиа-клавиши клавиатуры
