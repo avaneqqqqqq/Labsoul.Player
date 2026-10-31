@@ -11,6 +11,8 @@ const HOSTS = [
   'https://api.music.yandex.net',
   // запасные точки того же сервиса (тот же API, другая балансировка)
   'https://api.music.yandex.ru',
+  // фронтовые хосты того же API: отвечают тем же контрактом
+  'https://music.yandex.ru/api',
 ];
 
 const CHECK_TTL_MS = 5 * 60 * 1000;
@@ -38,19 +40,33 @@ export async function resolveHost(probe, { force = false } = {}) {
   const envHost = process.env.YANDEX_API_BASE;
   const candidates = envHost ? [envHost.replace(/\/+$/, ''), ...HOSTS] : HOSTS;
 
-  for (const host of candidates) {
+  // Опрашиваем ВСЕ точки параллельно: при последовательном переборе таймаут
+  // первого хоста (api.music.yandex.net блокируется в РФ) съедал всё время,
+  // и рабочий запасной адрес даже не успевал ответить.
+  const checks = candidates.map(async (host) => {
     try {
       const response = await probe(`${host}/rotor/stations/list`, {});
       if (response && (response.ok || response.status === 401 || response.status === 403)) {
         // 401/403 значит «хост живой, но нужен токен» — это нормально
-        activeHost = host;
-        checkedAt = Date.now();
-        lastResult = { ok: true, host, at: new Date().toISOString() };
         return host;
       }
+      return null;
     } catch (err) {
       lastResult = { ok: false, host, error: (err && err.message) || 'недоступен', at: new Date().toISOString() };
+      return null;
     }
+  });
+
+  // берём первый ответивший (по порядку приоритета в candidates)
+  const results = await Promise.all(checks);
+  const index = results.findIndex((value) => value);
+  const chosen = index >= 0 ? results[index] : null;
+
+  if (chosen) {
+    activeHost = chosen;
+    checkedAt = Date.now();
+    lastResult = { ok: true, host: chosen, at: new Date().toISOString() };
+    return chosen;
   }
 
   activeHost = null;

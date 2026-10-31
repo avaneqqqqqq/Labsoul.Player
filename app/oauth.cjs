@@ -91,8 +91,9 @@ function tokenFromAuthorizationHeader(value) {
   if (typeof value !== 'string') return null;
   const match = /^OAuth\s+(\S+)$/i.exec(value.trim());
   if (!match) return null;
-  const token = match[1];
-  return /^[A-Za-z0-9_.-]{20,}$/.test(token) ? token : null;
+  // та же проверка, что и для адреса возврата: реальные токены бывают короче
+  // 20 символов, из-за старого требования вход через окно не срабатывал
+  return /^[A-Za-z0-9_.\-]{8,}$/.test(match[1]) ? match[1] : null;
 }
 
 /** Понятный текст для диалога, когда Яндекс вернул ошибку. */

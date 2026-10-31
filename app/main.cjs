@@ -495,14 +495,19 @@ function signInYandexSite() {
  *   3. если оба пути не сработали — предложение вставить токен вручную.
  */
 async function signInYandex() {
-  const oauthResult = await signInYandexOAuth();
-  if (oauthResult.ok) return oauthResult;
-  // закрытие окна или отказ пользователя — это осознанные действия, не повторяем
-  if (oauthResult.error === 'closed' || oauthResult.error === 'access_denied') return oauthResult;
-
+  // Основной путь — вход на самом сайте Яндекс.Музыки: пользователь обычно уже
+  // залогинен в Яндексе, поэтому достаточно открыть сервис, а токен перехватывается
+  // из запросов к api.music.yandex.net. OAuth-страница (oauth.yandex.ru/authorize)
+  // показывает общую авторизацию Яндекса и часто не возвращает токен в адресе —
+  // из-за этого окно открывалось, а подключение не происходило.
   const siteResult = await signInYandexSite();
   if (siteResult.ok) return siteResult;
   if (siteResult.error === 'closed') return siteResult;
+
+  // запасной путь: OAuth-приложение, если перехват на сайте не сработал
+  const oauthResult = await signInYandexOAuth();
+  if (oauthResult.ok) return oauthResult;
+  if (oauthResult.error === 'closed' || oauthResult.error === 'access_denied') return oauthResult;
 
   const choice = dialog.showMessageBoxSync(mainWindow || undefined, {
     type: 'question',

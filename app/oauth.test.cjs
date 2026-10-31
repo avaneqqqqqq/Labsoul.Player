@@ -106,6 +106,13 @@ check('чужая схема не принимается', () => {
   equal(tokenFromAuthorizationHeader(undefined), null);
 });
 
+check('короткий токен из заголовка принимается', () => {
+  // регрессия: раньше требовалось ≥20 символов, и вход через окно Яндекс.Музыки
+  // не срабатывал — токен из заголовка Authorization отбрасывался
+  equal(tokenFromAuthorizationHeader('OAuth y0_AgAAAAAXyz12345'), 'y0_AgAAAAAXyz12345');
+  equal(tokenFromAuthorizationHeader('OAuth AQAAAAAmTxyzABCDEF'), 'AQAAAAAmTxyzABCDEF');
+});
+
 check('слишком короткий токен в заголовке отбрасывается', () => {
   equal(tokenFromAuthorizationHeader('OAuth abc'), null);
 });
