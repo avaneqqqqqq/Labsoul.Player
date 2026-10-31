@@ -80,4 +80,25 @@ module.exports = async function afterPack(context) {
   res.outputResource(exe);
   fs.writeFileSync(exePath, Buffer.from(exe.generate()));
   console.log(`[afterpack] ресурсы exe обновлены: labsoul ${version}`);
+
+  // Подписываем сам labsoul.exe, а не только установщик: неподписанный
+  // Electron-бинарник вызывает ложные срабатывания антивирусов.
+  const signScript = path.join(__dirname, '..', '..', 'tools', 'sign-installer.ps1');
+  const pfxPath = path.join(__dirname, '..', '..', 'cert-test.pfx');
+  if (!fs.existsSync(signScript) || !fs.existsSync(pfxPath)) {
+    console.warn('[afterpack] сертификат не найден — exe останется неподписанным');
+    return;
+  }
+  try {
+    const { execFileSync } = require('node:child_process');
+    execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', signScript,
+        '-File', exePath, '-Pfx', pfxPath, '-Password', 'labsoul'],
+      { stdio: 'inherit' },
+    );
+    console.log('[afterpack] labsoul.exe подписан');
+  } catch (err) {
+    console.warn('[afterpack] подпись exe не удалась:', err.message);
+  }
 };
