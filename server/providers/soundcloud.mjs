@@ -19,6 +19,8 @@
  * {buffer, contentType:'audio/mp4', repeatable:false}.
  */
 
+import * as proxy from '../proxy.mjs';
+
 export const id = 'soundcloud';
 
 const API_ORIGIN = 'https://api-v2.soundcloud.com';
@@ -130,6 +132,9 @@ async function httpFetch(url, { method = 'GET', headers = {}, body, timeout = TI
     'accept-language': 'en-US,en;q=0.9',
     ...headers,
   };
+  // Прокси применяется ТОЛЬКО к запросам SoundCloud: медиа-серверы сервиса
+  // недоступны из РФ. Остальные источники (Яндекс, Spotify) ходят напрямую.
+  const dispatcher = proxy.soundcloudDispatcher();
   try {
     return await fetch(url, {
       method,
@@ -137,6 +142,7 @@ async function httpFetch(url, { method = 'GET', headers = {}, body, timeout = TI
       body,
       redirect: 'follow',
       signal: AbortSignal.timeout(timeout),
+      ...(dispatcher ? { dispatcher } : {}),
     });
   } catch (error) {
     throw fail('UPSTREAM', networkMessage(url, error, timeout));

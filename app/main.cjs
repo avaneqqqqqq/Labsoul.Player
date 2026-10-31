@@ -118,18 +118,23 @@ function startServer(port) {
 function stopServer() {
   if (!serverProcess) return;
   log('остановка сервера');
+
+  // Убиваем ТОЛЬКО дочерний процесс по его PID. Раньше здесь стоял
+  // `taskkill /IM labsoul.exe /T` — он отстреливал все процессы labsoul,
+  // включая сам Electron, из-за чего приложение закрывалось сразу после старта.
+  const childPid = serverProcess.pid;
   try {
     serverProcess.kill();
   } catch { /* уже умер */ }
   serverProcess = null;
 
-  // Установщик обновления должен получить свободные файлы сразу: если
-  // дочерний процесс не успел завершиться, он держит labsoul.exe и установка
-  // падает с «Не удалось закрыть labsoul». Добиваем его принудительно.
-  if (process.platform === 'win32') {
+  if (process.platform === 'win32' && childPid) {
     try {
       const { execFileSync } = require('node:child_process');
-      execFileSync('taskkill', ['/F', '/IM', 'labsoul.exe', '/T'], { stdio: 'ignore', timeout: 5000 });
+      execFileSync('taskkill', ['/F', '/PID', String(childPid), '/T'], {
+        stdio: 'ignore',
+        timeout: 5000,
+      });
     } catch { /* процесса уже нет — это нормально */ }
   }
 }

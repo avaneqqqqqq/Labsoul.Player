@@ -43,6 +43,33 @@ const STATE = {
   error: null,
 };
 
+/**
+ * Агент прокси ТОЛЬКО для SoundCloud.
+ *
+ * Прокси нужен исключительно из-за недоступности медиа-серверов SoundCloud
+ * из РФ. Яндекс, Spotify, тексты, обновления и локальная музыка должны ходить
+ * напрямую — прокси для них только вредит (медленно, нестабильно, лишняя утечка).
+ */
+let soundcloudAgent = null;
+
+/** Dispatcher для запросов SoundCloud (прокси) или null — значит напрямую. */
+export function soundcloudDispatcher() {
+  if (!STATE.resolved) return null;
+  if (soundcloudAgent) return soundcloudAgent;
+  if (!ProxyAgent) return null;
+  try {
+    soundcloudAgent = new ProxyAgent({
+      uri: STATE.resolved,
+      connectTimeout: 8000,
+      requestTls: { rejectUnauthorized: false },
+      proxyTls: { rejectUnauthorized: false },
+    });
+    return soundcloudAgent;
+  } catch {
+    return null;
+  }
+}
+
 /** Проверка формата прокси: socks5://хост:порт, http://хост:порт, хост:порт. */
 export function normalizeProxy(value) {
   let text = String(value || '').trim();
@@ -94,26 +121,53 @@ function readSystemProxy() {
   });
 }
 
-/** Применить прокси ко всем запросам fetch (глобальный dispatcher undici). */
+/**
+ * Быстрая проверка, жив ли прокси: стучимся на лёгкий адрес.
+ * Мёртвый прокси (публичные живут часами) иначе вешает ВСЕ запросы на 8 секунд.
+ */
+async function isAlive(url, timeout = 6000) {
+  const ready = await loadUndici();
+  if (!ready) return false;
+  try {
+    const agent = new ProxyAgent({ uri: url, connectTimeout: 4000 });
+    const response = await fetch('http://httpbin.org/ip', {
+      dispatcher: agent,
+      signal: AbortSignal.timeout(timeout),
+      headers: { 'user-agent': 'labsoul' },
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Прокси применяется ТОЛЬКО к SoundCloud (см. soundcloudDispatcher ниже).
+ * Яндекс, Spotify, тексты, обновления и локальная музыка идут напрямую.
+ */
 async function applyProxy(url) {
   const ready = await loadUndici();
   if (!ready) {
     STATE.resolved = '';
     STATE.source = null;
+    soundcloudAgent = null;
     STATE.error = 'модуль undici недоступен — прокси не включится';
     return;
   }
 
+  // Глобальный dispatcher намеренно НЕ трогаем: прокси применяется точечно,
+  // только к запросам SoundCloud через soundcloudDispatcher().
+  soundcloudAgent = null;
+
   if (!url) {
-    // без прокси — обычный агент
-    try { setGlobalDispatcher(Agent ? new Agent() : new (await import('undici')).Agent()); } catch { /* остаётся прежний */ }
     STATE.resolved = '';
     STATE.source = null;
     return;
   }
 
   try {
-    setGlobalDispatcher(new ProxyAgent(url));
+    // проверяем, что адрес валиден для ProxyAgent
+    new ProxyAgent(url);
     STATE.resolved = url;
   } catch (err) {
     STATE.resolved = '';
@@ -153,6 +207,14 @@ export async function refresh(settings = {}) {
   }
 
   STATE.checkedAt = Date.now();
+  // мёртвый прокси не подключаем: иначе каждый запрос ждёт таймаут
+  if (url && (await isAlive(url)) === false) {
+    STATE.error = 'прокси не отвечает — работаем напрямую';
+    await applyProxy('');
+    STATE.checkedAt = Date.now();
+    return status();
+  }
+
   await applyProxy(url);
   STATE.source = STATE.resolved ? source : null;
   STATE.checkedAt = Date.now();
