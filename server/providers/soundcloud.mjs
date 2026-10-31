@@ -171,6 +171,63 @@ async function httpText(url, { method = 'GET', headers = {}, body, timeout = TIM
   return { ok: response.ok, status: response.status, body: text };
 }
 
+/**
+ * Загрузка больших файлов кусками с Range.
+ *
+ * Из некоторых сетей (в частности из РФ) медиа-CDN SoundCloud обрывает ответы
+ * объёмом больше ~32 КБ, хотя небольшие куски приходят мгновенно. Поэтому
+ * качаем порциями и склеиваем.
+ */
+const CHUNK_BYTES = 8 * 1024;
+
+async function httpBufferChunked(url, { headers = {}, timeout = TIMEOUT_MS, maxBytes = MAX_HLS_BYTES } = {}) {
+  // 1) узнаём размер файла
+  let total = 0;
+  try {
+    const head = await httpFetch(url, { method: 'HEAD', headers, timeout });
+    total = Number(head.headers.get('content-length') || 0);
+  } catch {
+    total = 0;
+  }
+
+  // размер неизвестен или влезает в один запрос — обычный путь
+  if (!total || total <= CHUNK_BYTES) {
+    return await httpBuffer(url, { headers, timeout });
+  }
+
+  if (total > maxBytes) {
+    throw fail('NOT_SUPPORTED', `HLS-поток SoundCloud больше лимита буфера (${Math.round(maxBytes / 1048576)} МБ)`);
+  }
+
+  // 2) качаем кусками по CHUNK_BYTES
+  const parts = [];
+  for (let start = 0; start < total; start += CHUNK_BYTES) {
+    const end = Math.min(start + CHUNK_BYTES - 1, total - 1);
+    let attempt = 0;
+    let done = false;
+    while (!done && attempt < 5) {
+      attempt += 1;
+      try {
+        const response = await httpFetch(url, {
+          headers: { ...headers, range: `bytes=${start}-${end}` },
+          // короткий таймаут: кусок 8 КБ либо приходит за десятки мс,
+          // либо сеть его обрывает — ждать 15 секунд бессмысленно
+          timeout: Math.min(timeout, 8000),
+        });
+        if (response.status !== 206 && response.status !== 200) {
+          throw fail('UPSTREAM', `HLS-сегмент SoundCloud недоступен (HTTP ${response.status})`);
+        }
+        parts.push(Buffer.from(await response.arrayBuffer()));
+        done = true;
+      } catch (error) {
+        if (attempt >= 5) throw error;
+      }
+    }
+  }
+
+  return { ok: true, status: 206, buffer: Buffer.concat(parts), headers: new Headers() };
+}
+
 async function httpBuffer(url, { headers = {}, timeout = TIMEOUT_MS } = {}) {
   const response = await httpFetch(url, { headers, timeout });
   let buffer;
@@ -859,7 +916,7 @@ async function hlsToBuffer(playlistUrl, transcoding) {
   const parts = [];
   let total = 0;
   if (initUrl) {
-    const init = await httpBuffer(initUrl, { timeout: TIMEOUT_MS });
+    const init = await httpBufferChunked(initUrl, { timeout: TIMEOUT_MS });
     if (!init.ok) throw fail('UPSTREAM', `HLS init-сегмент SoundCloud недоступен (HTTP ${init.status})`);
     total += init.buffer.length;
     parts.push(init.buffer);
@@ -875,7 +932,7 @@ async function hlsToBuffer(playlistUrl, transcoding) {
       cursor += 1;
       if (index >= segments.length) return;
       try {
-        const chunk = await httpBuffer(segments[index], { timeout: TIMEOUT_MS });
+        const chunk = await httpBufferChunked(segments[index], { timeout: TIMEOUT_MS });
         if (!chunk.ok) {
           throw fail('UPSTREAM', `HLS-сегмент SoundCloud #${index} недоступен (HTTP ${chunk.status})`);
         }
