@@ -417,9 +417,8 @@ export async function feedback(event) {
     batchId: event.batchId || '',
     timestamp: new Date().toISOString(),
   };
-  if (typeof event.position === 'number' && Number.isFinite(event.position)) {
-    body.totalPlayedSeconds = Math.max(0, Math.round(event.position));
-  }
+  // Яндекс требует это поле всегда, иначе 400 «Some parts were not parsed»
+  body.totalPlayedSeconds = Math.max(0, Math.round(Number(event.position) || 0));
 
   try {
     await request(`/rotor/station/${encodeURIComponent(station)}/feedback`, { method: 'POST', body });

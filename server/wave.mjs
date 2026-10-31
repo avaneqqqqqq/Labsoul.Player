@@ -72,6 +72,17 @@ export function normalizeSources(input) {
 const HERE_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SEEN_FILE = path.join(process.env.PLAYER_DATA_DIR || path.join(HERE_DIR, '..', 'data'), 'wave-seen.json');
 const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
+
+// когда «Моя волна» иссякла, продолжаем родственными станциями —
+// иначе лента либо встаёт, либо начинает круг заново
+const FALLBACK_STATIONS = [
+  'personal:never-heard',
+  'personal:missed-likes',
+  'personal:hits',
+  'mood:energetic',
+  'mood:dark',
+  'genre:rap',
+];
 const SEEN_MAX = 2500;
 
 /** station -> Map(id -> когда показали) */
@@ -205,7 +216,25 @@ export async function getWave(limit = 20, station = DEFAULT_STATION, sources = n
     items = items.concat(more);
   }
 
-  // всё уже показано — начинаем круг заново, чтобы лента не вставала
+  // личная волна иссякла — тянем с родственных станций, а не повторяем старое
+  if (items.length < want && wanted.includes('yandex')) {
+    for (const alt of FALLBACK_STATIONS) {
+      if (items.length >= want) break;
+      if (alt === station) continue;
+      try {
+        const altBatch = await yandexBatch(want - items.length, alt);
+        const more = (altBatch.items || [])
+          .filter((track) => track.id && !items.some((item) => item.id === track.id) && !wasSeen(station, track.id));
+        if (!more.length) continue;
+        more.forEach((track) => markSeen(station, track.id));
+        items = items.concat(more);
+      } catch (err) {
+        store.log('[wave] соседняя станция не ответила:', err.message);
+      }
+    }
+  }
+
+  // совсем ничего нового — только тогда повторяем, чтобы лента не встала
   if (!items.length) {
     seenMap(station).clear();
     items = interleave(usable, want);
