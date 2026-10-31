@@ -14,7 +14,7 @@ const link = (url, text = url) =>
 const code = (text) => `<code>${text}</code>`;
 
 /** Копируемое значение: клик — и текст в буфере обмена. */
-const copy = (text, label = '') =>
+export const copy = (text, label = '') =>
   `<button class="tokens__copy" type="button" data-copy="${text}" title="Копировать">${label || text}${icon('copy')}</button>`;
 
 /** Общая обёртка шагов. */
