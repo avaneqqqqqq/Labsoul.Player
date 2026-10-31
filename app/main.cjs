@@ -703,8 +703,22 @@ async function startDownload() {
   showUpdateBanner();
 
   try {
-    const check = await instance.checkForUpdates();
-    if (!check || !check.updateInfo) throw new Error('обновление не найдено на сервере релизов');
+    // electron-updater требует, чтобы проверка завершилась и сохранила updateInfo,
+    // иначе downloadUpdate() отвечает «Please check update first». Дождёмся
+    // события update-available (или update-not-available) и только потом качаем.
+    const info = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("сервер обновлений не ответил")), 30000);
+      const done = (value) => { clearTimeout(timer); resolve(value); };
+      const fail = (error) => { clearTimeout(timer); reject(error); };
+
+      instance.once("update-available", (value) => done(value));
+      instance.once("update-not-available", () => done(null));
+      instance.once("error", (error) => fail(error));
+
+      Promise.resolve(instance.checkForUpdates()).catch(fail);
+    });
+
+    if (!info) throw new Error("установлена последняя версия");
     await instance.downloadUpdate();
   } catch (err) {
     log('скачивание обновления не удалось: ' + ((err && err.message) || err));
