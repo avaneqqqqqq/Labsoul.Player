@@ -263,6 +263,38 @@ export async function ping(timeout = 1800) {
 /* API                                                                 */
 /* ------------------------------------------------------------------ */
 
+/** Состояние сети и прокси. */
+export async function getNetwork() {
+  try {
+    return await request('/api/network', { timeout: 8000 });
+  } catch {
+    return { active: false, error: null };
+  }
+}
+
+/** Сохранить настройки прокси (применяются сразу). */
+export async function saveNetwork({ proxy = '', useSystemProxy = false }) {
+  try {
+    const data = await request('/api/network', {
+      method: 'PUT',
+      body: { proxy, useSystemProxy },
+      timeout: 15000,
+    });
+    return { ok: true, ...data };
+  } catch (err) {
+    return { ok: false, error: err?.message || 'Не удалось сохранить прокси' };
+  }
+}
+
+/** Проверить соединение с SoundCloud (через прокси, если включён). */
+export async function testNetwork() {
+  try {
+    return await request('/api/network/test', { method: 'POST', body: {}, timeout: 25000 });
+  } catch (err) {
+    return { error: err?.message || 'проверка не удалась' };
+  }
+}
+
 export function streamUrl(track) {
   if (!track) return null;
   const source = encodeURIComponent(track.source);

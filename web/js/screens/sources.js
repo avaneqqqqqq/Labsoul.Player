@@ -3,7 +3,7 @@
    Секреты приходят с сервера только маской; формы отправляют PUT /api/settings.
    ========================================================================= */
 
-import { isDemo } from '../api.js';
+import { isDemo, getNetwork, saveNetwork, testNetwork } from '../api.js';
 import { icon, SOURCE_MARKS } from '../components.js';
 import {
   app,
@@ -267,8 +267,59 @@ function spotifyCard() {
     </form>`;
 }
 
+/** Настройки сети: прокси для доступа к SoundCloud из РФ. */
+function networkCard() {
+  const net = app.settings?.network || {};
+  const proxy = net.proxy || '';
+  const useSystem = Boolean(net.useSystemProxy);
+  const state = app.networkState || null;
+  const active = Boolean(state?.active);
+
+  const statusText = active
+    ? `Активен: ${esc(state.activeMasked)}${state.activeSource === 'system' ? ' (системный)' : ''}`
+    : 'Прокси выключен — запросы идут напрямую';
+
+  return `<form class="source-card" data-source-form="network" novalidate>
+      <header class="source-card__head">
+        <div class="source-card__logo source-card__logo--net">${icon('connection')}</div>
+        <div class="source-card__title">
+          <h2>Сеть и прокси</h2>
+          <p>Нужно, если SoundCloud не грузится без VPN</p>
+        </div>
+        <span class="pill ${active ? 'pill--ok' : 'pill--idle'}">${active ? 'активен' : 'выключен'}</span>
+      </header>
+
+      <p class="source-card__note">
+        Из России медиа-серверы SoundCloud часто недоступны напрямую: волна и лайки приходят,
+        а музыка не играет. Укажите адрес своего прокси — через него пойдут все запросы,
+        включая звук.
+      </p>
+
+      <label class="field">
+        <span class="field__label">Адрес прокси</span>
+        <input class="input" id="network-proxy" name="proxy" type="text" spellcheck="false"
+          autocomplete="off" placeholder="socks5://127.0.0.1:1080"
+          value="${esc(proxy)}">
+        <span class="field__hint">Подойдёт socks5:// или http:// — например порт вашего VPN-клиента</span>
+      </label>
+
+      <label class="switch-row">
+        <input type="checkbox" id="network-system" name="useSystemProxy" ${useSystem ? 'checked' : ''}>
+        <span>Брать прокси из настроек Windows</span>
+      </label>
+
+      <div class="net-status ${active ? 'net-status--ok' : ''}" data-net-status>${statusText}</div>
+
+      <div class="source-card__actions">
+        <span class="source-card__error" data-form-error="network"></span>
+        <button class="btn btn--ghost btn--sm" type="button" data-net-test>${icon('refresh')} Проверить</button>
+        <button class="btn btn--accent btn--sm" type="submit">${icon('check')} Сохранить</button>
+      </div>
+    </form>`;
+}
+
 function cardsHtml() {
-  return yandexCard() + soundcloudCard() + spotifyCard();
+  return yandexCard() + soundcloudCard() + spotifyCard() + networkCard();
 }
 
 function paintOverview() {
@@ -350,6 +401,26 @@ function setBusy(form, busy) {
   if (errorHint && busy) errorHint.textContent = '';
 }
 
+/** Проверка соединения с SoundCloud: идёт ли трафик через прокси. */
+async function runNetworkTest() {
+  const host = screen.root?.querySelector('[data-net-status]');
+  if (host) host.textContent = 'Проверяю соединение…';
+
+  const result = await testNetwork();
+  if (result?.error) {
+    if (host) host.textContent = 'Не удалось: ' + result.error;
+    toast('Проверка не прошла: ' + result.error, { type: 'err' });
+    return;
+  }
+
+  const via = result.viaProxy;
+  const text = via
+    ? `SoundCloud отвечает за ${via.ms} мс (код ${via.status})`
+    : 'SoundCloud не отвечает';
+  if (host) host.textContent = text;
+  toast(text, { icon: via ? 'check' : 'alert' });
+}
+
 async function submitForm(form) {
   const source = form.dataset.sourceForm;
   const data = new FormData(form);
@@ -357,8 +428,26 @@ async function submitForm(form) {
     token: String(data.get('token') || '').trim(),
     clientId: String(data.get('clientId') || '').trim(),
     clientSecret: String(data.get('clientSecret') || '').trim(),
+    proxy: String(data.get('proxy') || '').trim(),
+    useSystemProxy: Boolean(data.get('useSystemProxy')),
   };
   const errorHint = form.querySelector('[data-form-error]');
+
+  // сеть и прокси — отдельная ветка, остальной код не трогаем
+  if (source === 'network') {
+    const result = await saveNetwork({ proxy: values.proxy, useSystemProxy: values.useSystemProxy });
+    if (!result.ok) {
+      if (errorHint) errorHint.textContent = result.error || 'Не удалось сохранить';
+      toast(result.error || 'Не удалось сохранить прокси', { type: 'err' });
+      return;
+    }
+    app.networkState = result;
+    if (errorHint) errorHint.textContent = '';
+    toast(result.active ? 'Прокси включён' : 'Прокси выключен', { icon: 'check' });
+    paintStates();
+    reload({ withToast: false });
+    return;
+  }
 
   let payload = null;
   if (source === 'yandex') {
@@ -421,6 +510,11 @@ function onClick(event) {
 
   if (target?.closest('[data-sc-open-apps]')) {
     window.open('https://soundcloud.com/you/apps', '_blank', 'noopener');
+    return;
+  }
+
+  if (target?.closest('[data-net-test]')) {
+    runNetworkTest();
     return;
   }
 
@@ -555,6 +649,12 @@ const screenModule = {
     paintOverview();
     paintStates();
     reload();
+
+    // состояние прокси подтягиваем отдельно: карточка сети рисуется до загрузки
+    getNetwork().then((state) => {
+      app.networkState = state;
+      paintStates();
+    });
   },
 
   destroy() {

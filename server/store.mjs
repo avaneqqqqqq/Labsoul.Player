@@ -54,6 +54,8 @@ const DEFAULT_SETTINGS = {
   yandex: { token: '', quality: 'nq' },
   soundcloud: { clientId: '', profileUrl: '', cookies: '', cookiesAt: 0 },
   spotify: { clientId: '', clientSecret: '' },
+  // прокси: свой адрес или системный из Windows (нужно для доступа к SC из РФ)
+  network: { proxy: '', useSystemProxy: false },
   // из каких источников собирать «Волну» (порядок = порядок в интерфейсе)
   wave: { sources: ['yandex', 'soundcloud'] },
 };
@@ -98,6 +100,11 @@ export function maskedSettings() {
       hasCredentials: Boolean(s.spotify.clientId && s.spotify.clientSecret),
     },
     wave: { sources: Array.isArray(s.wave?.sources) ? s.wave.sources : ['yandex', 'soundcloud'] },
+    network: {
+      proxy: s.network?.proxy || '',
+      hasProxy: Boolean(s.network?.proxy),
+      useSystemProxy: Boolean(s.network?.useSystemProxy),
+    },
   };
 }
 

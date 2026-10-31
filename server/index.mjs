@@ -24,6 +24,7 @@ import * as localLibrary from './local.mjs';
 import * as lyrics from './lyrics.mjs';
 import * as audioconvert from './audioconvert.mjs';
 import * as libraryCache from './librarycache.mjs';
+import * as proxySupport from './proxy.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -61,6 +62,19 @@ function makeStub(name) {
 
 async function loadProviders() {
   const settings = store.loadSettings();
+
+  // прокси применяем ДО провайдеров: он влияет на все их запросы, включая медиа
+  try {
+    const proxyState = await proxySupport.refresh(settings.network || {});
+    if (proxyState.active) {
+      store.log(`[proxy] включён (${proxyState.activeSource}): ${proxyState.activeMasked}`);
+    } else if (proxyState.error) {
+      store.log(`[proxy] не включён: ${proxyState.error}`);
+    }
+  } catch (err) {
+    store.log(`[proxy] ошибка: ${err.message}`);
+  }
+
   for (const name of PROVIDER_NAMES) {
     try {
       const mod = await import(`./providers/${name}.mjs`);
@@ -787,6 +801,43 @@ function reasonMessage(reason) {
       sendJson(res, 200, { items: [], error: err.code || 'UPSTREAM', message: err.message });
     }
     return;
+  }
+
+  if (route[0] === 'network') {
+    // прокси: состояние, проверка соединения и сохранение — без перезапуска
+    if (req.method === 'GET') {
+      sendJson(res, 200, { ...proxySupport.status(), ffmpeg: audioconvert.hasFfmpeg() });
+      return;
+    }
+
+    if (req.method === 'POST' && route[1] === 'test') {
+      const result = await proxySupport.test();
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === 'PUT' || req.method === 'POST') {
+      const body = await readJson(req);
+      const proxyValue = typeof body?.proxy === 'string' ? body.proxy.trim() : '';
+      if (proxyValue && !proxySupport.normalizeProxy(proxyValue)) {
+        throw badRequest('Неверный адрес прокси. Пример: socks5://127.0.0.1:1080 или http://127.0.0.1:8080');
+      }
+
+      store.saveSettings({
+        network: {
+          proxy: proxyValue,
+          useSystemProxy: Boolean(body?.useSystemProxy),
+        },
+      });
+
+      const state = await proxySupport.refresh(store.loadSettings().network || {});
+      const label = state.active ? `${state.activeMasked} (${state.activeSource})` : 'выключен';
+      store.log(`[proxy] применено: ${label}`);
+      sendJson(res, 200, { ok: true, ...state });
+      return;
+    }
+
+    throw badRequest('Неподдерживаемый метод');
   }
 
   if (route[0] === 'soundcloud' && route[1] === 'session') {
