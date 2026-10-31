@@ -405,7 +405,30 @@ async function getClientId(force = false) {
 /* api-v2                                                              */
 /* ------------------------------------------------------------------ */
 
-/** Заголовок Cookie из сохранённой сессии: пусто, если входа не было. */
+/** Токен из сохранённых cookie после входа (oauth_token). */
+function oauthToken() {
+  if (!configuredCookies) return '';
+  try {
+    const list = JSON.parse(configuredCookies);
+    const found = list.find((item) => /^oauth_token$/i.test(item.name || '') && item.value);
+    return found ? String(found.value) : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Заголовки авторизации для api-v2.
+ *
+ * SoundCloud принимает вход ТОЛЬКО в виде `Authorization: OAuth <oauth_token>` —
+ * с одной cookie API отвечает 401. Проверено на живом аккаунте.
+ */
+function authHeader() {
+  const token = oauthToken();
+  return token ? { authorization: `OAuth ${token}` } : {};
+}
+
+/** Cookie тоже отправляем: часть эндпоинтов ориентируется на неё. */
 function cookieHeader() {
   if (!configuredCookies) return {};
   try {
@@ -421,7 +444,7 @@ function cookieHeader() {
 
 /** Есть ли вход в аккаунт. */
 export function hasSession() {
-  return Boolean(configuredCookies);
+  return Boolean(oauthToken());
 }
 
 function apiUrl(pathname, params = {}) {
@@ -435,7 +458,10 @@ function apiUrl(pathname, params = {}) {
 async function callApi(pathname, params, clientId) {
   const url = apiUrl(pathname, params);
   url.searchParams.set('client_id', clientId);
-  return httpText(url.toString(), { timeout: TIMEOUT_MS, headers: { accept: 'application/json', ...cookieHeader() } });
+  return httpText(url.toString(), {
+    timeout: TIMEOUT_MS,
+    headers: { accept: 'application/json', ...authHeader() },
+  });
 }
 
 async function apiJson(pathname, params = {}, { retry = true } = {}) {
@@ -594,11 +620,11 @@ export async function status() {
  * @param {string} [profileUrl]
  * @returns {Promise<{items: object[], reason?: string}>}
  */
-/** Кто вошёл: /me по сохранённой сессии (null, если сессии нет). */
+/** Кто вошёл: /me по OAuth-токену (null, если сессии нет). */
 export async function sessionUser() {
-  if (!configuredCookies) return null;
+  if (!oauthToken()) return null;
   try {
-    const me = JSON.parse(await callApi('/me', {}, configuredClientId || ''));
+    const me = await apiJson('/me', { limit: 1 });
     return me && me.id ? { id: String(me.id), name: me.username || me.permalink || null } : null;
   } catch {
     return null;
@@ -611,16 +637,20 @@ export async function likes(limit = 100, profileUrl = '') {
     .map((value) => String(value || '').trim())
     .filter(Boolean);
 
-  // со входом профиль и ключ не нужны: /me/likes отдаёт лайки текущего аккаунта
-  if (configuredCookies) {
+  // со входом профиль и ключ не нужны: лайки берём по id вошедшего пользователя
+  if (oauthToken()) {
     try {
-      const data = JSON.parse(await callApi('/me/likes', { limit: size, linked_partitioning: 1 }, configuredClientId || ''));
+      const me = await apiJson('/me', { limit: 1 });
+      if (!me || !me.id) return { items: [], reason: 'SESSION_EXPIRED' };
+
+      // правильный путь для api-v2: /users/{id}/likes (а не /me/likes — он 404)
+      const data = await apiJson(`/users/${me.id}/likes`, { limit: size, linked_partitioning: 1 });
       const collection = Array.isArray(data?.collection) ? data.collection : [];
       const items = collection.map((entry) => entry?.track || entry).filter((raw) => raw && raw.id).map(mapTrack);
-      return { items };
+      return { items, me: { id: String(me.id), name: me.username || null } };
     } catch (err) {
+      console.warn(`[soundcloud] лайки не загрузились: ${(err && err.message) || err}`);
       if (!/HTTP 40[13]/.test(String(err?.message))) return { items: [], reason: 'UPSTREAM' };
-      // сессия протухла — пусть пользователь войдёт снова
       return { items: [], reason: 'SESSION_EXPIRED' };
     }
   }
