@@ -354,6 +354,9 @@ function serveLocalFile(filePath, req, res, contentType) {
   const total = stat.size;
   res.setHeader('Content-Type', contentType || 'application/octet-stream');
   res.setHeader('Accept-Ranges', 'bytes');
+  // поток читает Web Audio (эквалайзер): без CORS элемент считается
+  // кросс-доменным и анализ звука ломается
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'private, max-age=600');
 
   const range = parseRange(req.headers.range, total);
@@ -382,6 +385,7 @@ function serveBuffer(buffer, req, res, contentType) {
   const total = buffer.length;
   res.setHeader('Content-Type', contentType || 'audio/mpeg');
   res.setHeader('Accept-Ranges', 'bytes');
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'private, max-age=600');
 
   const range = parseRange(req.headers.range, total);
@@ -430,6 +434,10 @@ async function pipeUpstream(req, res, source, sourceId, attempt = 0) {
   for (const header of ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified']) {
     if (upstream.headers[header]) res.setHeader(header, upstream.headers[header]);
   }
+  // без CORS элемент считает поток кросс-доменным, и Web Audio (эквалайзер)
+  // выдаёт тишину — это и ломало звук у SoundCloud и Spotify
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range, Accept-Ranges');
   if (!res.getHeader('content-type')) res.setHeader('content-type', desc.contentType || 'audio/mpeg');
   if (!res.getHeader('accept-ranges')) res.setHeader('accept-ranges', 'bytes');
   res.setHeader('Cache-Control', 'private, max-age=600');

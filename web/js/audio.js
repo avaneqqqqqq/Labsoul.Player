@@ -106,10 +106,13 @@ let sourceNode = null;
 let preampNode = null;
 let outNode = null;
 let eqNodes = [];
+// если Web Audio не смог отдать звук — играем напрямую, без эквалайзера
+let bypassGraph = false;
 
 const dbToGain = (db) => (db === 0 ? 1 : 10 ** (db / 20));
 
 function ensureGraph() {
+  if (bypassGraph) return false;
   if (audioCtx) return true;
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return false;
@@ -156,6 +159,33 @@ function resumeCtx() {
 }
 
 onThemeChange(() => applyEq());
+
+/**
+ * Страховка: если Web Audio почему-то не отдал звук (кросс-доменный поток,
+ * упавший контекст), отключаем граф и повторяем без него — лучше без
+ * эквалайзера, чем без музыки.
+ */
+function disableGraphAndRetry() {
+  if (bypassGraph) return;
+  bypassGraph = true;
+  try {
+    if (sourceNode) sourceNode.disconnect();
+  } catch { /* уже отключён */ }
+  sourceNode = null;
+  try { audioCtx && audioCtx.close(); } catch { /* ignore */ }
+  audioCtx = null;
+  eqNodes = [];
+  preampNode = null;
+  outNode = null;
+  const url = audio.src;
+  if (!url) return;
+  try {
+    audio.crossOrigin = null;
+    audio.src = url;
+    audio.load();
+    audio.play().catch(() => {});
+  } catch { /* ignore */ }
+}
 
 /* ------------------------------------------------------------------ */
 /* Симуляция (демо-режим): интерфейс живой без сервера                  */
@@ -335,6 +365,9 @@ function playCurrent() {
   if (!url) { startSimulation(); return; }
 
   try {
+    // элемент читает Web Audio: без crossOrigin поток считается кросс-доменным
+    // и createMediaElementSource выдаёт тишину (эквалайзер «ломает» звук)
+    if (audio.crossOrigin !== 'anonymous') audio.crossOrigin = 'anonymous';
     audio.src = url;
     audio.load();
   } catch {
