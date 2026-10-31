@@ -21,6 +21,7 @@ import {
   libraryErrors,
   libraryTracks,
   loadHistory,
+  setHistorySource,
   loadLibraryLikes,
   loadLocalTracks,
   subscribe as storeSubscribe,
@@ -65,12 +66,12 @@ function autoTab() {
   tab = (app.local.items || []).length ? 'local' : 'history';
 }
 
-function historyTracks() {
+function allHistoryTracks() {
   return app.history.items.map((row) => row.track);
 }
 
 function currentList() {
-  return tab === 'history' ? historyTracks() : libraryTracks();
+  return tab === 'history' ? allHistoryTracks() : libraryTracks();
 }
 
 function totalListening() {
@@ -118,6 +119,24 @@ function toolbarHtml() {
   </div>`;
 }
 
+/** Какой источник показывать в «Истории»: все или конкретный сервис. */
+function historyFilterHtml() {
+  const active = app.library.historySource || 'all';
+  const options = [['all', 'Все источники'], ...LIB_SOURCE_META.map(({ key, label }) => [key, label])];
+  return `<div class="lib-filter" role="group" aria-label="Источник прослушиваний">
+    ${options.map(([key, label]) => `<button class="lib-filter__btn${active === key ? ' is-on' : ''}" type="button"
+      data-hist-src="${key}" aria-pressed="${active === key}">${esc(label)}</button>`).join('')}
+  </div>`;
+}
+
+/** Строки истории с учётом выбранного источника. */
+function filteredHistoryRows() {
+  const source = app.library.historySource || 'all';
+  const items = app.history.items || [];
+  if (source === 'all') return items;
+  return items.filter((row) => row?.track && row.track.source === source);
+}
+
 function historyBody() {
   if (app.history.loading && !app.history.items.length) {
     return `<div class="section">${skeletonRows(6)}</div>`;
@@ -129,7 +148,7 @@ function historyBody() {
     </div>`;
   }
   if (!app.history.items.length) {
-    return `<div class="lib-empty">${emptyState({
+    return `${historyFilterHtml()}<div class="lib-empty">${emptyState({
       iconName: 'library',
       title: 'История пока пуста',
       text: 'Включите Волну или найдите трек — прослушивания появятся здесь автоматически.',
@@ -138,10 +157,19 @@ function historyBody() {
     })}</div>`;
   }
 
+  const filteredRows = filteredHistoryRows();
+  if (!filteredRows.length) {
+    return `${historyFilterHtml()}<div class="lib-empty">${emptyState({
+      iconName: 'library',
+      title: 'В этом источнике пусто',
+      text: 'Здесь пока нет прослушиваний из выбранного сервиса — выберите другой источник или «Все источники».',
+    })}</div>`;
+  }
+
   const likedIds = new Set(app.likes.map((track) => track.id));
   const currentId = player.getState().current?.id;
   const days = new Map();
-  for (const row of app.history.items) {
+  for (const row of filteredRows) {
     const key = dayKey(row.at);
     if (!days.has(key)) days.set(key, []);
     days.get(key).push(row);
@@ -164,7 +192,7 @@ function historyBody() {
       });
     }).join('')}</div>`);
   }
-  return chunks.join('');
+  return historyFilterHtml() + chunks.join('');
 }
 
 const LIB_SOURCE_META = [
@@ -357,6 +385,13 @@ function queueAll() {
 }
 
 function onClick(event) {
+  // фильтр «Истории» по источнику
+  const histButton = event.target instanceof Element ? event.target.closest('[data-hist-src]') : null;
+  if (histButton) {
+    setHistorySource(histButton.dataset.histSrc);
+    return;
+  }
+
   const sourceButton = event.target instanceof Element ? event.target.closest('[data-lib-src]') : null;
   if (sourceButton) {
     toggleLibrarySource(sourceButton.dataset.libSrc);

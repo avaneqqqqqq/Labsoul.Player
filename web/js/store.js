@@ -82,6 +82,7 @@ export const app = {
     loadedAt: 0,
   },
   library: {
+    historySource: 'all',
     // какие сервисы показывать в «Избранном»
     sources: readLibrarySources(),
     // ответы серверных источников: [{source, items, error?, message?}]
@@ -437,6 +438,16 @@ export async function loadLibraryLikes({ force = false } = {}) {
 }
 
 /** Включает/выключает сервис в «Избранном». Последний выключить нельзя. */
+/** Источник для вкладки «История»: all | local | yandex | soundcloud | spotify. */
+export function setHistorySource(sourceKey) {
+  const allowed = ['all', 'local', 'yandex', 'soundcloud', 'spotify'];
+  const next = allowed.includes(sourceKey) ? sourceKey : 'all';
+  if (app.library.historySource === next) return next;
+  app.library.historySource = next;
+  emit('history');
+  return next;
+}
+
 export function toggleLibrarySource(sourceKey) {
   if (!LIBRARY_SOURCE_KEYS.includes(sourceKey)) return app.library.sources;
   const current = app.library.sources.slice();

@@ -852,3 +852,33 @@ mark.hit {
 }
 
 .lib-note__link:hover { opacity: .8; }
+
+/* --- фильтр источников в библиотеке ------------------------------------ */
+
+.lib-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+
+.lib-filter__btn {
+  padding: 6px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.lib-filter__btn:hover { color: var(--text); background: var(--hover); }
+
+.lib-filter__btn.is-on {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+}
