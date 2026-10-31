@@ -58,6 +58,16 @@ check('слишком короткое значение не считается 
   equal(extractToken('https://x/#access_token=abc'), null);
 });
 
+// Регрессия 1.0.42: раньше требовалось ≥20 символов, и реальные токены
+// отбрасывались — вход в Яндексе «молча не срабатывал».
+check('короткий реальный токен принимается', () => {
+  equal(extractToken('https://music.yandex.ru/#access_token=AQAAAAAmTxyzABCDEF&token_type=bearer'), 'AQAAAAAmTxyzABCDEF');
+});
+
+check('токен из query-части короткий тоже принимается', () => {
+  equal(extractToken('https://music.yandex.ru/?access_token=y0_AgAAAq123456'), 'y0_AgAAAq123456');
+});
+
 check('мусорные символы в токене отбрасываются', () => {
   equal(extractToken('https://x/#access_token=short%20value%3Cscript%3E'), null);
 });
