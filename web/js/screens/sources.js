@@ -401,6 +401,17 @@ function onClick(event) {
   const target = event.target instanceof Element ? event.target : null;
 
   // помощник SoundCloud: открыть страницу приложений и вставить ключ из буфера
+  // копируемое значение из инструкции
+  const copyBtn = target?.closest('[data-copy]');
+  if (copyBtn) {
+    const value = copyBtn.dataset.copy;
+    navigator.clipboard.writeText(value).then(() => {
+      copyBtn.classList.add('is-done');
+      setTimeout(() => copyBtn.classList.remove('is-done'), 1200);
+    }).catch(() => {});
+    return;
+  }
+
   if (target?.closest('[data-sc-open-apps]')) {
     window.open('https://soundcloud.com/you/apps', '_blank', 'noopener');
     return;

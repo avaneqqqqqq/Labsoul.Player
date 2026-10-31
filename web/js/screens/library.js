@@ -117,7 +117,7 @@ function toolbarHtml() {
         Своя музыка <span class="chip__count">${(app.local.items || []).length}</span>
       </button>
       <button type="button" role="tab" data-tab="playlists" class="${tab === 'playlists' ? 'on' : ''}" aria-selected="${tab === 'playlists'}">
-        Плейлисты <span class="chip__count">${(app.playlists.items || []).length}</span>
+        Плейлисты <span class="chip__count">${(app.playlists?.items || []).length}</span>
       </button>
     </div>
     <div class="lib-toolbar__spacer"></div>
@@ -283,13 +283,15 @@ function likesBody() {
 
 /** Плейлисты сервисов: выбор источника, список, открытие, запуск. */
 function playlistsBody() {
-  const state = app.playlists;
+  // состояние может быть пустым в промежуточный момент (старый кэш, гонка событий)
+  const state = app.playlists || { items: [], tracks: [], source: 'yandex', loading: false, error: null };
   const sources = [
     ['yandex', 'Яндекс.Музыка'],
     ['soundcloud', 'SoundCloud'],
     ['spotify', 'Spotify'],
   ];
 
+  const items = Array.isArray(state.items) ? state.items : [];
   const head = `<div class="lib-filter" role="group" aria-label="Сервис плейлистов">
     ${sources.map(([key, label]) => `<button class="lib-filter__btn${state.source === key ? ' is-on' : ''}" type="button"
       data-pl-src="${key}" aria-pressed="${state.source === key}">${esc(label)}</button>`).join('')}
@@ -312,10 +314,10 @@ function playlistsBody() {
 
   // открытый плейлист: треки
   if (state.openId) {
-    const playlist = state.items.find((item) => item.id === state.openId);
+    const playlist = items.find((item) => item.id === state.openId);
     const likedIds = new Set(app.likes.map((track) => track.id));
     const currentId = player.getState().current?.id;
-    const rows = state.tracks.map((track, index) => rowHtml(track, {
+    const rows = (Array.isArray(state.tracks) ? state.tracks : []).map((track, index) => rowHtml(track, {
       index: index + 1,
       current: track.id === currentId,
       likedIds,
@@ -327,14 +329,14 @@ function playlistsBody() {
         <button class="pl-head__back" type="button" data-lib="pl-back">${icon('chev-left')} К списку</button>
         <div class="pl-head__meta">
           <b>${esc(playlist?.title || 'Плейлист')}</b>
-          <span>${state.tracks.length} ${plural(state.tracks.length, ['трек', 'трека', 'треков'])}${playlist?.ownerName ? ' · ' + esc(playlist.ownerName) : ''}</span>
+          <span>${(Array.isArray(state.tracks) ? state.tracks.length : 0)} ${plural((Array.isArray(state.tracks) ? state.tracks.length : 0), ['трек', 'трека', 'треков'])}${playlist?.ownerName ? ' · ' + esc(playlist.ownerName) : ''}</span>
         </div>
         <button class="btn btn--accent btn--sm" type="button" data-lib="pl-play">${icon('play')} Слушать</button>
       </div>
       ${state.tracksLoading ? `<div class="section">${skeletonRows(5)}</div>` : rows || '<div class="lib-empty">' + emptyState({ iconName: 'music', title: 'Плейлист пуст', text: 'В этом плейлисте нет треков.' }) + '</div>'}`;
   }
 
-  if (!state.items.length) {
+  if (!items.length) {
     return `${head}<div class="lib-empty">${emptyState({
       iconName: 'library',
       title: 'Плейлистов пока нет',
@@ -342,7 +344,7 @@ function playlistsBody() {
     })}</div>`;
   }
 
-  return `${head}<div class="pl-grid">${state.items.map((item) => `
+  return `${head}<div class="pl-grid">${items.map((item) => `
     <button class="pl-card" type="button" data-pl-open="${esc(item.id)}">
       <span class="pl-card__art" style="background:linear-gradient(135deg,#2a2a33,#15151b)">
         ${item.cover ? `<img src="${esc(item.cover)}" alt="" loading="lazy">` : icon('music')}

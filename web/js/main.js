@@ -39,6 +39,9 @@ function routeFromHash() {
   return ROUTES.includes(raw) ? raw : 'wave';
 }
 
+// счётчик падений экрана: после ошибки даём вернуться на «Волну», не перезагружая всё
+let screenErrorCount = 0;
+
 function paintCrash(container, error) {
   container.innerHTML = `<div class="empty" style="margin-top:40px">
     <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"></use></svg>
@@ -46,6 +49,7 @@ function paintCrash(container, error) {
     <span>${String(error?.message || error || 'Неизвестная ошибка')}</span>
     <div class="empty__actions">
       <button class="btn btn--accent btn--sm" type="button" onclick="location.reload()">Обновить страницу</button>
+      <button class="btn btn--ghost btn--sm" type="button" onclick="location.hash='#wave';location.reload()">Вернуться на «Волну»</button>
     </div>
   </div>`;
 }

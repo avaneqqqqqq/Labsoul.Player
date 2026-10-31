@@ -687,8 +687,8 @@ export async function loadHistory() {
   emit('history');
   try {
     const data = await getHistory(60);
-    app.history.items = data.items;
-    rememberTracks(data.items.map((row) => row.track));
+    app.history.items = Array.isArray(data?.items) ? data.items : [];
+    rememberTracks(app.history.items.map((row) => row?.track).filter(Boolean));
   } catch (err) {
     app.history.items = [];
     app.history.error = err?.message || 'История недоступна';
