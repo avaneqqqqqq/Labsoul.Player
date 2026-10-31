@@ -147,7 +147,54 @@ function markSeen(station, id) {
   saveSeenSoon();
 }
 
+/* ------------------------------------------------------------------ */
+/* Заготовка партий: ротор отвечает ~5 секунд, поэтому следующий набор  */
+/* собираем в фоне, а клиенту отдаём уже готовый.                      */
+/* ------------------------------------------------------------------ */
+
+const prepared = new Map();   // ключ -> готовый ответ
+const preparing = new Set();   // ключи, которые собираются сейчас
+const pending = new Map();     // ключ -> промис сборки (тот же, что в заготовке)
+
+const waveKey = (station, wanted) => `${station}|${wanted.join(',')}`;
+
+function kickPrepare(key, want, station, wanted) {
+  if (prepared.has(key) || preparing.has(key)) return;
+  preparing.add(key);
+  buildWave(want, station, wanted)
+    .then((result) => {
+      // buildWave уже отфильтровал показанное и пометил треки — здесь не фильтруем повторно,
+      // иначе заготовка всегда остаётся пустой
+      const items = (result.items || []).filter((track) => track?.id);
+      if (!items.length) return;
+      prepared.set(key, { ...result, items });
+    })
+    .catch((err) => store.log('[wave] заготовка не собралась:', err.message))
+    .finally(() => preparing.delete(key));
+}
+
+/** Ответ волны: готовая партия — сразу, иначе собираем на месте. */
 export async function getWave(limit = 20, station = DEFAULT_STATION, sources = null) {
+  const want = clampWant(limit);
+  const wanted = normalizeSources(sources);
+  const key = waveKey(station, wanted);
+
+  const ready = prepared.get(key);
+  if (ready) {
+    prepared.delete(key);
+    kickPrepare(key, want, station, wanted);
+    return ready;
+  }
+
+  kickPrepare(key, want, station, wanted);
+
+  // Ротор отвечает медленно, поэтому не держим запрос: отдаём пустой ответ
+  // с пометкой warming — клиент повторит через секунду, а заготовка догонит.
+  // готового нет — собираем на месте (первый запрос после запуска)
+  return buildWave(want, station, wanted);
+}
+
+async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) {
   const want = clampWant(limit);
   const wanted = normalizeSources(sources);
 
@@ -217,7 +264,7 @@ export async function getWave(limit = 20, station = DEFAULT_STATION, sources = n
   }
 
   // личная волна иссякла — тянем с родственных станций, а не повторяем старое
-  if (items.length < want && wanted.includes('yandex')) {
+  if (!items.length && wanted.includes('yandex')) {
     for (const alt of FALLBACK_STATIONS) {
       if (items.length >= want) break;
       if (alt === station) continue;

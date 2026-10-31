@@ -263,15 +263,42 @@ function sentinelHtml() {
     <span class="wave-load__hint">или просто прокрутите вниз</span>`;
 }
 
+let paintQueued = false;
+let lastBlocksKey = '';
+
+/** Перерисовка в ближайшем кадре: события волны приходят пачками. */
+function schedulePaint() {
+  if (paintQueued || !screen.root) return;
+  paintQueued = true;
+  requestAnimationFrame(() => {
+    paintQueued = false;
+    paint();
+  });
+}
+
 function paint() {
   if (!screen.root) return;
-  const blocks = screen.root.querySelector('#wave-blocks');
-  if (blocks) blocks.innerHTML = blocksHtml();
+  // если состав ленты не изменился — не трогаем DOM (иначе лаги при прокрутке)
+  const key = [
+    app.wave.items.length,
+    app.wave.items[0]?.id || '',
+    app.wave.items[app.wave.items.length - 1]?.id || '',
+    app.wave.batchId || '',
+    currentState().current?.id || '',
+  ].join('|');
+
+  // подвал обновляем всегда: он показывает ход подкачки
   const sentinel = screen.root.querySelector('#wave-sentinel');
   if (sentinel) {
     sentinel.innerHTML = sentinelHtml();
     sentinel.classList.toggle('is-loading', app.wave.loading);
   }
+
+  if (key === lastBlocksKey) return;
+  lastBlocksKey = key;
+
+  const blocks = screen.root.querySelector('#wave-blocks');
+  if (blocks) blocks.innerHTML = blocksHtml();
 }
 
 function paintHero() {
@@ -320,8 +347,8 @@ function checkFill() {
 }
 
 // сколько треков хотим всегда иметь «в запасе» впереди
-const WAVE_MIN_BACKLOG = 45;
-const WAVE_MAX_BACKLOG = 120;
+const WAVE_MIN_BACKLOG = 30;
+const WAVE_MAX_BACKLOG = 60;
 
 /** Фоновая подкачка: наращивает ленту, пока не наберётся запас. */
 function scheduleBackgroundFill(delay = 1200) {
@@ -332,7 +359,7 @@ function scheduleBackgroundFill(delay = 1200) {
     if (app.wave.loading) { scheduleBackgroundFill(700); return; }
     if (app.wave.items.length >= WAVE_MAX_BACKLOG) return;
     await loadWaveMore();
-    if (screen.root && app.wave.items.length < WAVE_MAX_BACKLOG) scheduleBackgroundFill(400);
+    if (screen.root && app.wave.items.length < WAVE_MAX_BACKLOG) scheduleBackgroundFill(2500);
   }, delay);
 }
 
@@ -465,7 +492,7 @@ export const waveScreen = {
         return;
       }
       if (event === 'wave') {
-        paint();
+        schedulePaint();
         checkFill();
         extendQueue();
       }

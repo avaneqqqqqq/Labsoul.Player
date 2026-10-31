@@ -290,6 +290,11 @@ export async function loadWaveMore({ force = false } = {}) {
     if (batch.station) app.wave.station = batch.station;
     if (batch.batchId) app.wave.batchId = batch.batchId;
     const items = safeTracks(batch.items);
+    // сервер ещё собирает партию (warming) — повторим чуть позже, ленту не закрываем
+    if (!items.length && batch.warming) {
+      setTimeout(() => loadWaveMore(), 900);
+      return;
+    }
     if (!items.length) {
       app.wave.done = true;
     } else {

@@ -256,14 +256,25 @@ export async function wave(limit = 20, station = DEFAULT_STATION) {
   const items = [];
   const seen = new Set();
   let batchId = null;
-  let batches = 0;
 
-  while (items.length < want && batches < 6) {
-    batches += 1;
-    const data = await request(`/rotor/station/${encodeURIComponent(station)}/tracks?settings2=true`);
+  // Ротор отдаёт по 5 треков и только последовательные вызовы дают разные
+  // порции: параллельные возвращают одну и ту же пятёрку. Поэтому идём
+  // по очереди, а латентность скрывает серверная заготовка партий.
+  const maxRounds = Math.min(6, Math.ceil(want / 5) + 1);
+  for (let round = 0; round < maxRounds && items.length < want; round += 1) {
+    let data;
+    try {
+      data = await request(`/rotor/station/${encodeURIComponent(station)}/tracks?settings2=true`);
+    } catch (err) {
+      if (items.length) break;
+      throw err;
+    }
+
     const result = data?.result || data;
     batchId = result?.batchId || batchId;
     const sequence = Array.isArray(result?.sequence) ? result.sequence : [];
+    if (!sequence.length) break;
+
     let added = 0;
     for (const step of sequence) {
       const mapped = mapTrack(step?.track);
@@ -273,11 +284,11 @@ export async function wave(limit = 20, station = DEFAULT_STATION) {
         added += 1;
       }
     }
-    // станция больше не отдаёт треков — дальше цикл бессмысленен
-    if (!added || !sequence.length) break;
+    if (!added) break;
   }
 
   return { station, batchId, items: items.slice(0, want) };
+;
 }
 
 /* --------------------------- лайкнутые треки ----------------------------- */
