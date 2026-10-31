@@ -201,12 +201,17 @@ function likesStripHtml() {
 function likesNotesHtml() {
   const errors = libraryErrors();
   if (!errors.length) return '';
+  // для сервисов без доступа к избранному рядом с пояснением — ссылка в «Подключения»
+  const FIXABLE = new Set(['NO_TOKEN', 'AUTH_FAILED', 'NO_CLIENT_ID', 'CLIENT_ID_REJECTED', 'NO_PROFILE', 'NOT_SUPPORTED']);
   return `<div class="lib-notes">${errors.map((entry) => {
     const name = SOURCE_NAMES[entry.source] || entry.source;
+    const fix = FIXABLE.has(entry.error)
+      ? ` <button class="lib-note__link" type="button" data-route="sources">настроить</button>`
+      : '';
     const reason = entry.error === 'NOT_SUPPORTED'
       ? 'не отдаёт избранное без входа в аккаунт'
       : humanizeError(entry.message || entry.error);
-    return `<div class="lib-note">${icon('alert')}<span><b>${esc(name)}</b> — ${esc(reason)}</span></div>`;
+    return `<div class="lib-note">${icon('alert')}<span><b>${esc(name)}</b> — ${esc(reason)}${fix}</span></div>`;
   }).join('')}</div>`;
 }
 

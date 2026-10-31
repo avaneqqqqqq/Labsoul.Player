@@ -91,6 +91,8 @@ function desktopBridge() {
     : null;
 }
 
+import { soundcloudTokenHelp, spotifyTokenHelp, yandexTokenHelp } from './tokenhelp.js';
+
 function yandexCard() {
   const state = stateOf('yandex');
   const canSignIn = Boolean(desktopBridge());
@@ -123,15 +125,7 @@ function yandexCard() {
         <span class="field__hint" data-hint="yandex:token">${savedHint('yandex', 'token')}${state.cls === 'err' ? ` · ${esc(state.detail)}` : ''}</span>
       </div>
 
-      <details class="steps">
-        <summary>${icon('chev-down')} Где взять токен вручную</summary>
-        <ol>
-          <li>Откройте <a href="https://music.yandex.ru/" target="_blank" rel="noreferrer noopener">music.yandex.ru</a> и войдите в аккаунт.</li>
-          <li>Нажмите F12 → вкладка Network → фильтр <code>api.music.yandex.net</code> → обновите страницу.</li>
-          <li>Кликните любой запрос, в Request Headers найдите <code>authorization: OAuth …</code> и скопируйте всё после <code>OAuth </code>.</li>
-          <li>Вставьте строку сюда и нажмите «Сохранить» — сервер сразу проверит доступ.</li>
-        </ol>
-      </details>
+      ${yandexTokenHelp()}
 
       <div class="source-card__actions">
         <span class="source-card__error" data-form-error="yandex"></span>
@@ -161,15 +155,15 @@ function soundcloudCard() {
         </div>
         <span class="field__hint" data-hint="soundcloud:clientId">${savedHint('soundcloud', 'clientId')} · публичный ключ, не секрет</span>
       </div>
+      <div class="field">
+        <label for="soundcloud-profile">Ссылка на профиль</label>
+        <input class="input" id="soundcloud-profile" name="profileUrl" type="url" spellcheck="false"
+          placeholder="https://soundcloud.com/ваш-ник"
+          value="${esc(app.settings?.soundcloud?.profileUrl || '')}">
+        <span class="field__hint">по ней labsoul найдёт ваши лайки (нужен client_id выше)</span>
+      </div>
 
-      <details class="steps">
-        <summary>${icon('chev-down')} Когда нужен свой client_id</summary>
-        <ol>
-          <li>Обычно labsoul сам достаёт публичный client_id из веб-плеера SoundCloud — поле можно оставить пустым.</li>
-          <li>Если поиск отвечает 401, зарегистрируйте приложение на <a href="https://soundcloud.com/you/apps" target="_blank" rel="noreferrer noopener">soundcloud.com/you/apps</a>.</li>
-          <li>Скопируйте <code>client_id</code> и вставьте сюда. Это не секрет и не даёт доступа к чужому аккаунту.</li>
-        </ol>
-      </details>
+      ${soundcloudTokenHelp()}
 
       <div class="source-card__actions">
         <span class="source-card__error" data-form-error="soundcloud"></span>
@@ -208,14 +202,7 @@ function spotifyCard() {
         </div>
       </div>
 
-      <details class="steps">
-        <summary>${icon('chev-down')} Где взять ключи</summary>
-        <ol>
-          <li>Откройте <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noreferrer noopener">developer.spotify.com/dashboard</a> и создайте приложение.</li>
-          <li>Скопируйте <b>Client ID</b> и <b>Client Secret</b> из настроек приложения.</li>
-          <li>Поиск и метаданные работают всегда, а воспроизведение потоков Spotify требует Premium-аккаунта.</li>
-        </ol>
-      </details>
+      ${spotifyTokenHelp()}
 
       <div class="source-card__actions">
         <span class="source-card__error" data-form-error="spotify"></span>

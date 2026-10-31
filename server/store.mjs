@@ -52,7 +52,7 @@ export function log(...args) {
 /** Пустые значения-«заглушки», чтобы структура всегда была предсказуемой. */
 const DEFAULT_SETTINGS = {
   yandex: { token: '', quality: 'nq' },
-  soundcloud: { clientId: '' },
+  soundcloud: { clientId: '', profileUrl: '' },
   spotify: { clientId: '', clientSecret: '' },
   // из каких источников собирать «Волну» (порядок = порядок в интерфейсе)
   wave: { sources: ['yandex', 'soundcloud'] },
@@ -91,7 +91,7 @@ export function maskedSettings() {
   const mask = (v) => (v && String(v).length > 4 ? '••••' + String(v).slice(-4) : v ? '••••' : '');
   return {
     yandex: { token: mask(s.yandex.token), quality: s.yandex.quality, hasToken: Boolean(s.yandex.token) },
-    soundcloud: { clientId: mask(s.soundcloud.clientId), hasClientId: Boolean(s.soundcloud.clientId) },
+    soundcloud: { clientId: mask(s.soundcloud.clientId), hasClientId: Boolean(s.soundcloud.clientId), profileUrl: s.soundcloud.profileUrl },
     spotify: {
       clientId: s.spotify.clientId || '',
       clientSecret: mask(s.spotify.clientSecret),

@@ -541,6 +541,52 @@ export async function status() {
  * @param {number} [limit]
  * @returns {Promise<Array<object>>} Track[]
  */
+/**
+ * Лайкнутое из SoundCloud: /users/{id}/likes.
+ *
+ * Требует постоянного client_id (public client_id из браузера чужие лайки не
+ * отдаёт — 401), поэтому берём его из настроек или переменной окружения.
+ * Без client_id возвращаем понятную причину, а не пустой список.
+ *
+ * @param {number} limit
+ * @param {string} [profileUrl]
+ * @returns {Promise<{items: object[], reason?: string}>}
+ */
+export async function likes(limit = 100, profileUrl = '') {
+  const size = clampInt(limit, 100, 1, 300);
+  const permanents = [configuredClientId, process.env.SOUNDCLOUD_CLIENT_ID]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  if (!permanents.length) {
+    return { items: [], reason: 'NO_CLIENT_ID' };
+  }
+
+  const clientId = permanents[0];
+  const url = String(profileUrl || '').trim() || 'https://soundcloud.com/you';
+  let userId = null;
+
+  try {
+    const resolved = JSON.parse(await callApi('/resolve', { url }, clientId));
+    userId = resolved?.id ?? null;
+  } catch (err) {
+    return { items: [], reason: 'NO_PROFILE' };
+  }
+  if (!userId) return { items: [], reason: 'NO_PROFILE' };
+
+  try {
+    const data = JSON.parse(await callApi(`/users/${userId}/likes`, { limit: size, linked_partitioning: 1 }, clientId));
+    const collection = Array.isArray(data?.collection) ? data.collection : [];
+    const items = collection
+      .map((entry) => entry?.track || entry)
+      .filter((raw) => raw && raw.id)
+      .map(mapTrack);
+    return { items };
+  } catch (err) {
+    const reason = err?.status === 401 || /HTTP 40[13]/.test(String(err?.message)) ? 'CLIENT_ID_REJECTED' : 'UPSTREAM';
+    return { items: [], reason };
+  }
+}
+
 export async function search(query, limit) {
   const text = String(query ?? '').trim();
   if (!text) throw fail('BAD_REQUEST', 'Пустой поисковый запрос');

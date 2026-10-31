@@ -58,7 +58,6 @@ function makeStub(name) {
 }
 
 async function loadProviders() {
-  const settings = store.loadSettings();
   for (const name of PROVIDER_NAMES) {
     try {
       const mod = await import(`./providers/${name}.mjs`);
@@ -675,8 +674,21 @@ async function handleApi(req, res, url) {
     return;
   }
 
+function reasonMessage(reason) {
+  const texts = {
+    NO_CLIENT_ID: 'Для лайков SoundCloud нужен постоянный client_id — укажите его в «Подключениях».',
+    CLIENT_ID_REJECTED: 'SoundCloud отклонил client_id — проверьте его в «Подключениях».',
+    NO_PROFILE: 'Не удалось найти профиль SoundCloud — укажите ссылку на свой профиль.',
+    NO_TOKEN: 'Нужен токен Яндекс.Музыки — подключите его в «Подключениях».',
+    AUTH_FAILED: 'Токен Яндекс.Музыки не подошёл — получите новый.',
+    NOT_SUPPORTED: 'Spotify не отдаёт «Мне нравится» без пользовательской авторизации.',
+    UPSTREAM: 'Сервис не ответил — попробуйте позже.',
+  };
+  return texts[reason] || null;
+}
   if (route[0] === 'likes') {
     // избранное по источникам: какие сервисы включены, такие и опрашиваем
+    const settings = store.loadSettings();
     const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 100, 1), 300);
     const requested = (url.searchParams.get('sources') || 'yandex')
       .split(',')
@@ -696,8 +708,16 @@ async function handleApi(req, res, url) {
           };
         }
         try {
-          const items = await provider.likes(limit);
-          return { source, items: Array.isArray(items) ? items : [] };
+          // провайдер может вернуть список либо {items, reason} — приводим к одному виду
+          const result = await provider.likes(limit, settings.soundcloud?.profileUrl || '');
+          if (Array.isArray(result)) return { source, items: result };
+          const items = Array.isArray(result?.items) ? result.items : [];
+          return {
+            source,
+            items,
+            error: items.length ? null : result?.reason || null,
+            message: items.length ? null : reasonMessage(result?.reason),
+          };
         } catch (err) {
           return { source, items: [], error: err.code || 'UPSTREAM', message: err.message };
         }
