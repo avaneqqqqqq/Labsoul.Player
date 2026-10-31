@@ -34,6 +34,7 @@ const screen = {
   observer: null,
   unsubs: [],
   autoFills: 0,
+  fillTimer: null,
 };
 
 function currentState() {
@@ -306,10 +307,33 @@ function checkFill() {
   if (!content || !sentinel) return;
   const contentRect = content.getBoundingClientRect();
   const sentinelRect = sentinel.getBoundingClientRect();
-  if (sentinelRect.top < contentRect.bottom + 320) {
+  // запас: если до низа ленты меньше ~3 экранов, догружаем заранее
+  const nearEnd = sentinelRect.top < contentRect.bottom + Math.max(1200, contentRect.height * 2.5);
+  // и держим минимум треков в ленте, чтобы не было пауз при проигрывании
+  const fewLeft = app.wave.items.length < WAVE_MIN_BACKLOG;
+  if (nearEnd || fewLeft) {
     screen.autoFills += 1;
     loadWaveMore().then(() => checkFill());
+    return;
   }
+  scheduleBackgroundFill();
+}
+
+// сколько треков хотим всегда иметь «в запасе» впереди
+const WAVE_MIN_BACKLOG = 45;
+const WAVE_MAX_BACKLOG = 120;
+
+/** Фоновая подкачка: наращивает ленту, пока не наберётся запас. */
+function scheduleBackgroundFill(delay = 1200) {
+  if (screen.fillTimer) return;
+  screen.fillTimer = setTimeout(async () => {
+    screen.fillTimer = null;
+    if (!screen.root) return;
+    if (app.wave.loading) { scheduleBackgroundFill(700); return; }
+    if (app.wave.items.length >= WAVE_MAX_BACKLOG) return;
+    await loadWaveMore();
+    if (screen.root && app.wave.items.length < WAVE_MAX_BACKLOG) scheduleBackgroundFill(400);
+  }, delay);
 }
 
 // волна бесконечна: подкладываем новые треки в очередь, чтобы она не кончалась на 20
@@ -486,6 +510,7 @@ export const waveScreen = {
 
   destroy() {
     if (screen.observer) { screen.observer.disconnect(); screen.observer = null; }
+    if (screen.fillTimer) { clearTimeout(screen.fillTimer); screen.fillTimer = null; }
     for (const off of screen.unsubs.splice(0)) {
       try { off(); } catch { /* ignore */ }
     }
