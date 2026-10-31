@@ -134,6 +134,35 @@ function yandexCard() {
     </form>`;
 }
 
+/**
+ * Вставляет client_id из буфера и сразу сохраняет настройки.
+ * Экономит самое муторное — поиск 32-символьной строки руками.
+ */
+async function pasteSoundCloudKey() {
+  const form = screen.root?.querySelector('[data-source-form="soundcloud"]');
+  const input = form?.querySelector('#soundcloud-key');
+  const stateEl = form?.querySelector('[data-sc-state]');
+  if (!input) return;
+
+  let text = '';
+  try {
+    text = await navigator.clipboard.readText();
+  } catch {
+    text = '';
+  }
+
+  // из буфера может прийти целая строка вида client_id=… или URL с параметром
+  const match = String(text || '').match(/[0-9a-zA-Z]{32}/);
+  if (!match) {
+    if (stateEl) stateEl.textContent = 'В буфере нет строки из 32 символов — скопируйте Client ID на странице приложения.';
+    return;
+  }
+
+  input.value = match[0];
+  if (stateEl) stateEl.textContent = 'Ключ вставлен. Нажмите «Сохранить».';
+  input.focus();
+}
+
 function soundcloudCard() {
   return `
     <form class="panel source-card" data-source-form="soundcloud" autocomplete="off">
@@ -146,6 +175,22 @@ function soundcloudCard() {
         ${pill('soundcloud')}
       </div>
 
+      <div class="sc-helper">
+        <div class="sc-helper__text">
+          <b>Ключ нужен только для ваших лайков и приватных плейлистов.</b>
+          Поиск, волна и воспроизведение работают и без него.
+        </div>
+        <div class="sc-helper__actions">
+          <button class="btn btn--accent btn--sm" type="button" data-sc-open-apps>
+            ${icon('external')} Открыть настройки приложения
+          </button>
+          <button class="btn btn--ghost btn--sm" type="button" data-sc-paste>
+            ${icon('key')} Вставить из буфера
+          </button>
+        </div>
+        <div class="sc-helper__hint" data-sc-state></div>
+      </div>
+
       <div class="field">
         <label for="soundcloud-key">client_id <span style="text-transform:none;letter-spacing:0;color:var(--mute)">— необязательно</span></label>
         <div class="input-wrap">
@@ -154,6 +199,10 @@ function soundcloudCard() {
           <button class="input-wrap__btn" type="button" data-reveal="soundcloud-key">Показать</button>
         </div>
         <span class="field__hint" data-hint="soundcloud:clientId">${savedHint('soundcloud', 'clientId')} · публичный ключ, не секрет</span>
+        <div class="sc-auto">
+          <button class="btn btn--ghost btn--sm" type="button" data-sc-auto>${icon('refresh')} Проверить автоключ</button>
+          <span class="sc-auto__state" data-sc-auto-state>поиск и волна работают без своего ключа</span>
+        </div>
       </div>
       <div class="field">
         <label for="soundcloud-profile">Ссылка на профиль</label>
@@ -349,13 +398,26 @@ async function submitForm(form) {
 }
 
 function onClick(event) {
-  const target = event.target instanceof Element
+  const target = event.target instanceof Element ? event.target : null;
+
+  // помощник SoundCloud: открыть страницу приложений и вставить ключ из буфера
+  if (target?.closest('[data-sc-open-apps]')) {
+    window.open('https://soundcloud.com/you/apps', '_blank', 'noopener');
+    return;
+  }
+
+  if (target?.closest('[data-sc-paste]')) {
+    pasteSoundCloudKey();
+    return;
+  }
+
+  const clicked = event.target instanceof Element
     ? event.target.closest('[data-src], [data-reveal], [data-signin]')
     : null;
-  if (!target) return;
-  if (target.dataset.signin) { signInYandex(); return; }
-  if (target.dataset.reveal) { reveal(target.dataset.reveal); return; }
-  if (target.dataset.src === 'refresh') reload({ withToast: true });
+  if (!clicked) return;
+  if (clicked.dataset.signin) { signInYandex(); return; }
+  if (clicked.dataset.reveal) { reveal(clicked.dataset.reveal); return; }
+  if (clicked.dataset.src === 'refresh') reload({ withToast: true });
 }
 
 /**

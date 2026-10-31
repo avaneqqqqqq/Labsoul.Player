@@ -300,7 +300,7 @@ function invalidateClientId() {
   clientIdAt = 0;
 }
 
-async function acquireClientId() {
+export async function acquireClientId() {
   const startedAt = Date.now();
   const deadline = startedAt + 25_000;
   const attempts = [];
@@ -532,6 +532,16 @@ export function configure(cfg = {}) {
   invalidateClientId();
   lastFailError = null;
   lastFailAt = 0;
+}
+
+/** Диагностика: какой client_id используется и откуда он взят. */
+export function clientIdInfo() {
+  return {
+    configured: Boolean(configuredClientId),
+    validated: Boolean(validatedClientId),
+    source: clientIdSource || null,
+    acquiredAt: clientIdAt || null,
+  };
 }
 
 export async function status() {

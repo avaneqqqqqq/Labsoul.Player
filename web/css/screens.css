@@ -953,3 +953,38 @@ mark.hit {
 .pl-head__meta span { font-size: 12px; color: var(--dim); }
 
 .lib-filter__btn--ghost { opacity: .8; }
+
+/* --- помощник подключения SoundCloud -------------------------------- */
+
+.sc-helper {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 12px);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.sc-helper__text {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+
+.sc-helper__text b { color: var(--text); }
+
+.sc-helper__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sc-helper__hint {
+  font-size: 12px;
+  color: var(--mute);
+  min-height: 16px;
+}
+
+.sc-helper__hint:not(:empty) { color: var(--accent); }
