@@ -1,1 +1,1 @@
-{"name":"labsoul-server","private":true,"type":"module","dependencies":{"undici":"^8.12.3"}}
+{"name":"labsoul-server","private":true,"type":"module","dependencies":{"undici":"^6.29.1"}}
