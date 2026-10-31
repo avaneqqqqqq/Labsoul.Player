@@ -175,6 +175,13 @@ function soundcloudCard() {
         ${pill('soundcloud')}
       </div>
 
+      ${desktopBridge() ? `<div class="signin">
+        <button class="btn btn--accent btn--sm" type="button" data-signin="soundcloud">
+          ${icon('check')} Войти в SoundCloud
+        </button>
+        <span class="signin__hint">Один раз вошли — дальше лайки и плейлисты подтягиваются сами, ключ не нужен.</span>
+      </div>` : ''}
+
       <div class="sc-helper">
         <div class="sc-helper__text">
           <b>Ключ нужен только для ваших лайков и приватных плейлистов.</b>
@@ -426,6 +433,7 @@ function onClick(event) {
     ? event.target.closest('[data-src], [data-reveal], [data-signin]')
     : null;
   if (!clicked) return;
+  if (clicked.dataset.signin === 'soundcloud') { signInSoundCloud(); return; }
   if (clicked.dataset.signin) { signInYandex(); return; }
   if (clicked.dataset.reveal) { reveal(clicked.dataset.reveal); return; }
   if (clicked.dataset.src === 'refresh') reload({ withToast: true });
@@ -435,6 +443,26 @@ function onClick(event) {
  * Вход в Яндекс через окно OAuth (доступно только в десктопной оболочке:
  * в обычном браузере такого моста нет, и мы честно об этом говорим).
  */
+/** Вход в SoundCloud через окно приложения: сессия сохраняется, лайки тянутся сами. */
+async function signInSoundCloud() {
+  const bridge = desktopBridge();
+  if (!bridge || typeof bridge.signInSoundCloud !== 'function') {
+    toast('Вход в SoundCloud доступен в приложении labsoul', { type: 'warn' });
+    return;
+  }
+  try {
+    const result = await bridge.signInSoundCloud();
+    if (result && result.ok) {
+      toast('SoundCloud подключён — лайки подтянутся автоматически', { icon: 'check' });
+      reload({ withToast: false });
+    } else if (result && result.error) {
+      toast('Не удалось войти: ' + result.error, { type: 'err' });
+    }
+  } catch (err) {
+    toast(err?.message || 'Окно входа не открылось', { type: 'err' });
+  }
+}
+
 async function signInYandex() {
   const bridge = desktopBridge();
   if (!bridge) {
