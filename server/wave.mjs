@@ -181,11 +181,18 @@ export async function getWave(limit = 20, station = DEFAULT_STATION, sources = n
   const wanted = normalizeSources(sources);
   const key = waveKey(station, wanted);
 
+  const remember = (result) => {
+    (result?.items || []).forEach((track) => markSeen(station, track.id));
+    return result;
+  };
+
   const ready = prepared.get(key);
   if (ready) {
     prepared.delete(key);
     kickPrepare(key, want, station, wanted);
-    return ready;
+    // заготовка могла устареть: убираем то, что успели показать иначе
+    const fresh = (ready.items || []).filter((track) => track?.id && !wasSeen(station, track.id));
+    if (fresh.length) return remember({ ...ready, items: fresh });
   }
 
   kickPrepare(key, want, station, wanted);
@@ -193,7 +200,7 @@ export async function getWave(limit = 20, station = DEFAULT_STATION, sources = n
   // Ротор отвечает медленно, поэтому не держим запрос: отдаём пустой ответ
   // с пометкой warming — клиент повторит через секунду, а заготовка догонит.
   // готового нет — собираем на месте (первый запрос после запуска)
-  return buildWave(want, station, wanted);
+  return remember(await buildWave(want, station, wanted));
 }
 
 async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) {
@@ -240,7 +247,6 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
 
   // выкидываем то, что уже показывали, чтобы волна не ходила по кругу
   let items = interleave(usable, want).filter((track) => !wasSeen(station, track.id));
-  items.forEach((track) => markSeen(station, track.id));
 
   // если новинок мало — добираем ещё пару раз у тех же источников
   for (let attempt = 0; attempt < 2 && items.length < want; attempt += 1) {
@@ -261,7 +267,6 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
       .filter((track) => track.id && !items.some((item) => item.id === track.id) && !wasSeen(station, track.id));
     if (!more.length) break;
 
-    more.forEach((track) => markSeen(station, track.id));
     items = items.concat(more);
   }
 
@@ -281,7 +286,6 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
         const more = (altBatch.items || [])
           .filter((track) => track.id && !items.some((item) => item.id === track.id) && !wasSeen(station, track.id));
         if (!more.length) continue;
-        more.forEach((track) => markSeen(station, track.id));
         items = items.concat(more);
       } catch (err) {
         store.log('[wave] соседняя станция не ответила:', err.message);
@@ -297,7 +301,6 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
     if (stale) {
       map.clear();
       items = interleave(usable, want);
-      items.forEach((track) => markSeen(station, track.id));
     }
   }
 
