@@ -1144,6 +1144,13 @@ function syncSchemeIcon() {
 }
 
 function syncQuickTheme() {
+  document.querySelectorAll('.stylepick [data-preset-id]').forEach((button) => {
+    const preset = PRESETS.find((item) => item.id === button.dataset.presetId);
+    const on = Boolean(preset) && theme.variant === preset.variant && theme.scheme === preset.scheme;
+    button.classList.toggle('is-on', on);
+    button.style.setProperty('--swatch', preset ? preset.swatch : 'transparent');
+  });
+
   document.querySelectorAll('.stylepick [data-variant]').forEach((button) => {
     button.classList.toggle('on', button.dataset.variant === theme.variant);
   });
@@ -1329,7 +1336,14 @@ export function initShell() {
       go(routeEl.dataset.route);
       return;
     }
-    const variantEl = event.target instanceof Element ? event.target.closest('.stylepick [data-variant]') : null;
+    const presetEl = event.target instanceof Element ? event.target.closest('.stylepick [data-preset-id]') : null;
+  if (presetEl) {
+    applyPreset(presetEl.dataset.presetId);
+    renderSources();
+    return;
+  }
+
+  const variantEl = event.target instanceof Element ? event.target.closest('.stylepick [data-variant]') : null;
     if (variantEl) {
       update('variant', variantEl.dataset.variant);
       toast(`Стиль: ${{ glass: 'Стекло', vinyl: 'Пластинка', neon: 'Неон', paper: 'Бумага' }[variantEl.dataset.variant]}`, {
