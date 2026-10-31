@@ -257,7 +257,15 @@ async function getDescriptor(source, sourceId, force = false) {
   if (!force && hit && Date.now() - hit.at < DESC_TTL) return hit.desc;
   const provider = providers[source];
   if (!provider) throw badRequest('Неизвестный источник');
-  const desc = await provider.stream(sourceId);
+  // провайдер может «залипнуть» на медиа-CDn: ограничиваем ожидание
+  const desc = await Promise.race([
+    provider.stream(sourceId),
+    new Promise((_, reject) => setTimeout(() => {
+      const err = new Error('Таймаут получения потока');
+      err.code = 'UPSTREAM_TIMEOUT';
+      reject(err);
+    }, 15000)),
+  ]);
   if (!desc || (!desc.url && !desc.buffer && !desc.filePath)) {
     const err = new Error('Источник не вернул поток');
     err.code = 'NOT_PLAYABLE';

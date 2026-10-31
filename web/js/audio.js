@@ -376,6 +376,7 @@ function playCurrent() {
   }
 
   emit('state');
+  armStallWatchdog();
   const attempt = audio.play();
   if (attempt && typeof attempt.then === 'function') {
     attempt.then(() => {
@@ -758,11 +759,41 @@ audio.addEventListener('playing', () => {
   state.error = null;
   emit('state');
 });
+audio.addEventListener('playing', () => {
+  clearStallWatchdog();
+  state.loading = false;
+});
+
 audio.addEventListener('ended', () => {
+  clearStallWatchdog();
   if (state.simulated) return;
   handleEnded();
 });
+/* Сторож загрузки: поток может «зависнуть» (сервер отдал 409, сеть оборвалась) —
+   элемент при этом не присылает error, и плеер выглядит застывшим. */
+let stallWatchdog = 0;
+
+function armStallWatchdog() {
+  clearTimeout(stallWatchdog);
+  stallWatchdog = setTimeout(() => {
+    if (!state.loading) return;
+    state.loading = false;
+    state.playing = false;
+    state.error = 'Трек не загрузился. Пробуем следующий.';
+    emit('error');
+    emit('state');
+    // пропускаем зависший трек, чтобы очередь не стояла
+    if (state.queue.length > 1) next();
+  }, 20000);
+}
+
+function clearStallWatchdog() {
+  clearTimeout(stallWatchdog);
+  stallWatchdog = 0;
+}
+
 audio.addEventListener('error', () => {
+  clearStallWatchdog();
   if (state.simulated || !audio.src) return;
   state.loading = false;
   state.playing = false;

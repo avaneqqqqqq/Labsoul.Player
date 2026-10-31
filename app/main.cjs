@@ -183,8 +183,23 @@ function createWindow(port) {
     hideUpdateBanner();
   });
 
+  // плашка — отдельное окно поверх; при уходе приложения в фон её тоже убираем
+  mainWindow.on('blur', () => {
+    if (bannerWin && !bannerWin.isDestroyed()) bannerWin.hide();
+  });
+  mainWindow.on('show', () => {
+    if (updateFlow.phase !== 'idle' && updateFlow.phase !== 'closed') showUpdateBanner();
+  });
+  mainWindow.on('focus', () => {
+    if (bannerWin && !bannerWin.isDestroyed() && !bannerWin.isVisible()) bannerWin.showInactive();
+  });
+  mainWindow.on('hide', () => {
+    hideUpdateBanner();
+  });
+
   mainWindow.on('closed', () => {
     mainWindow = null;
+    hideUpdateBanner();
   });
 }
 
@@ -740,6 +755,13 @@ function sendBannerState() {
 
 /** Плавающая плашка поверх окна плеера — как в прежней оболочке. */
 function showUpdateBanner() {
+  // если главное окно свёрнуто или скрыто — плашка не должна висеть на экране
+  const mainVisible = mainWindow && !mainWindow.isDestroyed() && !mainWindow.isMinimized() && mainWindow.isVisible();
+  if (!mainVisible) {
+    log('баннер обновления отложен: окно не на экране');
+    return;
+  }
+
   if (bannerWin && !bannerWin.isDestroyed()) {
     sendBannerState();
     positionBanner();
