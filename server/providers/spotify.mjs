@@ -357,3 +357,19 @@ export const _debug = {
     return Boolean(accessToken) && Date.now() < accessTokenExpiresAt;
   },
 };
+
+/**
+ * Плейлисты Spotify.
+ *
+ * Пользовательские плейлисты требуют авторизации конкретного слушателя
+ * (PKCE + согласие в браузере), которой у стороннего приложения нет.
+ * Честно сообщаем причину вместо пустого списка.
+ */
+export async function playlists() {
+  return { items: [], reason: 'NOT_SUPPORTED' };
+}
+
+export async function playlistTracks() {
+  return { items: [], reason: 'NOT_SUPPORTED' };
+}
+

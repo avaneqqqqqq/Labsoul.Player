@@ -25,6 +25,8 @@ import {
   toggleLike,
 } from './store.js';
 import {
+  PRESETS,
+  applyPreset,
   cycleScheme,
   subscribe as themeSubscribe,
   theme,

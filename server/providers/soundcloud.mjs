@@ -65,6 +65,9 @@ const PUBLIC_CLIENT_ID_LISTS = [
 /* ------------------------------------------------------------------ */
 
 let configuredClientId = '';
+// ссылка на профиль из настроек: по ней ищем лайки и плейлисты
+let configuredProfile = '';
+
 let validatedClientId = '';
 let clientIdSource = '';
 let clientIdAt = 0;
@@ -278,6 +281,10 @@ async function validateClientId(value) {
   } catch {
     return false;
   }
+}
+
+function configuredProfileUrl() {
+  return String(configuredProfile || process.env.SOUNDCLOUD_PROFILE || '').trim();
 }
 
 function setClientId(value, source) {
@@ -515,6 +522,9 @@ function mapTrack(raw) {
  * @param {{clientId?: string}} [cfg] настройки источника (PUT /api/settings)
  */
 export function configure(cfg = {}) {
+  // профиль нужен и для лайков, и для плейлистов — запоминаем его всегда
+  configuredProfile = typeof cfg?.profileUrl === 'string' ? cfg.profileUrl.trim() : configuredProfile;
+
   const next = typeof cfg?.clientId === 'string' ? cfg.clientId.trim() : '';
   if (next === configuredClientId) return;
   configuredClientId = next;
@@ -584,6 +594,67 @@ export async function likes(limit = 100, profileUrl = '') {
   } catch (err) {
     const reason = err?.status === 401 || /HTTP 40[13]/.test(String(err?.message)) ? 'CLIENT_ID_REJECTED' : 'UPSTREAM';
     return { items: [], reason };
+  }
+}
+
+/**
+ * Плейлисты (sets) пользователя SoundCloud.
+ * Требует постоянного client_id — как и лайки.
+ * @param {{owner?:string}} [options]
+ */
+export async function playlists(options = {}) {
+  const permanents = [configuredClientId, process.env.SOUNDCLOUD_CLIENT_ID]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  if (!permanents.length) return { items: [], reason: 'NO_CLIENT_ID' };
+
+  const clientId = permanents[0];
+  const url = String(options.owner || '').trim() || configuredProfileUrl() || 'https://soundcloud.com/you';
+
+  try {
+    const resolved = JSON.parse(await callApi('/resolve', { url }, clientId));
+    const userId = resolved?.id;
+    if (!userId) return { items: [], reason: 'NO_PROFILE' };
+
+    const data = JSON.parse(await callApi(`/users/${userId}/playlists`, { limit: 50, linked_partitioning: 1 }, clientId));
+    const collection = Array.isArray(data?.collection) ? data.collection : [];
+    const items = collection.map((raw) => ({
+      id: `soundcloud:${raw.id}`,
+      source: 'soundcloud',
+      owner: String(raw.user?.id || userId),
+      ownerName: raw.user?.username || null,
+      kind: String(raw.id),
+      title: String(raw.title || 'Без названия'),
+      trackCount: Number(raw.track_count) || 0,
+      cover: upgradeArtworkUrl(raw.artwork_url) || upgradeArtworkUrl(raw.user?.avatar_url),
+      description: String(raw.description || '').slice(0, 300),
+      visibility: raw.sharing === 'public' ? 'public' : 'private',
+      updated: raw.last_modified || null,
+    }));
+    return { items };
+  } catch (err) {
+    const reason = /HTTP 40[13]/.test(String(err?.message)) ? 'CLIENT_ID_REJECTED' : 'UPSTREAM';
+    return { items: [], reason };
+  }
+}
+
+/** Треки плейлиста SoundCloud: id вида soundcloud:<playlistId>. */
+export async function playlistTracks(playlistId, limit = 300) {
+  const permanents = [configuredClientId, process.env.SOUNDCLOUD_CLIENT_ID]
+    .map((value) => String(value || '').trim())
+    .filter(Boolean);
+  if (!permanents.length) return { items: [], reason: 'NO_CLIENT_ID' };
+
+  const size = clampInt(limit, 300, 1, 500);
+  const id = String(playlistId || '').replace(/^soundcloud:/, '');
+  if (!/^\d+$/.test(id)) return { items: [], reason: 'BAD_ID' };
+
+  try {
+    const data = JSON.parse(await callApi(`/playlists/${id}`, {}, permanents[0]));
+    const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
+    return { items: tracks.filter((raw) => raw && raw.id).map(mapTrack).slice(0, size) };
+  } catch (err) {
+    return { items: [], reason: /HTTP 40[13]/.test(String(err?.message)) ? 'CLIENT_ID_REJECTED' : 'UPSTREAM' };
   }
 }
 

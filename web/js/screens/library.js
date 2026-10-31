@@ -24,6 +24,10 @@ import {
   setHistorySource,
   loadLibraryLikes,
   loadLocalTracks,
+  loadPlaylists,
+  openPlaylist,
+  closePlaylist,
+  setPlaylistSource,
   subscribe as storeSubscribe,
   toggleLibrarySource,
 } from '../store.js';
@@ -111,6 +115,9 @@ function toolbarHtml() {
       </button>
       <button type="button" role="tab" data-tab="local" class="${tab === 'local' ? 'on' : ''}" aria-selected="${tab === 'local'}">
         Своя музыка <span class="chip__count">${(app.local.items || []).length}</span>
+      </button>
+      <button type="button" role="tab" data-tab="playlists" class="${tab === 'playlists' ? 'on' : ''}" aria-selected="${tab === 'playlists'}">
+        Плейлисты <span class="chip__count">${(app.playlists.items || []).length}</span>
       </button>
     </div>
     <div class="lib-toolbar__spacer"></div>
@@ -274,6 +281,79 @@ function likesBody() {
   })).join('')}</div>`;
 }
 
+/** Плейлисты сервисов: выбор источника, список, открытие, запуск. */
+function playlistsBody() {
+  const state = app.playlists;
+  const sources = [
+    ['yandex', 'Яндекс.Музыка'],
+    ['soundcloud', 'SoundCloud'],
+    ['spotify', 'Spotify'],
+  ];
+
+  const head = `<div class="lib-filter" role="group" aria-label="Сервис плейлистов">
+    ${sources.map(([key, label]) => `<button class="lib-filter__btn${state.source === key ? ' is-on' : ''}" type="button"
+      data-pl-src="${key}" aria-pressed="${state.source === key}">${esc(label)}</button>`).join('')}
+    <button class="lib-filter__btn lib-filter__btn--ghost" type="button" data-lib="pl-reload" title="Обновить список">Обновить</button>
+  </div>`;
+
+  if (state.loading) {
+    return `${head}<div class="section">${skeletonRows(4)}</div>`;
+  }
+
+  if (state.error && !state.items.length) {
+    const fixable = ['NO_TOKEN', 'AUTH_FAILED', 'NO_CLIENT_ID', 'CLIENT_ID_REJECTED', 'NO_PROFILE', 'NOT_SUPPORTED'].includes(state.error);
+    return `${head}<div class="lib-empty">${emptyState({
+      iconName: 'library',
+      title: state.error === 'NOT_SUPPORTED' ? 'Этот сервис не отдаёт плейлисты' : 'Плейлисты недоступны',
+      text: state.message || 'Проверьте подключение сервиса.',
+      actions: fixable ? `<button class="btn btn--accent btn--sm" type="button" data-route="sources">${icon('key')} Настроить подключение</button>` : '',
+    })}</div>`;
+  }
+
+  // открытый плейлист: треки
+  if (state.openId) {
+    const playlist = state.items.find((item) => item.id === state.openId);
+    const likedIds = new Set(app.likes.map((track) => track.id));
+    const currentId = player.getState().current?.id;
+    const rows = state.tracks.map((track, index) => rowHtml(track, {
+      index: index + 1,
+      current: track.id === currentId,
+      likedIds,
+      mode: 'library',
+    })).join('');
+
+    return `${head}
+      <div class="pl-head">
+        <button class="pl-head__back" type="button" data-lib="pl-back">${icon('chev-left')} К списку</button>
+        <div class="pl-head__meta">
+          <b>${esc(playlist?.title || 'Плейлист')}</b>
+          <span>${state.tracks.length} ${plural(state.tracks.length, ['трек', 'трека', 'треков'])}${playlist?.ownerName ? ' · ' + esc(playlist.ownerName) : ''}</span>
+        </div>
+        <button class="btn btn--accent btn--sm" type="button" data-lib="pl-play">${icon('play')} Слушать</button>
+      </div>
+      ${state.tracksLoading ? `<div class="section">${skeletonRows(5)}</div>` : rows || '<div class="lib-empty">' + emptyState({ iconName: 'music', title: 'Плейлист пуст', text: 'В этом плейлисте нет треков.' }) + '</div>'}`;
+  }
+
+  if (!state.items.length) {
+    return `${head}<div class="lib-empty">${emptyState({
+      iconName: 'library',
+      title: 'Плейлистов пока нет',
+      text: 'Здесь появятся ваши плейлисты из подключённых сервисов.',
+    })}</div>`;
+  }
+
+  return `${head}<div class="pl-grid">${state.items.map((item) => `
+    <button class="pl-card" type="button" data-pl-open="${esc(item.id)}">
+      <span class="pl-card__art" style="background:linear-gradient(135deg,#2a2a33,#15151b)">
+        ${item.cover ? `<img src="${esc(item.cover)}" alt="" loading="lazy">` : icon('music')}
+      </span>
+      <span class="pl-card__meta">
+        <b>${esc(item.title)}</b>
+        <span>${item.trackCount} ${plural(item.trackCount, ['трек', 'трека', 'треков'])}</span>
+      </span>
+    </button>`).join('')}</div>`;
+}
+
 function localDuration(seconds) {
   const value = Math.max(0, Math.round(Number(seconds) || 0));
   if (!value) return '—';
@@ -337,9 +417,11 @@ function bodyHtml() {
   const history = historyBody();
   const likes = likesBody();
   const local = localBody();
+  const playlists = playlistsBody();
   return `<div data-tab-body="history"${tab === 'history' ? '' : ' hidden'}>${history}</div>
     <div data-tab-body="likes"${tab === 'likes' ? '' : ' hidden'}>${likes}</div>
-    <div data-tab-body="local"${tab === 'local' ? '' : ' hidden'}>${local}</div>`;
+    <div data-tab-body="local"${tab === 'local' ? '' : ' hidden'}>${local}</div>
+    <div data-tab-body="playlists"${tab === 'playlists' ? '' : ' hidden'}>${playlistsBody()}</div>`;
 }
 
 function paint({ bodyOnly = false } = {}) {
@@ -385,6 +467,33 @@ function queueAll() {
 }
 
 function onClick(event) {
+  // плейлисты: сервис, открытие, назад, запуск, обновление
+  const plSrc = event.target instanceof Element ? event.target.closest('[data-pl-src]') : null;
+  if (plSrc) {
+    setPlaylistSource(plSrc.dataset.plSrc);
+    return;
+  }
+
+  const plOpen = event.target instanceof Element ? event.target.closest('[data-pl-open]') : null;
+  if (plOpen) {
+    openPlaylist(plOpen.dataset.plOpen);
+    return;
+  }
+
+  const libAction = event.target instanceof Element ? event.target.closest('[data-lib]') : null;
+  if (libAction && ['pl-back', 'pl-play', 'pl-reload'].includes(libAction.dataset.lib)) {
+    const action = libAction.dataset.lib;
+    if (action === 'pl-back') { closePlaylist(); return; }
+    if (action === 'pl-reload') { loadPlaylists(); return; }
+    if (action === 'pl-play') {
+      const list = app.playlists.tracks;
+      if (!list.length) { toast('Плейлист пуст', { type: 'warn' }); return; }
+      player.playTracks(list, 0, { context: { type: 'playlist', id: app.playlists.openId } });
+      toast('Играем плейлист', { icon: 'play' });
+      return;
+    }
+  }
+
   // фильтр «Истории» по источнику
   const histButton = event.target instanceof Element ? event.target.closest('[data-hist-src]') : null;
   if (histButton) {
@@ -418,11 +527,13 @@ function onClick(event) {
 
   const tabButton = event.target instanceof Element ? event.target.closest('[data-tab]') : null;
   if (tabButton) {
-    const next = tabButton.dataset.tab === 'likes' ? 'likes' : tabButton.dataset.tab === 'local' ? 'local' : 'history';
+    const raw = tabButton.dataset.tab;
+    const next = ['likes', 'local', 'playlists'].includes(raw) ? raw : 'history';
     rememberTab(next);
     paint();
     if (next === 'likes') loadLibraryLikes();
     if (next === 'local') loadLocalTracks();
+    if (next === 'playlists') loadPlaylists();
     return;
   }
   const action = event.target instanceof Element ? event.target.closest('[data-lib]') : null;
@@ -598,6 +709,7 @@ export const libraryScreen = {
     screen.unsubs.push(storeSubscribe((_state, event) => {
       if (event === 'history') paint();
       if (event === 'likes' || event === 'library' || event === 'status' || event === 'local') paint();
+      if (event === 'playlists') paint();
       if (event === 'net') {
         if (app.history.items.length === 0) loadHistory();
         loadLibraryLikes({ force: true });

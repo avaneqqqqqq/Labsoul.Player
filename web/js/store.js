@@ -7,6 +7,8 @@ import {
   getHistory,
   getLikes,
   getLocalTracks,
+  getPlaylistTracks,
+  getPlaylists,
   getSettings,
   getStatus,
   getWave,
@@ -561,6 +563,66 @@ export async function deleteLocalTrack(sourceId) {
 }
 
 /** Ошибки серверных источников — для честных подсказок в интерфейсе. */
+/* ------------------------------------------------------------------ */
+/* Плейлисты                                                            */
+/* ------------------------------------------------------------------ */
+
+/** Загрузить плейлисты выбранного сервиса. */
+export async function loadPlaylists(source = app.playlists.source) {
+  app.playlists.source = source;
+  app.playlists.loading = true;
+  app.playlists.error = null;
+  app.playlists.message = null;
+  emit('playlists');
+  try {
+    const data = await getPlaylists(source);
+    app.playlists.items = Array.isArray(data?.items) ? data.items : [];
+    app.playlists.error = data?.error || null;
+    app.playlists.message = data?.message || null;
+  } catch (err) {
+    app.playlists.items = [];
+    app.playlists.error = err?.code || 'ERROR';
+    app.playlists.message = err?.message || 'Не удалось загрузить плейлисты';
+  } finally {
+    app.playlists.loading = false;
+    emit('playlists');
+  }
+}
+
+/** Сменить сервис плейлистов. */
+export function setPlaylistSource(source) {
+  if (app.playlists.source === source) return;
+  app.playlists.openId = null;
+  app.playlists.tracks = [];
+  loadPlaylists(source);
+}
+
+/** Открыть плейлист: подгружает треки. */
+export async function openPlaylist(playlistId) {
+  app.playlists.openId = playlistId;
+  app.playlists.tracks = [];
+  app.playlists.tracksLoading = true;
+  emit('playlists');
+  try {
+    const data = await getPlaylistTracks(app.playlists.source, playlistId);
+    app.playlists.tracks = safeTracks(data?.items);
+    app.playlists.error = data?.error || null;
+  } catch (err) {
+    app.playlists.tracks = [];
+    app.playlists.error = err?.code || 'ERROR';
+  } finally {
+    app.playlists.tracksLoading = false;
+    emit('playlists');
+  }
+}
+
+/** Вернуться к списку плейлистов. */
+export function closePlaylist() {
+  app.playlists.openId = null;
+  app.playlists.tracks = [];
+  emit('playlists');
+}
+
 export function libraryErrors() {
   return app.library.remote
     .filter((group) => group.error)

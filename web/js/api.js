@@ -353,6 +353,32 @@ export async function getLikes(sources = ['yandex'], limit = 100) {
   }
 }
 
+/** Плейлисты сервиса: свои и (по ссылке на профиль) чужие. */
+export async function getPlaylists(source, owner = '') {
+  if (isDemo()) return { items: [], error: 'NOT_SUPPORTED' };
+  const query = owner ? `?owner=${encodeURIComponent(owner)}` : '';
+  try {
+    return await request(`/api/playlists/${encodeURIComponent(source)}${query}`, { timeout: 30000 });
+  } catch (err) {
+    if (isNetworkError(err)) degrade(err);
+    return { items: [], error: err?.code || 'ERROR', message: err?.message };
+  }
+}
+
+/** Треки одного плейлиста. */
+export async function getPlaylistTracks(source, playlistId) {
+  if (isDemo()) return { items: [] };
+  try {
+    return await request(
+      `/api/playlists/${encodeURIComponent(source)}/${encodeURIComponent(playlistId)}`,
+      { timeout: 40000 },
+    );
+  } catch (err) {
+    if (isNetworkError(err)) degrade(err);
+    return { items: [], error: err?.code || 'ERROR', message: err?.message };
+  }
+}
+
 /** Текст песни с таймингами (LRC) — ищется на сервере по названию и исполнителю. */
 export async function getLyrics(source, sourceId) {
   if (isDemo()) return { available: false, synced: [], plain: '' };

@@ -58,6 +58,7 @@ function makeStub(name) {
 }
 
 async function loadProviders() {
+  const settings = store.loadSettings();
   for (const name of PROVIDER_NAMES) {
     try {
       const mod = await import(`./providers/${name}.mjs`);
@@ -694,6 +695,47 @@ function reasonMessage(reason) {
   };
   return texts[reason] || null;
 }
+  if (route[0] === 'playlists') {
+    // плейлисты сервисов: свои и чужие (по логину), список и треки
+    const settings = store.loadSettings();
+    const source = String(route[1] || 'yandex');
+    const provider = providers[source];
+    if (!provider || typeof provider.playlists !== 'function') {
+      sendJson(res, 200, { items: [], error: 'NOT_SUPPORTED', message: reasonMessage('NOT_SUPPORTED') });
+      return;
+    }
+
+    // треки конкретного плейлиста: /api/playlists/{source}/{id}
+    if (route[2]) {
+      if (typeof provider.playlistTracks !== 'function') {
+        sendJson(res, 200, { items: [], error: 'NOT_SUPPORTED' });
+        return;
+      }
+      try {
+        const result = await provider.playlistTracks(decodeURIComponent(route[2]));
+        const items = Array.isArray(result) ? result : result?.items || [];
+        sendJson(res, 200, { items, error: items.length ? null : result?.reason || null });
+      } catch (err) {
+        sendJson(res, 200, { items: [], error: err.code || 'UPSTREAM', message: err.message });
+      }
+      return;
+    }
+
+    const owner = url.searchParams.get('owner') || '';
+    try {
+      const result = await provider.playlists({ owner });
+      const items = Array.isArray(result) ? result : result?.items || [];
+      sendJson(res, 200, {
+        items,
+        error: items.length ? null : result?.reason || null,
+        message: items.length ? null : reasonMessage(result?.reason),
+      });
+    } catch (err) {
+      sendJson(res, 200, { items: [], error: err.code || 'UPSTREAM', message: err.message });
+    }
+    return;
+  }
+
   if (route[0] === 'likes') {
     // избранное по источникам: какие сервисы включены, такие и опрашиваем
     const settings = store.loadSettings();

@@ -367,6 +367,64 @@ let stationsCache = null;
  * /rotor/stations/list отдаёт ~700 станций, где id — объект {type, tag},
  * поэтому собираем полный id как «type:tag» и группируем по типу.
  */
+/* -------------------------------- плейлисты ----------------------------- */
+
+/**
+ * Плейлисты пользователя: свои и (если передан owner) чужие.
+ * @param {{owner?:string}} [options]
+ * @returns {Promise<{items: object[], reason?: string}>}
+ */
+export async function playlists(options = {}) {
+  try {
+    const uid = options.owner ? String(options.owner) : await accountUid();
+    const data = await request(`/users/${encodeURIComponent(uid)}/playlists/list`);
+    const list = Array.isArray(data?.result) ? data.result : [];
+    const items = list.map((playlist) => ({
+      id: `yandex:${playlist.owner?.uid || uid}:${playlist.kind}`,
+      source: 'yandex',
+      owner: String(playlist.owner?.uid || uid),
+      ownerName: playlist.owner?.name || playlist.owner?.login || null,
+      kind: String(playlist.kind),
+      title: String(playlist.title || 'Без названия'),
+      trackCount: Number(playlist.trackCount) || 0,
+      cover: playlist.cover?.uri
+        ? `https://${String(playlist.cover.uri).replace('%%', '400x400')}`
+        : null,
+      description: String(playlist.description || '').slice(0, 300),
+      visibility: playlist.visibility || 'private',
+      updated: playlist.modified || null,
+    }));
+    return { items };
+  } catch (err) {
+    const reason = err?.code === 'AUTH_FAILED' || !cfg.token ? 'NO_TOKEN' : 'UPSTREAM';
+    return { items: [], reason };
+  }
+}
+
+/**
+ * Треки плейлиста. Формат id: yandex:owner:kind.
+ * @param {string} playlistId
+ * @param {number} limit
+ */
+export async function playlistTracks(playlistId, limit = 300) {
+  const parts = String(playlistId || '').replace(/^yandex:/, '').split(':');
+  if (parts.length < 2) return { items: [], reason: 'BAD_ID' };
+  const [owner, kind] = parts;
+
+  try {
+    const data = await request(`/users/${encodeURIComponent(owner)}/playlists/${encodeURIComponent(kind)}?rich=true`);
+    const raw = Array.isArray(data?.result?.tracks) ? data.result.tracks : [];
+    const items = raw
+      .map((entry) => entry?.track || entry)
+      .filter(Boolean)
+      .map(mapTrack)
+      .slice(0, Math.max(1, Math.min(Number(limit) || 300, 1000)));
+    return { items };
+  } catch (err) {
+    return { items: [], reason: err?.code === 'AUTH_FAILED' ? 'NO_TOKEN' : 'UPSTREAM' };
+  }
+}
+
 export async function stations() {
   if (stationsCache) return stationsCache;
 
