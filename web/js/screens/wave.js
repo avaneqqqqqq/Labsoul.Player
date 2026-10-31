@@ -302,6 +302,27 @@ function syncCurrentRows() {
 }
 
 /** Волна играет: держим впереди минимум 5 треков, догружая в фоне. */
+/**
+ * Очередь волны пополняется из ленты: держим впереди не меньше 12 треков,
+ * чтобы воспроизведение не упиралось в первую партию из 5–20.
+ */
+function extendQueue() {
+  const snap = player.getState();
+  if (snap.context?.type !== 'wave') return;
+  if (!snap.queue.length) return;
+
+  const total = snap.queue.length;
+  const index = Number.isFinite(snap.index) ? snap.index : 0;
+  if (total - index - 1 >= 12) return;
+
+  const inQueue = new Set(snap.queue.map((track) => track.id));
+  const fresh = app.wave.items.filter((track) => track && !inQueue.has(track.id));
+  if (fresh.length) player.enqueue(fresh);
+
+  // в ленте тоже пусто — просим следующую партию
+  if (fresh.length < 12 && !app.wave.loading) loadWaveMore();
+}
+
 function ensureAhead() {
   if (!screen.root) return;
   const snap = player.getState();
@@ -310,7 +331,7 @@ function ensureAhead() {
   const total = Array.isArray(snap.queue) ? snap.queue.length : 0;
   const index = Number.isFinite(snap.index) ? snap.index : -1;
   const remaining = total - index - 1;
-  if (remaining >= 8) return;
+  if (remaining >= 12) return;
   if (app.wave.loading) return;
   if (Date.now() - (screen.aheadAt || 0) < 4000) return;
 
