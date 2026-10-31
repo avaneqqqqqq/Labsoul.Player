@@ -34,7 +34,6 @@ const screen = {
   observer: null,
   unsubs: [],
   autoFills: 0,
-  fillTimer: null,
 };
 
 function currentState() {
@@ -255,7 +254,6 @@ function sentinelHtml() {
 }
 
 let paintQueued = false;
-let lastBlocksKey = '';
 
 /** Перерисовка в ближайшем кадре: события волны приходят пачками. */
 function schedulePaint() {
@@ -269,27 +267,13 @@ function schedulePaint() {
 
 function paint() {
   if (!screen.root) return;
-  // если состав ленты не изменился — не трогаем DOM (иначе лаги при прокрутке)
-  const key = [
-    app.wave.items.length,
-    app.wave.items[0]?.id || '',
-    app.wave.items[app.wave.items.length - 1]?.id || '',
-    app.wave.batchId || '',
-    currentState().current?.id || '',
-  ].join('|');
-
-  // подвал обновляем всегда: он показывает ход подкачки
+  const blocks = screen.root.querySelector('#wave-blocks');
+  if (blocks) blocks.innerHTML = blocksHtml();
   const sentinel = screen.root.querySelector('#wave-sentinel');
   if (sentinel) {
     sentinel.innerHTML = sentinelHtml();
     sentinel.classList.toggle('is-loading', app.wave.loading);
   }
-
-  if (key === lastBlocksKey) return;
-  lastBlocksKey = key;
-
-  const blocks = screen.root.querySelector('#wave-blocks');
-  if (blocks) blocks.innerHTML = blocksHtml();
 }
 
 function paintHero() {
@@ -318,51 +302,17 @@ function syncCurrentRows() {
 
 function checkFill() {
   if (!screen.root) return;
-  // без жёсткого лимита: лента догружается, пока пользователь листает
-  if (app.wave.loading) return;
+  if (app.wave.loading || app.wave.done) return;
+  if (screen.autoFills > 40) return;
   const content = document.getElementById('content');
   const sentinel = screen.root.querySelector('#wave-sentinel');
   if (!content || !sentinel) return;
   const contentRect = content.getBoundingClientRect();
   const sentinelRect = sentinel.getBoundingClientRect();
-  // запас: если до низа ленты меньше ~3 экранов, догружаем заранее
-  const nearEnd = sentinelRect.top < contentRect.bottom + Math.max(1200, contentRect.height * 2.5);
-  // и держим минимум треков в ленте, чтобы не было пауз при проигрывании
-  const fewLeft = app.wave.items.length < WAVE_MIN_BACKLOG;
-  if (nearEnd || fewLeft) {
+  if (sentinelRect.top < contentRect.bottom + 900) {
     screen.autoFills += 1;
     loadWaveMore().then(() => checkFill());
-    return;
   }
-  scheduleBackgroundFill();
-}
-
-// сколько треков хотим всегда иметь «в запасе» впереди
-const WAVE_MIN_BACKLOG = 30;
-const WAVE_MAX_BACKLOG = 60;
-
-/** Фоновая подкачка: наращивает ленту, пока не наберётся запас. */
-function scheduleBackgroundFill(delay = 1200) {
-  if (screen.fillTimer) return;
-  screen.fillTimer = setTimeout(async () => {
-    screen.fillTimer = null;
-    if (!screen.root) return;
-    if (app.wave.loading) { scheduleBackgroundFill(700); return; }
-    if (app.wave.items.length >= WAVE_MAX_BACKLOG) return;
-    await loadWaveMore();
-    if (screen.root && app.wave.items.length < WAVE_MAX_BACKLOG) scheduleBackgroundFill(2500);
-  }, delay);
-}
-
-// волна бесконечна: подкладываем новые треки в очередь, чтобы она не кончалась на 20
-function extendQueue() {
-  const snap = player.getState();
-  if (snap.context?.type !== 'wave') return;
-  if (!snap.queue.length) return;
-  const inQueue = new Set(snap.queue.map((track) => track.id));
-  const fresh = app.wave.items.filter((track) => track && !inQueue.has(track.id));
-  if (!fresh.length) return;
-  player.enqueue(fresh);
 }
 
 function refreshFlow() {
@@ -528,7 +478,6 @@ export const waveScreen = {
 
   destroy() {
     if (screen.observer) { screen.observer.disconnect(); screen.observer = null; }
-    if (screen.fillTimer) { clearTimeout(screen.fillTimer); screen.fillTimer = null; }
     for (const off of screen.unsubs.splice(0)) {
       try { off(); } catch { /* ignore */ }
     }

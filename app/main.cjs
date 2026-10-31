@@ -147,6 +147,18 @@ function createWindow(port) {
     },
   });
 
+  // после обновления в кэше Chromium могут остаться старые модули интерфейса:
+  // чистим кэш, иначе окно открывается пустым («подключение…»)
+  try {
+    const sess = mainWindow.webContents.session;
+    sess.clearCache()
+      .then(() => sess.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] }))
+      .then(() => log('кэш интерфейса очищен'))
+      .catch((err) => log('кэш не очищен: ' + ((err && err.message) || err)));
+  } catch (err) {
+    log('кэш не очищен: ' + ((err && err.message) || err));
+  }
+
   mainWindow.loadURL(`http://127.0.0.1:${port}/`);
 
   mainWindow.once('ready-to-show', () => mainWindow.show());
