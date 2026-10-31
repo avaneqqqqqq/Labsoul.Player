@@ -693,9 +693,10 @@ async function handleApi(req, res, url) {
 
 function reasonMessage(reason) {
   const texts = {
-    NO_CLIENT_ID: 'Для лайков SoundCloud нужен постоянный client_id — укажите его в «Подключениях».',
-    CLIENT_ID_REJECTED: 'SoundCloud отклонил client_id — проверьте его в «Подключениях».',
+    NO_CLIENT_ID: 'Для лайков SoundCloud войдите в аккаунт (кнопка «Войти в SoundCloud») или укажите ссылку на профиль.',
+    CLIENT_ID_REJECTED: 'SoundCloud отклонил ключ доступа — войдите в аккаунт заново.',
     NO_PROFILE: 'Не удалось найти профиль SoundCloud — укажите ссылку на свой профиль.',
+    SESSION_EXPIRED: 'Сессия SoundCloud истекла — войдите заново кнопкой «Войти в SoundCloud».',
     NO_TOKEN: 'Нужен токен Яндекс.Музыки — подключите его в «Подключениях».',
     AUTH_FAILED: 'Токен Яндекс.Музыки не подошёл — получите новый.',
     NOT_SUPPORTED: 'Spotify не отдаёт «Мне нравится» без пользовательской авторизации.',

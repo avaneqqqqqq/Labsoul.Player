@@ -212,11 +212,11 @@ function soundcloudCard() {
         </div>
       </div>
       <div class="field">
-        <label for="soundcloud-profile">Ссылка на профиль</label>
+        <label for="soundcloud-profile">Ссылка на ваш профиль <span style="text-transform:none;letter-spacing:0;color:var(--mute)">— для лайков без входа</span></label>
         <input class="input" id="soundcloud-profile" name="profileUrl" type="url" spellcheck="false"
           placeholder="https://soundcloud.com/ваш-ник"
           value="${esc(app.settings?.soundcloud?.profileUrl || '')}">
-        <span class="field__hint">по ней labsoul найдёт ваши лайки (нужен client_id выше)</span>
+        <span class="field__hint">указав профиль, вы включаете загрузку лайков по нему — client_id не нужен; привычнее и надёжнее просто нажать «Войти в SoundCloud»</span>
       </div>
 
       ${soundcloudTokenHelp()}

@@ -135,13 +135,18 @@ const isBinary = (buffer) => buffer.includes(0);
 /* --------------------------------- main ---------------------------------- */
 
 async function main() {
-  // автовыбор имени репозитория
-  // репозиторий мог быть переименован: пробуем новое имя, иначе старое
+  // имя репозитория берём как есть; откат на старое — только если новое реально не существует (404)
   try {
     await apiPublic(`/repos/${OWNER}/${REPO}`);
-  } catch {
-    console.log(`  репозиторий ${REPO} недоступен, пробую ${REPO_FALLBACK}`);
-    REPO = REPO_FALLBACK;
+  } catch (err) {
+    const notFound = /404/.test(String(err && err.message));
+    if (!notFound) {
+      console.log(`  не удалось проверить ${REPO}: ${(err && err.message) || err}`);
+      console.log('  продолжаю без отката на старое имя');
+    } else {
+      console.log(`  репозиторий ${REPO} не найден (404), пробую ${REPO_FALLBACK}`);
+      REPO = REPO_FALLBACK;
+    }
   }
 
   console.log(`\nlabsoul → github.com/${OWNER}/${REPO} (${BRANCH})`);
@@ -149,10 +154,11 @@ async function main() {
   let headSha = null;
   let remoteFiles = new Map();
   try {
-    const ref = await apiPublic(`/repos/${OWNER}/${REPO}/git/ref/heads/${BRANCH}`);
+    // приватные и свежие репозитории доступны только с токеном — читаем авторизованно
+    const ref = await api('GET', `/repos/${OWNER}/${REPO}/git/ref/heads/${BRANCH}`);
     headSha = ref.object.sha;
-    const commit = await apiPublic(`/repos/${OWNER}/${REPO}/git/commits/${headSha}`);
-    const tree = await apiPublic(`/repos/${OWNER}/${REPO}/git/trees/${commit.tree.sha}?recursive=1`);
+    const commit = await api('GET', `/repos/${OWNER}/${REPO}/git/commits/${headSha}`);
+    const tree = await api('GET', `/repos/${OWNER}/${REPO}/git/trees/${commit.tree.sha}?recursive=1`);
     remoteFiles = new Map(
       tree.tree.filter((n) => n.type === 'blob').map((n) => [n.path, { sha: n.sha, size: n.size }]),
     );

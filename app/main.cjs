@@ -565,10 +565,15 @@ function signInSoundCloud() {
         // сессия ставится на разные хосты (soundcloud.com, secure.soundcloud.com, m.soundcloud.com),
         // поэтому берём ВСЕ cookie сессии и фильтруем по имени
         const all = await session.cookies.get({});
-        const cookies = all.filter((item) => /soundcloud/i.test(item.domain || ''));
-        const token = cookies.find((item) => /oauth|^_sp_|session/i.test(item.name) && item.value);
+        const cookies = all.filter((item) => /soundcloud/i.test(item.domain || '') && item.value);
+
+        // sc_session ставится ДО входа (анонимная сессия) — считать её входом нельзя,
+        // иначе окно закрывается через пару секунд и форма логина исчезает
+        const token = cookies.find(
+          (item) => /^oauth_token$/i.test(item.name) && item.value && item.value.length > 8,
+        );
         if (!token) {
-          log('SoundCloud: cookie ещё нет, ждём входа');
+          log('SoundCloud: ждём входа (oauth_token ещё нет)');
           return;
         }
 
