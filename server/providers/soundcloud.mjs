@@ -67,6 +67,8 @@ const PUBLIC_CLIENT_ID_LISTS = [
 let configuredClientId = '';
 // ссылка на профиль из настроек: по ней ищем лайки и плейлисты
 let configuredProfile = '';
+// cookie сессии после входа в аккаунт: дают доступ к лайкам и плейлистам
+let configuredCookies = '';
 
 let validatedClientId = '';
 let clientIdSource = '';
@@ -403,6 +405,25 @@ async function getClientId(force = false) {
 /* api-v2                                                              */
 /* ------------------------------------------------------------------ */
 
+/** Заголовок Cookie из сохранённой сессии: пусто, если входа не было. */
+function cookieHeader() {
+  if (!configuredCookies) return {};
+  try {
+    const list = JSON.parse(configuredCookies);
+    const pairs = list
+      .filter((item) => item && item.name && item.domain?.includes('soundcloud'))
+      .map((item) => `${item.name}=${item.value}`);
+    return pairs.length ? { cookie: pairs.join('; ') } : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Есть ли вход в аккаунт. */
+export function hasSession() {
+  return Boolean(configuredCookies);
+}
+
 function apiUrl(pathname, params = {}) {
   const url = new URL(pathname, API_ORIGIN);
   for (const [key, value] of Object.entries(params)) {
@@ -414,7 +435,7 @@ function apiUrl(pathname, params = {}) {
 async function callApi(pathname, params, clientId) {
   const url = apiUrl(pathname, params);
   url.searchParams.set('client_id', clientId);
-  return httpText(url.toString(), { timeout: TIMEOUT_MS, headers: { accept: 'application/json' } });
+  return httpText(url.toString(), { timeout: TIMEOUT_MS, headers: { accept: 'application/json', ...cookieHeader() } });
 }
 
 async function apiJson(pathname, params = {}, { retry = true } = {}) {
@@ -524,6 +545,7 @@ function mapTrack(raw) {
 export function configure(cfg = {}) {
   // профиль нужен и для лайков, и для плейлистов — запоминаем его всегда
   configuredProfile = typeof cfg?.profileUrl === 'string' ? cfg.profileUrl.trim() : configuredProfile;
+  configuredCookies = typeof cfg?.cookies === 'string' ? cfg.cookies : configuredCookies;
 
   const next = typeof cfg?.clientId === 'string' ? cfg.clientId.trim() : '';
   if (next === configuredClientId) return;
@@ -582,6 +604,20 @@ export async function likes(limit = 100, profileUrl = '') {
   }
 
   const clientId = permanents[0];
+  // со входом профиль не нужен: /me/likes отдаёт лайки текущего аккаунта
+  if (configuredCookies) {
+    try {
+      const data = JSON.parse(await callApi('/me/likes', { limit: size, linked_partitioning: 1 }, configuredClientId || ''));
+      const collection = Array.isArray(data?.collection) ? data.collection : [];
+      const items = collection.map((entry) => entry?.track || entry).filter((raw) => raw && raw.id).map(mapTrack);
+      return { items };
+    } catch (err) {
+      if (!/HTTP 40[13]/.test(String(err?.message))) return { items: [], reason: 'UPSTREAM' };
+      // сессия протухла — пусть пользователь войдёт снова
+      return { items: [], reason: 'SESSION_EXPIRED' };
+    }
+  }
+
   const url = String(profileUrl || '').trim() || 'https://soundcloud.com/you';
   let userId = null;
 

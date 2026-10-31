@@ -496,6 +496,101 @@ async function signInYandex() {
 
 ipcMain.handle('auth:yandex', () => signInYandex());
 
+/* --------------------------- вход в SoundCloud --------------------------- */
+
+let soundcloudAuthWindow = null;
+
+/**
+ * Одноразовый вход в SoundCloud.
+ *
+ * Открываем обычное окно входа с постоянным профилем (persist:labsoul-soundcloud):
+ * после логина SoundCloud ставит cookie oauth_token — забираем их и отдаём
+ * серверу, чтобы он сам тянул лайки и плейлисты. Повторно входить не нужно:
+ * профиль остаётся, сервер проверяет сессию при запуске.
+ */
+function signInSoundCloud() {
+  if (soundcloudAuthWindow && !soundcloudAuthWindow.isDestroyed()) {
+    soundcloudAuthWindow.focus();
+    return Promise.resolve({ ok: false, error: 'already_open', message: 'Окно входа уже открыто.' });
+  }
+
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+      try {
+        if (soundcloudAuthWindow && !soundcloudAuthWindow.isDestroyed()) soundcloudAuthWindow.close();
+      } catch { /* ignore */ }
+      soundcloudAuthWindow = null;
+    };
+
+    soundcloudAuthWindow = new BrowserWindow({
+      width: 520,
+      height: 760,
+      parent: mainWindow || undefined,
+      modal: false,
+      show: true,
+      title: 'Вход в SoundCloud',
+      autoHideMenuBar: true,
+      webPreferences: {
+        partition: 'persist:labsoul-soundcloud',
+        contextIsolation: true,
+        sandbox: true,
+        nodeIntegration: false,
+      },
+    });
+
+    const session = soundcloudAuthWindow.webContents.session;
+
+    // проверяем сессию после каждой загрузки: как только появился oauth_token — готово
+    const checkSession = async () => {
+      try {
+        const cookies = await session.cookies.get({ domain: 'soundcloud.com' });
+        const token = cookies.find((item) => /oauth/i.test(item.name));
+        if (!token) return;
+
+        const payload = {
+          cookies: JSON.stringify(cookies),
+          clientId: process.env.SOUNDCLOUD_CLIENT_ID || '',
+          profileUrl: '',
+        };
+        log('SoundCloud: сессия получена, передаю на сервер');
+
+        const res = await fetch(`http://127.0.0.1:${currentPort}/api/soundcloud/session`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(15000),
+        });
+        const data = await res.json().catch(() => ({}));
+        finish({ ok: res.ok, me: data?.me || null, error: data?.error || null });
+      } catch (err) {
+        log('SoundCloud: проверка сессии не удалась — ' + ((err && err.message) || err));
+      }
+    };
+
+    soundcloudAuthWindow.webContents.on('did-finish-load', () => {
+      const url = soundcloudAuthWindow?.webContents.getURL() || '';
+      log('SoundCloud: страница входа ' + url.slice(0, 60));
+      checkSession();
+      // после логина SoundCloud уводит на /you или /discover — повторяем проверку
+      setTimeout(checkSession, 2500);
+      setTimeout(checkSession, 6000);
+    });
+
+    soundcloudAuthWindow.on('closed', () => {
+      soundcloudAuthWindow = null;
+      if (!settled) { settled = true; resolve({ ok: false, canceled: true }); }
+    });
+
+    soundcloudAuthWindow.loadURL('https://soundcloud.com/signin');
+  });
+}
+
+ipcMain.handle('auth:soundcloud', () => signInSoundCloud());
+
 /* --------------------------- своя музыка --------------------------------- */
 
 ipcMain.handle('local:pick', async () => {

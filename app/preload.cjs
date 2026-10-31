@@ -24,6 +24,11 @@ contextBridge.exposeInMainWorld('playerDesktop', {
     return ipcRenderer.invoke('auth:yandex');
   },
 
+  /** Вход в SoundCloud: один раз — дальше сессия работает сама. */
+  signInSoundCloud() {
+    return ipcRenderer.invoke('auth:soundcloud');
+  },
+
   /**
    * Путь файла, перетащенного в окно. В Electron 32 свойство File.path убрано,
    * поэтому путь берём через webUtils (документированный способ).
