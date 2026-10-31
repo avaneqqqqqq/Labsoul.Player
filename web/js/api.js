@@ -32,6 +32,8 @@ export const net = {
   version: null,
   demo: true,
   error: null,
+  // последний мягкий сбой (таймаут запроса) — не переводит интерфейс в демо
+  lastError: null,
 };
 
 const listeners = new Set();
@@ -55,7 +57,38 @@ function setMode(mode, version = null, error = null) {
 }
 
 function degrade(err) {
-  setMode('demo', net.version, err?.message || 'сервер не отвечает');
+  // Даже один медленный запрос (волна думает 10 секунд) не должен ронять
+  // весь интерфейс в демо-режим. Переключаемся только если сервер реально
+  // перестал отвечать на /api/health — это проверяет recoverIfNeeded().
+  const message = err?.name === 'AbortError'
+    ? 'запрос превысил время ожидания'
+    : err?.message || 'сервер не отвечает';
+  net.lastError = message;
+  if (net.mode === 'online') {
+    // мягкий сбой: остаёмся онлайн, но помечаем проблему и проверяем живость
+    scheduleHealthCheck();
+    return;
+  }
+  setMode('demo', net.version, message);
+}
+
+let healthCheckTimer = 0;
+
+/** Проверяем сервер после мягкого сбоя: жив — остаёмся онлайн. */
+function scheduleHealthCheck() {
+  if (healthCheckTimer) return;
+  healthCheckTimer = setTimeout(async () => {
+    healthCheckTimer = 0;
+    try {
+      const res = await fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(4000) });
+      if (res.ok) {
+        const data = await res.json().catch(() => null);
+        setMode('online', data?.version || net.version, null);
+        return;
+      }
+    } catch { /* сервер правда недоступен */ }
+    setMode('demo', net.version, 'сервер не отвечает');
+  }, 1200);
 }
 
 export const isOnline = () => net.mode === 'online';
@@ -407,7 +440,9 @@ export async function getWave(limit = 20, station = 'user:onyourwave', sources =
   try {
     const params = new URLSearchParams({ limit: String(limit), station });
     if (list) params.set('sources', list.join(','));
-    return normalizeWave(await request(`/api/wave?${params.toString()}`, { timeout: 12000 }));
+    // волна собирается на сервере до 12 секунд: даём запас, иначе таймаут
+    // засчитывался как «сервер недоступен» и интерфейс уходил в демо-режим
+    return normalizeWave(await request(`/api/wave?${params.toString()}`, { timeout: 40000 }));
   } catch (err) {
     if (isNetworkError(err)) { degrade(err); return normalizeWave(demoWave(limit, list)); }
     throw err;

@@ -179,19 +179,14 @@ function createWindow(port) {
 
   // Сворачивание оставляет окно в панели задач — в трей уходит только по
   // явной команде «Свернуть в трей» из меню.
+  // плашка — отдельное окно поверх. Прячем только при сворачивании/скрытии:
+  // на blur её убирать нельзя — иначе клик по кнопке «Скачать» не доходит,
+  // плашка исчезает прямо под курсором.
   mainWindow.on('minimize', () => {
     hideUpdateBanner();
   });
-
-  // плашка — отдельное окно поверх; при уходе приложения в фон её тоже убираем
-  mainWindow.on('blur', () => {
-    if (bannerWin && !bannerWin.isDestroyed()) bannerWin.hide();
-  });
   mainWindow.on('show', () => {
     if (updateFlow.phase !== 'idle' && updateFlow.phase !== 'closed') showUpdateBanner();
-  });
-  mainWindow.on('focus', () => {
-    if (bannerWin && !bannerWin.isDestroyed() && !bannerWin.isVisible()) bannerWin.showInactive();
   });
   mainWindow.on('hide', () => {
     hideUpdateBanner();
@@ -832,6 +827,8 @@ async function startDownload() {
   updateFlow.phase = 'downloading';
   updateFlow.percent = 0;
   updateFlow.error = null;
+  // плашка живёт отдельным окном; если главное окно не на экране — просто
+  // скачиваем в фоне и покажем плашку, когда окно вернётся
   showUpdateBanner();
 
   try {
@@ -839,19 +836,21 @@ async function startDownload() {
     // иначе downloadUpdate() отвечает «Please check update first». Дождёмся
     // события update-available (или update-not-available) и только потом качаем.
     const info = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error("сервер обновлений не ответил")), 30000);
+      const timer = setTimeout(() => reject(new Error('сервер обновлений не ответил')), 30000);
       const done = (value) => { clearTimeout(timer); resolve(value); };
       const fail = (error) => { clearTimeout(timer); reject(error); };
 
-      instance.once("update-available", (value) => done(value));
-      instance.once("update-not-available", () => done(null));
-      instance.once("error", (error) => fail(error));
+      instance.once('update-available', (value) => done(value));
+      instance.once('update-not-available', () => done(null));
+      instance.once('error', (error) => fail(error));
 
       Promise.resolve(instance.checkForUpdates()).catch(fail);
     });
 
-    if (!info) throw new Error("установлена последняя версия");
+    if (!info) throw new Error('установлена последняя версия');
+    log('обновление: начинаем скачивание ' + (info.version || ''));
     await instance.downloadUpdate();
+    log('обновление: скачивание запущено');
   } catch (err) {
     log('скачивание обновления не удалось: ' + ((err && err.message) || err));
     updateFlow.phase = 'error';
