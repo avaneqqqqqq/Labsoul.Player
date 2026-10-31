@@ -1,7 +1,7 @@
 {
   "name": "labsoul-desktop",
   "productName": "labsoul",
-  "version": "1.0.40",
+  "version": "1.0.41",
   "private": true,
   "description": "labsoul — десктопная оболочка плеера",
   "main": "main.cjs",

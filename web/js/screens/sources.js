@@ -3,7 +3,7 @@
    Секреты приходят с сервера только маской; формы отправляют PUT /api/settings.
    ========================================================================= */
 
-import { isDemo, getNetwork, saveNetwork, testNetwork } from '../api.js';
+import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy } from '../api.js';
 import { icon, SOURCE_MARKS } from '../components.js';
 import {
   app,
@@ -312,6 +312,7 @@ function networkCard() {
 
       <div class="source-card__actions">
         <span class="source-card__error" data-form-error="network"></span>
+        <button class="btn btn--ghost btn--sm" type="button" data-net-find>${icon('spark')} Найти рабочий</button>
         <button class="btn btn--ghost btn--sm" type="button" data-net-test>${icon('refresh')} Проверить</button>
         <button class="btn btn--accent btn--sm" type="submit">${icon('check')} Сохранить</button>
       </div>
@@ -399,6 +400,38 @@ function setBusy(form, busy) {
     button.innerHTML = busy ? '<span class="spinner" style="width:12px;height:12px;margin:0"></span> Сохраняем…' : (button.dataset.label || button.innerHTML);
   }
   if (errorHint && busy) errorHint.textContent = '';
+}
+
+/**
+ * Автоподбор прокси: сервер перебирает публичные прокси и проверяет реальное
+ * аудио SoundCloud, найденный сразу применяется и подставляется в поле.
+ */
+async function autoFindProxy() {
+  const host = screen.root?.querySelector('[data-net-status]');
+  const button = screen.root?.querySelector('[data-net-find]');
+  if (button) button.disabled = true;
+  if (host) host.textContent = 'Ищу рабочий прокси… это может занять до минуты';
+
+  const result = await findProxy();
+
+  if (button) button.disabled = false;
+
+  if (!result?.ok) {
+    const message = result?.cancelled ? 'Поиск остановлен' : (result?.message || 'Рабочих прокси не нашлось');
+    if (host) host.textContent = message;
+    toast(message, { type: 'warn' });
+    return;
+  }
+
+  const input = screen.root?.querySelector('#network-proxy');
+  if (input) input.value = result.proxy;
+  const systemToggle = screen.root?.querySelector('#network-system');
+  if (systemToggle) systemToggle.checked = false;
+
+  const text = `Найден рабочий прокси: ${result.proxy} — аудио SoundCloud качается`;
+  if (host) host.textContent = text;
+  toast(text, { icon: 'check' });
+  app.networkState = await getNetwork();
 }
 
 /** Проверка соединения с SoundCloud: идёт ли трафик через прокси. */
@@ -510,6 +543,11 @@ function onClick(event) {
 
   if (target?.closest('[data-sc-open-apps]')) {
     window.open('https://soundcloud.com/you/apps', '_blank', 'noopener');
+    return;
+  }
+
+  if (target?.closest('[data-net-find]')) {
+    autoFindProxy();
     return;
   }
 

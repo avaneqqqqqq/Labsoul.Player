@@ -25,6 +25,7 @@ import * as lyrics from './lyrics.mjs';
 import * as audioconvert from './audioconvert.mjs';
 import * as libraryCache from './librarycache.mjs';
 import * as proxySupport from './proxy.mjs';
+import * as proxyFinder from './proxyfind.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -807,6 +808,40 @@ function reasonMessage(reason) {
     // прокси: состояние, проверка соединения и сохранение — без перезапуска
     if (req.method === 'GET') {
       sendJson(res, 200, { ...proxySupport.status(), ffmpeg: audioconvert.hasFfmpeg() });
+      return;
+    }
+
+    if (req.method === 'POST' && route[1] === 'find') {
+      // Автоподбор: перебираем публичные прокси и проверяем реальное аудио SoundCloud.
+      let clientId = '';
+      try {
+        clientId = await providers.soundcloud?.acquireClientId?.() || '';
+      } catch (err) {
+        store.log('[proxy] не удалось получить client_id: ' + ((err && err.message) || err));
+      }
+      if (!clientId) throw badRequest('Не удалось получить client_id SoundCloud — без него проверка невозможна');
+
+      // эталонный трек: из избранного, иначе известный публичный
+      let trackId = '2424504549';
+      try {
+        const liked = await providers.soundcloud.likes(3);
+        if (liked?.items?.length) trackId = liked.items[0].sourceId;
+      } catch { /* используем запасной */ }
+
+      const result = await proxyFinder.findWorkingProxy({ clientId, trackId });
+      if (result.ok) {
+        // найденный прокси сразу сохраняем и применяем
+        store.saveSettings({ network: { proxy: result.proxy, useSystemProxy: false } });
+        await proxySupport.refresh(store.loadSettings().network || {});
+        store.log('[proxy] автоподбор: применён ' + result.proxy);
+      }
+      sendJson(res, 200, result);
+      return;
+    }
+
+    if (req.method === 'POST' && route[1] === 'stop') {
+      proxyFinder.cancelSearch();
+      sendJson(res, 200, { ok: true });
       return;
     }
 

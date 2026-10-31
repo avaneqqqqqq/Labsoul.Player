@@ -286,6 +286,25 @@ export async function saveNetwork({ proxy = '', useSystemProxy = false }) {
   }
 }
 
+/**
+ * Автоподбор рабочего прокси: сервер перебирает публичные прокси и проверяет
+ * реальную загрузку аудио SoundCloud. Найденный применяется сразу.
+ */
+export async function findProxy() {
+  try {
+    return await request('/api/network/find', { method: 'POST', body: {}, timeout: 240000 });
+  } catch (err) {
+    return { ok: false, message: err?.message || 'поиск не удался' };
+  }
+}
+
+/** Остановить автоподбор. */
+export async function stopFindProxy() {
+  try {
+    await request('/api/network/stop', { method: 'POST', body: {}, timeout: 8000 });
+  } catch { /* остановка не критична */ }
+}
+
 /** Проверить соединение с SoundCloud (через прокси, если включён). */
 export async function testNetwork() {
   try {
