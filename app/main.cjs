@@ -122,6 +122,16 @@ function stopServer() {
     serverProcess.kill();
   } catch { /* уже умер */ }
   serverProcess = null;
+
+  // Установщик обновления должен получить свободные файлы сразу: если
+  // дочерний процесс не успел завершиться, он держит labsoul.exe и установка
+  // падает с «Не удалось закрыть labsoul». Добиваем его принудительно.
+  if (process.platform === 'win32') {
+    try {
+      const { execFileSync } = require('node:child_process');
+      execFileSync('taskkill', ['/F', '/IM', 'labsoul.exe', '/T'], { stdio: 'ignore', timeout: 5000 });
+    } catch { /* процесса уже нет — это нормально */ }
+  }
 }
 
 /* --------------------------------- окно ---------------------------------- */
