@@ -116,9 +116,6 @@ function heroHtml() {
   const focus = focusTrack();
   const items = app.wave.items;
   const played = st.playing && !!st.current;
-  const totalMinutes = Math.round(items.reduce((sum, track) => sum + (track.duration || 0), 0) / 60);
-  const sourceCount = new Set(items.map((track) => track.source)).size;
-  const batchNumber = String(app.wave.batchId || '').replace(/[^0-9]/g, '');
   const bars = Array.from({ length: 40 }, (_, i) => {
     const h = Math.min(100, Math.round(16 + 62 * Math.abs(Math.sin(i * 0.62)) + ((i * 17) % 16)));
     return `<i style="height:${h}%;animation-delay:${-i * 48}ms"></i>`;
@@ -158,12 +155,6 @@ function heroHtml() {
         </div>
         ${sourcesHtml()}
         ${stationsHtml()}
-      </div>
-      <div class="wave-hero__side">
-        <div class="wave-stat"><b>${items.length}</b><span>${plural(items.length, ['трек', 'трека', 'треков'])}<br>в ленте</span></div>
-        <div class="wave-stat"><b>${sourceCount || 3}</b><span>${plural(sourceCount || 3, ['источник', 'источника', 'источников'])}<br>в потоке</span></div>
-        <div class="wave-stat"><b>${totalMinutes || '—'}</b><span>${totalMinutes ? plural(totalMinutes, ['минута', 'минуты', 'минут']) : 'минут'}<br>звука</span></div>
-        ${batchNumber ? `<span class="meta" title="${esc(app.wave.batchId || '')}">партия ${esc(batchNumber)}</span>` : ''}
       </div>
     </section>`;
 }

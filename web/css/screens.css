@@ -748,3 +748,49 @@ mark.hit {
   .design-controls { grid-template-columns: 1fr; }
   .design-tab span { display: none; }
 }
+
+/* --- герой «Моей волны»: две колонки, без блока статистики ------------- */
+
+.wave-hero {
+  grid-template-columns: 204px minmax(0, 1fr);
+  align-items: start;
+  gap: clamp(20px, 3vw, 34px);
+  padding: clamp(20px, 2.4vw, 30px);
+}
+
+.wave-hero__art { width: 100%; max-width: 204px; }
+
+.wave-hero__info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.wave-hero__top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.wave-hero__actions { margin-top: 4px; }
+
+.wave-hero__desc { max-width: 62ch; }
+
+/* ряды источников и станций — аккуратной сеткой с подписью слева */
+.wave-hero .wave-sources,
+.wave-hero .wave-stations { margin-top: 2px; }
+
+.wave-hero .wave-stations__row,
+.wave-hero .wave-sources__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 880px) {
+  .wave-hero { grid-template-columns: 1fr; }
+  .wave-hero__art { max-width: 168px; }
+}
+
+@media (max-width: 560px) {
+  .wave-hero { padding: 16px; gap: 16px; }
+  .wave-hero__art { max-width: 128px; }
+}
