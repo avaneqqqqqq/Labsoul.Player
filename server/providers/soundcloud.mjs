@@ -594,17 +594,24 @@ export async function status() {
  * @param {string} [profileUrl]
  * @returns {Promise<{items: object[], reason?: string}>}
  */
+/** Кто вошёл: /me по сохранённой сессии (null, если сессии нет). */
+export async function sessionUser() {
+  if (!configuredCookies) return null;
+  try {
+    const me = JSON.parse(await callApi('/me', {}, configuredClientId || ''));
+    return me && me.id ? { id: String(me.id), name: me.username || me.permalink || null } : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function likes(limit = 100, profileUrl = '') {
   const size = clampInt(limit, 100, 1, 300);
   const permanents = [configuredClientId, process.env.SOUNDCLOUD_CLIENT_ID]
     .map((value) => String(value || '').trim())
     .filter(Boolean);
-  if (!permanents.length) {
-    return { items: [], reason: 'NO_CLIENT_ID' };
-  }
 
-  const clientId = permanents[0];
-  // со входом профиль не нужен: /me/likes отдаёт лайки текущего аккаунта
+  // со входом профиль и ключ не нужны: /me/likes отдаёт лайки текущего аккаунта
   if (configuredCookies) {
     try {
       const data = JSON.parse(await callApi('/me/likes', { limit: size, linked_partitioning: 1 }, configuredClientId || ''));
@@ -617,6 +624,9 @@ export async function likes(limit = 100, profileUrl = '') {
       return { items: [], reason: 'SESSION_EXPIRED' };
     }
   }
+
+  if (!permanents.length) return { items: [], reason: 'NO_CLIENT_ID' };
+  const clientId = permanents[0];
 
   const url = String(profileUrl || '').trim() || 'https://soundcloud.com/you';
   let userId = null;

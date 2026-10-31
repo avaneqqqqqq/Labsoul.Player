@@ -744,6 +744,47 @@ function reasonMessage(reason) {
     return;
   }
 
+  if (route[0] === 'soundcloud' && route[1] === 'session') {
+    // сессия после входа: сохраняем cookie и сразу проверяем, кто вошёл
+    if (req.method === 'DELETE') {
+      store.saveSettings({ soundcloud: { cookies: '', cookiesAt: 0 } });
+      await loadProviders();
+      sendJson(res, 200, { ok: true, me: null });
+      return;
+    }
+
+    if (req.method !== 'PUT' && req.method !== 'POST') throw badRequest('Ожидается PUT');
+    const body = await readJson(req);
+    if (!body || typeof body.cookies !== 'string' || !body.cookies.trim()) {
+      throw badRequest('Нужны cookie сессии SoundCloud');
+    }
+
+    const saved = store.saveSettings({
+      soundcloud: {
+        cookies: body.cookies,
+        cookiesAt: Date.now(),
+        ...(typeof body.clientId === 'string' && body.clientId.trim() ? { clientId: body.clientId.trim() } : {}),
+        ...(typeof body.profileUrl === 'string' && body.profileUrl.trim() ? { profileUrl: body.profileUrl.trim() } : {}),
+      },
+    });
+
+    // провайдер перечитывает настройки и пробует /me
+    for (const name of PROVIDER_NAMES) {
+      try { providers[name].configure?.(saved[name] || {}); } catch { /* ignore */ }
+    }
+
+    let me = null;
+    try {
+      const probe = await providers.soundcloud?.sessionUser?.();
+      me = probe || null;
+    } catch (err) {
+      store.log('[soundcloud] проверка сессии: ' + ((err && err.message) || err));
+    }
+
+    sendJson(res, 200, { ok: true, me });
+    return;
+  }
+
   if (route[0] === 'likes') {
     // избранное по источникам: какие сервисы включены, такие и опрашиваем
     const settings = store.loadSettings();

@@ -562,9 +562,15 @@ function signInSoundCloud() {
     // проверяем сессию после каждой загрузки: как только появился oauth_token — готово
     const checkSession = async () => {
       try {
-        const cookies = await session.cookies.get({ domain: 'soundcloud.com' });
-        const token = cookies.find((item) => /oauth/i.test(item.name));
-        if (!token) return;
+        // сессия ставится на разные хосты (soundcloud.com, secure.soundcloud.com, m.soundcloud.com),
+        // поэтому берём ВСЕ cookie сессии и фильтруем по имени
+        const all = await session.cookies.get({});
+        const cookies = all.filter((item) => /soundcloud/i.test(item.domain || ''));
+        const token = cookies.find((item) => /oauth|^_sp_|session/i.test(item.name) && item.value);
+        if (!token) {
+          log('SoundCloud: cookie ещё нет, ждём входа');
+          return;
+        }
 
         const payload = {
           cookies: JSON.stringify(cookies),
@@ -588,11 +594,15 @@ function signInSoundCloud() {
 
     soundcloudAuthWindow.webContents.on('did-finish-load', () => {
       const url = soundcloudAuthWindow?.webContents.getURL() || '';
-      log('SoundCloud: страница входа ' + url.slice(0, 60));
-      checkSession();
-      // после логина SoundCloud уводит на /you или /discover — повторяем проверку
-      setTimeout(checkSession, 2500);
-      setTimeout(checkSession, 6000);
+      log('SoundCloud: страница ' + url.slice(0, 70));
+      // после логина SoundCloud уводит на /you, /discover или /stream — проверяем с запасом
+      [0, 1500, 3500, 6000, 10000].forEach((delay) => setTimeout(checkSession, delay));
+    });
+
+    // следим за переходами: успешный вход = уход со страницы signin
+    soundcloudAuthWindow.webContents.on('did-navigate', (_e, url) => {
+      log('SoundCloud: переход ' + String(url).slice(0, 70));
+      [500, 2000, 5000].forEach((delay) => setTimeout(checkSession, delay));
     });
 
     soundcloudAuthWindow.on('closed', () => {
