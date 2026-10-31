@@ -734,10 +734,18 @@ function restartToInstall() {
   if (instance && updateFlow.phase === 'ready') {
     try {
       quitting = true;
-      instance.quitAndInstall(false, true);
+      // isSilent=true — установщик не показывает мастер и сразу ставит новую версию,
+      // isForceRunAfter=true — после установки labsoul запускается сам
+      instance.quitAndInstall(true, true);
       return;
     } catch (err) {
-      log('quitAndInstall не сработал: ' + ((err && err.message) || err));
+      log('тихая установка не удалась: ' + ((err && err.message) || err));
+      try {
+        instance.quitAndInstall(false, true);
+        return;
+      } catch (fallbackError) {
+        log('quitAndInstall не сработал: ' + ((fallbackError && fallbackError.message) || fallbackError));
+      }
     }
   }
   if (updateFlow.url) shell.openExternal(updateFlow.url);

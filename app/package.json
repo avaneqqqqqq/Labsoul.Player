@@ -1,7 +1,7 @@
 {
   "name": "labsoul-desktop",
   "productName": "labsoul",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "private": true,
   "description": "labsoul — десктопная оболочка плеера",
   "main": "main.cjs",
@@ -66,11 +66,15 @@
       "artifactName": "labsoul-${version}-${arch}.${ext}"
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": false,
       "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
       "shortcutName": "labsoul",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
       "artifactName": "labsoul-${version}-setup.${ext}"
     },
     "publish": {
