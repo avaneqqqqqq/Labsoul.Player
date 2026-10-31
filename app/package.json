@@ -1,7 +1,7 @@
 {
   "name": "labsoul-desktop",
   "productName": "labsoul",
-  "version": "1.0.38",
+  "version": "1.0.39",
   "private": true,
   "description": "labsoul — десктопная оболочка плеера",
   "main": "main.cjs",
@@ -30,7 +30,8 @@
       "banner.html",
       "banner-preload.cjs",
       "package.json",
-      "build/icon.png"
+      "build/icon.png",
+      "node_modules/ffmpeg-static/**"
     ],
     "extraResources": [
       {
@@ -83,10 +84,14 @@
       "repo": "Labsoul.Player",
       "releaseType": "release"
     },
-    "afterPack": "build/afterpack.cjs"
+    "afterPack": "build/afterpack.cjs",
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**"
+    ]
   },
   "dependencies": {
     "electron-updater": "^6.8.11",
+    "ffmpeg-static": "^5.3.0",
     "resedit": "^3.1.0"
   }
 }

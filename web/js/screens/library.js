@@ -233,6 +233,14 @@ function likesStripHtml() {
   </div>`;
 }
 
+/** Пометка, что часть избранного взята из локального кэша. */
+function cachedNoteHtml() {
+  const groups = (app.library.remote || []).filter((group) => group && group.cached);
+  if (!groups.length) return '';
+  const names = groups.map((group) => SOURCE_NAMES[group.source] || group.source).join(', ');
+  return `<div class="lib-cached">${icon('cloud')}<span>Сервис недоступен — показаны сохранённые треки: ${esc(names)}</span></div>`;
+}
+
 function likesNotesHtml() {
   const errors = libraryErrors();
   if (!errors.length) return '';
@@ -252,7 +260,7 @@ function likesNotesHtml() {
 
 function likesBody() {
   const tracks = libraryTracks();
-  const strip = `${likesStripHtml()}${likesNotesHtml()}`;
+  const strip = `${likesStripHtml()}${cachedNoteHtml()}${likesNotesHtml()}`;
 
   if (app.library.loading && !tracks.length) {
     return `${strip}<div class="section">${skeletonRows(5)}</div>`;

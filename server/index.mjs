@@ -22,6 +22,8 @@ import { resolveLink, findCandidates } from './linkimport.mjs';
 import { checkForUpdate, currentVersion } from './update.mjs';
 import * as localLibrary from './local.mjs';
 import * as lyrics from './lyrics.mjs';
+import * as audioconvert from './audioconvert.mjs';
+import * as libraryCache from './librarycache.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -390,6 +392,12 @@ function serveLocalFile(filePath, req, res, contentType) {
   fs.createReadStream(filePath).pipe(res);
 }
 
+/** Похоже ли на MP4/M4A: сигнатура ftyp в первых байтах. */
+function looksLikeMp4(buffer) {
+  if (!buffer || buffer.length < 12) return false;
+  return buffer.subarray(4, 8).toString('latin1') === 'ftyp';
+}
+
 function serveBuffer(buffer, req, res, contentType) {
   const total = buffer.length;
   res.setHeader('Content-Type', contentType || 'audio/mpeg');
@@ -472,6 +480,21 @@ async function handleStream(req, res, source, sourceId) {
     return;
   }
   if (desc.buffer) {
+    // AAC в MP4-контейнере (SoundCloud) не играет в <audio> этого движка:
+    // пере-упаковываем в MP3 один раз и кэшируем
+    const isMp4 = /audio\/(mp4|m4a|x-m4a)/i.test(String(desc.contentType || ''))
+      || looksLikeMp4(desc.buffer);
+    if (isMp4 && audioconvert.hasFfmpeg()) {
+      try {
+        const mp3 = await audioconvert.getMp3(`${source}:${sourceId}`, async () => desc.buffer);
+        if (mp3) {
+          serveBuffer(mp3, req, res, 'audio/mpeg');
+          return;
+        }
+      } catch (err) {
+        store.log('[audio] конвертация не удалась:', err.message);
+      }
+    }
     serveBuffer(desc.buffer, req, res, desc.contentType);
     return;
   }
@@ -628,6 +651,26 @@ async function handleApi(req, res, url) {
     const saved = store.loadSettings().wave?.sources;
     const sources = fromQuery ? fromQuery.split(',') : saved;
     const result = await waveEngine.getWave(limit, station, sources);
+
+    // кэш ленты: сохраняем непустые партии и используем их, когда сервис недоступен
+    const waveKey = `${station}|${(sources || []).join(',')}`;
+    if (Array.isArray(result.items) && result.items.length) {
+      libraryCache.saveWave(waveKey, result.items, result.station || station);
+    } else {
+      const cached = libraryCache.loadWave(waveKey);
+      if (cached) {
+        sendJson(res, 200, {
+          ...result,
+          items: cached.items,
+          station: cached.station || station,
+          cached: true,
+          cachedAt: new Date(cached.at).toISOString(),
+          hint: result.hint || 'Сервис недоступен — показана сохранённая лента.',
+        });
+        return;
+      }
+    }
+
     sendJson(res, 200, result);
     return;
   }
@@ -700,7 +743,8 @@ function reasonMessage(reason) {
     NO_TOKEN: 'Нужен токен Яндекс.Музыки — подключите его в «Подключениях».',
     AUTH_FAILED: 'Токен Яндекс.Музыки не подошёл — получите новый.',
     NOT_SUPPORTED: 'Spotify не отдаёт «Мне нравится» без пользовательской авторизации.',
-    UPSTREAM: 'Сервис не ответил — попробуйте позже.',
+    UPSTREAM: 'Сервис не ответил — возможно, он недоступен из вашей сети. Проверьте интернет или включите VPN.',
+    UPSTREAM_TIMEOUT: 'Сервис долго не отвечает — скорее всего, ограничен доступ из вашей сети.',
   };
   return texts[reason] || null;
 }
@@ -824,6 +868,23 @@ function reasonMessage(reason) {
       }),
     );
 
+    // успешные источники кэшируем; при ошибке отдаём сохранённое ранее
+    for (const group of groups) {
+      if (!group.error && Array.isArray(group.items) && group.items.length) {
+        libraryCache.saveLikes(group.source, group.items);
+        continue;
+      }
+      const cached = libraryCache.loadLikes(group.source);
+      if (cached) {
+        Object.assign(group, {
+          items: cached.items,
+          cached: true,
+          cachedAt: new Date(cached.at).toISOString(),
+          message: group.message ? `${group.message} Показаны сохранённые треки.` : 'Показаны сохранённые треки.',
+        });
+      }
+    }
+
     sendJson(res, 200, { groups });
     return;
   }
@@ -878,6 +939,8 @@ const server = http.createServer((req, res) => {
 });
 
 lyrics.configure();
+audioconvert.configure();
+libraryCache.configure();
 
 server.listen(PORT, '127.0.0.1', async () => {
   await loadProviders();

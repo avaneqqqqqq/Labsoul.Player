@@ -1009,3 +1009,18 @@ mark.hit {
 .tokens__copy svg { width: 11px; height: 11px; opacity: .7; }
 .tokens__copy:hover { background: rgba(255, 255, 255, .12); border-color: var(--accent); }
 .tokens__copy.is-done { border-color: var(--accent); color: var(--accent); }
+
+/* отметка «показаны сохранённые треки» */
+.lib-cached {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0 4px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+
+.lib-cached svg { width: 14px; height: 14px; flex: none; color: var(--accent); }

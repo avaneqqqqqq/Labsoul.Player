@@ -10,6 +10,7 @@
  * «Моя волна»: rotor-станция user:onyourwave.
  */
 
+import * as hostSwitch from '../yandexhost.mjs';
 import crypto from 'node:crypto';
 
 // Базовый адрес можно переопределить: удобно для своего прокси/зеркала и для
@@ -21,6 +22,21 @@ const SIGN_KEY = '7tvSmFbyf5hJnIHhCimDDD';
 const TIMEOUT = 15000;
 
 const cfg = { token: '', quality: 'nq' };
+
+/**
+ * Живой хост Яндекс.Музыки.
+ *
+ * Из некоторых сетей основной адрес не отвечает — пробуем запасные точки.
+ * Результат кэшируется на 5 минут, при сетевой ошибке сбрасывается.
+ */
+async function pickBase() {
+  if (process.env.YANDEX_API_BASE) return API;
+
+  const host = await hostSwitch.resolveHost((url) =>
+    fetch(url, { signal: AbortSignal.timeout(4000), headers: { Accept: 'application/json' } }),
+  );
+  return host || null;
+}
 let cachedUser = null;
 let lastError = null;
 
@@ -44,9 +60,16 @@ function authHeaders() {
 
 async function request(pathname, { method = 'GET', body, headers = {} } = {}) {
   if (!cfg.token) throw fail('NO_TOKEN', 'Не задан OAuth-токен Яндекс.Музыки');
+
+  // хост может быть недоступен из сети пользователя: выбираем живой автоматически
+  const base = await pickBase();
+  if (!base) {
+    throw fail('UPSTREAM', 'Яндекс.Музыка недоступна из вашей сети (нет ответа ни от одного хоста)');
+  }
+
   let res;
   try {
-    res = await fetch(API + pathname, {
+    res = await fetch(base + pathname, {
       method,
       headers: {
         ...authHeaders(),
@@ -57,6 +80,8 @@ async function request(pathname, { method = 'GET', body, headers = {} } = {}) {
       signal: AbortSignal.timeout(TIMEOUT),
     });
   } catch (err) {
+    // сетевой сбой: сбрасываем выбранный хост, следующий запрос перепроверит точки
+    hostSwitch.invalidate();
     throw fail('UPSTREAM', `Яндекс.Музыка недоступна: ${err.message}`);
   }
 
@@ -132,6 +157,7 @@ export function configure(next) {
 }
 
 export async function status() {
+  const diagnosis = hostSwitch.diagnosis();
   if (!cfg.token) return { connected: false, error: 'NO_TOKEN' };
   try {
     const data = await request('/account/status');
