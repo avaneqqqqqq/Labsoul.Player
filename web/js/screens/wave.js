@@ -310,12 +310,12 @@ function ensureAhead() {
   const total = Array.isArray(snap.queue) ? snap.queue.length : 0;
   const index = Number.isFinite(snap.index) ? snap.index : -1;
   const remaining = total - index - 1;
-  if (remaining >= 5) return;
+  if (remaining >= 8) return;
   if (app.wave.loading) return;
-  if (Date.now() - (screen.aheadAt || 0) < 5000) return;
+  if (Date.now() - (screen.aheadAt || 0) < 4000) return;
 
   screen.aheadAt = Date.now();
-  loadWaveMore();
+  loadWaveMore({ force: true });
 }
 
 function checkFill() {
@@ -334,11 +334,17 @@ function checkFill() {
 }
 
 function refreshFlow() {
-  if (app.wave.loading) return;
+  // кнопка не должна «залипать» из-за фоновой загрузки: сбрасываем ленту и грузим заново
   resetWave();
   screen.autoFills = 0;
+  screen.aheadAt = 0;
   paint();
-  loadWaveMore();
+  const reload = () => loadWaveMore({ force: true });
+  if (app.wave.loading) {
+    setTimeout(reload, 400);
+  } else {
+    reload();
+  }
   toast('Волна обновляется', { icon: 'wave' });
 }
 
@@ -475,6 +481,7 @@ export const waveScreen = {
     }));
     screen.unsubs.push(player.subscribe((_snap, event) => {
       if (event === 'time') return;
+      extendQueue();
       ensureAhead();
       paintHero();
       syncCurrentRows();
