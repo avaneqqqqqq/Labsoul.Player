@@ -22,6 +22,41 @@ const TIMEOUT_MS = 10000;
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * Версия последнего релиза из файла latest.yml — без обращения к API GitHub.
+ *
+ * Прямая ссылка `releases/latest/download/latest.yml` отдаётся как обычный файл
+ * с редиректом на CDN, поэтому лимит анонимного API (60 запросов в час) не мешает.
+ * Возвращает описание релиза или null, если файл недоступен.
+ */
+async function readLatestFromFile() {
+  const url = `https://github.com/${REPO}/releases/latest/download/latest.yml`;
+  const res = await fetch(url, {
+    headers: { 'User-Agent': 'labsoul-update-check' },
+    signal: AbortSignal.timeout(TIMEOUT_MS),
+    redirect: 'follow',
+  });
+  if (!res.ok) return null;
+
+  const text = await res.text();
+  const match = text.match(/^version:\s*([0-9][0-9.]*)\s*$/m);
+  if (!match) return null;
+
+  const version = match[1].trim();
+  if (!parseVersion(version)) return null;
+
+  // дата релиза тоже есть в файле — показываем её в интерфейсе
+  const dateMatch = text.match(/^releaseDate:\s*'?([^'\n]+)'?\s*$/m);
+
+  return {
+    version,
+    url: `https://github.com/${REPO}/releases/tag/v${version}`,
+    title: `labsoul ${version}`,
+    notes: '',
+    publishedAt: dateMatch ? dateMatch[1].trim() : null,
+  };
+}
+
 export function currentVersion() {
   // 1) в упакованном приложении версию передаёт Electron (app.getVersion());
   // 2) в исходниках читаем package.json проекта;
@@ -66,6 +101,26 @@ export async function checkForUpdate() {
     return { ...cache.data, current };
   }
 
+  // Основной путь: latest.yml опубликованного релиза. Файл отдаётся без API,
+  // поэтому не упирается в лимит GitHub (60 анонимных запросов в час).
+  try {
+    const fromFile = await readLatestFromFile();
+    if (fromFile) {
+      const data = {
+        current,
+        latest: fromFile,
+        updateAvailable: isNewer(fromFile.version, current),
+        repo: REPO,
+        source: 'latest.yml',
+        checkedAt: new Date().toISOString(),
+      };
+      cache = { at: Date.now(), data };
+      return data;
+    }
+  } catch (err) {
+    console.warn(`[update] latest.yml недоступен: ${(err && err.message) || err}`);
+  }
+
   try {
     const load = async (repo) => {
       const response = await fetch(`https://api.github.com/repos/${repo}/releases?per_page=30`, {
@@ -79,15 +134,37 @@ export async function checkForUpdate() {
       return response;
     };
 
-    // после переименования репозитория старые сборки ходят по прежнему адресу
-    let res;
-    try {
-      res = await load(REPO);
-    } catch {
-      res = await load(REPO_LEGACY);
-    }
+    // Запасной путь: если список релизов недоступен (например, исчерпан лимит
+    // анонимного API GitHub), берём последний релиз по прямому адресу.
+    const loadLatest = async (repo) => {
+      const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'User-Agent': 'labsoul-update-check',
+        },
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (!response.ok) throw new Error(`GitHub ответил ${response.status}`);
+      const one = await response.json();
+      return [one];
+    };
 
-    const list = await res.json();
+    // после переименования репозитория старые сборки ходят по прежнему адресу
+    let list = null;
+    for (const repo of [REPO, REPO_LEGACY]) {
+      try {
+        list = await (await load(repo)).json();
+        break;
+      } catch {
+        try {
+          list = await loadLatest(repo);
+          console.warn(`[update] список релизов недоступен, взяли последний релиз ${repo}`);
+          break;
+        } catch { /* пробуем следующий адрес */ }
+      }
+    }
+    if (!list) throw new Error('GitHub недоступен');
+
     const ours = (Array.isArray(list) ? list : [])
       .filter((release) => isLabsoulRelease(release))
       .map((release) => ({
@@ -107,6 +184,13 @@ export async function checkForUpdate() {
       }
       return 0;
     });
+
+    // API GitHub может быть недоступен (лимит анонимных запросов — 60 в час).
+    // Тогда узнаём версию из latest.yml релиза: это обычный файл, лимита нет.
+    if (!ours.length) {
+      const fileLatest = await readLatestFromFile();
+      if (fileLatest) ours.push(fileLatest);
+    }
 
     const latest = ours[0] || null;
     const data = {
