@@ -75,6 +75,8 @@ const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
 
 // когда «Моя волна» иссякла, продолжаем родственными станциями —
 // иначе лента либо встаёт, либо начинает круг заново
+let fallbackCursor = 0;
+
 const FALLBACK_STATIONS = [
   'personal:never-heard',
   'personal:missed-likes',
@@ -264,8 +266,14 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
   }
 
   // личная волна иссякла — тянем с родственных станций, а не повторяем старое
-  if (!items.length && wanted.includes('yandex')) {
-    for (const alt of FALLBACK_STATIONS) {
+  if (items.length < want && wanted.includes('yandex')) {
+    // каждый вызов начинает с другой станции, чтобы не зацикливаться на одной
+    fallbackCursor = (fallbackCursor + 2) % FALLBACK_STATIONS.length;
+    const ordered = [
+      ...FALLBACK_STATIONS.slice(fallbackCursor),
+      ...FALLBACK_STATIONS.slice(0, fallbackCursor),
+    ].slice(0, 3);
+    for (const alt of ordered) {
       if (items.length >= want) break;
       if (alt === station) continue;
       try {
@@ -281,11 +289,16 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
     }
   }
 
-  // совсем ничего нового — только тогда повторяем, чтобы лента не встала
+  // ничего нового нет — повтор вернём только спустя время, чтобы не было петли
   if (!items.length) {
-    seenMap(station).clear();
-    items = interleave(usable, want);
-    items.forEach((track) => markSeen(station, track.id));
+    const map = seenMap(station);
+    const oldest = [...map.values()].sort((a, b) => a - b)[0] || 0;
+    const stale = Date.now() - oldest > 30 * 60 * 1000;
+    if (stale) {
+      map.clear();
+      items = interleave(usable, want);
+      items.forEach((track) => markSeen(station, track.id));
+    }
   }
 
   // «источник» в ответе определяем только по тем, кто реально дал треки

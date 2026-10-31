@@ -34,6 +34,7 @@ const screen = {
   observer: null,
   unsubs: [],
   autoFills: 0,
+  aheadAt: 0,
 };
 
 function currentState() {
@@ -300,6 +301,23 @@ function syncCurrentRows() {
   }
 }
 
+/** Волна играет: держим впереди минимум 5 треков, догружая в фоне. */
+function ensureAhead() {
+  if (!screen.root) return;
+  const snap = player.getState();
+  if (snap.context?.type !== 'wave') return;
+
+  const total = Array.isArray(snap.queue) ? snap.queue.length : 0;
+  const index = Number.isFinite(snap.index) ? snap.index : -1;
+  const remaining = total - index - 1;
+  if (remaining >= 5) return;
+  if (app.wave.loading) return;
+  if (Date.now() - (screen.aheadAt || 0) < 5000) return;
+
+  screen.aheadAt = Date.now();
+  loadWaveMore();
+}
+
 function checkFill() {
   if (!screen.root) return;
   if (app.wave.loading || app.wave.done) return;
@@ -457,6 +475,7 @@ export const waveScreen = {
     }));
     screen.unsubs.push(player.subscribe((_snap, event) => {
       if (event === 'time') return;
+      ensureAhead();
       paintHero();
       syncCurrentRows();
     }));

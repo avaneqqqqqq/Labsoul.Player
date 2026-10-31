@@ -296,6 +296,10 @@ export async function loadWaveMore({ force = false } = {}) {
       return;
     }
     if (!items.length) {
+      // новых треков нет: пробуем позже, но ленту не закрываем навсегда
+      setTimeout(() => {
+        if (app.route === 'wave') { app.wave.done = false; loadWaveMore(); }
+      }, 20000);
       app.wave.done = true;
     } else {
       stateAppendWave(items, batch.batchId);
