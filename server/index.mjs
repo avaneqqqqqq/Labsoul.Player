@@ -66,28 +66,13 @@ function makeStub(name) {
 async function loadProviders() {
   const settings = store.loadSettings();
 
-  // Прокси нужен только SoundCloud: домен soundcloud.com и его медиа-CDN
-  // заблокированы в РФ. Яндекса, Spotify и остального это не касается.
+  // Прокси — только для SoundCloud и только если пользователь задал его сам.
+  // Автоподбор отключён: SoundCloud чинится обходом блокировки (zapret),
+  // а публичные прокси нестабильны и мешают работе.
   try {
-    if (settings.network?.autoProxy !== false) {
-      // система автоподбора включена: берём сохранённый прокси (если был)
-      if (settings.network?.proxy) {
-        await scProxy.adopt(settings.network.proxy);
-        store.log(`[proxy] принят сохранённый прокси: ${settings.network.proxy}`);
-      }
-      // первичный подбор — в фоне, чтобы не тормозить старт
-      setTimeout(() => {
-        scProxy.ensure({ force: true }).then((result) => {
-          store.log(`[proxy] автоподбор: ${result?.message || 'без изменений'}`);
-        }).catch(() => {});
-      }, 3000);
-    } else {
-      // автоподбор выключен: применяем только ручной прокси, если задан
-      const proxyState = await proxySupport.refresh(settings.network || {});
-      if (proxyState.active) {
-        store.log(`[proxy] ручной режим (${proxyState.activeSource}): ${proxyState.activeMasked}`);
-        await scProxy.adopt(proxyState.activeMasked || settings.network?.proxy || '');
-      }
+    if (settings.network?.proxy) {
+      await scProxy.adopt(settings.network.proxy);
+      store.log(`[proxy] принят прокси из настроек: ${settings.network.proxy}`);
     }
   } catch (err) {
     store.log(`[proxy] ошибка инициализации: ${(err && err.message) || err}`);

@@ -141,7 +141,11 @@ export async function reset() {
  * Вызывается провайдером при сетевом сбое:
  * просит автоподбор найти рабочий прокси и сообщает, стоит ли повторить запрос.
  */
+// Автоподбор отключён: чиним SoundCloud обходом блокировки, а не прокси.
+const AUTO_DISABLED = true;
+
 export async function recover(error) {
+  if (AUTO_DISABLED) return false;
   if (!enabled()) return false;
   // таймауты и обрывы — повод проверить прокси; 401/404 — нет
   const name = String((error && error.name) || '');

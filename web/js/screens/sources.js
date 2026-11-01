@@ -342,27 +342,24 @@ function networkCard() {
   const useSystem = Boolean(net.useSystemProxy);
   const state = app.networkState || null;
   const active = Boolean(state?.active);
-  // система автоподбора: по умолчанию включена
-  const autoProxy = state?.autoProxy !== undefined ? Boolean(state.autoProxy) : net.autoProxy !== false;
 
   const statusText = active
-    ? `Активен: ${esc(state.activeMasked)}${state.activeSource === 'system' ? ' (системный)' : ''}`
-    : 'Прокси выключен — запросы идут напрямую';
+    ? `Активен: ${esc(state.activeMasked)}`
+    : 'Прокси не задан — запросы идут напрямую';
 
   return `<form class="source-card" data-source-form="network" novalidate>
       <header class="source-card__head">
         <div class="source-card__logo source-card__logo--net">${icon('connection')}</div>
         <div class="source-card__title">
-          <h2>Сеть и прокси</h2>
-          <p>Нужно, если SoundCloud не грузится без VPN</p>
+          <h2>Прокси</h2>
+          <p>Необязательно — только для SoundCloud</p>
         </div>
-        <span class="pill ${active ? 'pill--ok' : 'pill--idle'}">${active ? 'активен' : 'выключен'}</span>
+        <span class="pill ${active ? 'pill--ok' : 'pill--idle'}">${active ? 'задан' : 'не задан'}</span>
       </header>
 
       <p class="source-card__note">
-        Из России медиа-серверы SoundCloud часто недоступны напрямую: волна и лайки приходят,
-        а музыка не играет. Укажите адрес своего прокси — через него пойдут все запросы,
-        включая звук.
+        SoundCloud обычно чинится обходом блокировки выше. Прокси нужен, только если
+        обход не помог или вы хотите ходить через свой сервер.
       </p>
 
       <label class="field">
@@ -370,17 +367,8 @@ function networkCard() {
         <input class="input" id="network-proxy" name="proxy" type="text" spellcheck="false"
           autocomplete="off" placeholder="socks5://127.0.0.1:1080"
           value="${esc(proxy)}">
-        <span class="field__hint">Подойдёт socks5:// или http:// — например порт вашего VPN-клиента</span>
+        <span class="field__hint">socks5:// или http:// — обычно порт вашего VPN-клиента</span>
       </label>
-
-      <label class="switch-row switch-row--main">
-        <input type="checkbox" id="network-auto" name="autoProxy" ${autoProxy ? 'checked' : ''}>
-        <span><b>Подбирать прокси для SoundCloud автоматически</b></span>
-      </label>
-      <p class="net-hint">
-        Пока включено: labsoul сам находит рабочий прокси и меняет его, если текущий перестал отвечать.
-        Касается только SoundCloud — Яндекс, Spotify и остальное ходят напрямую.
-      </p>
 
       <label class="switch-row">
         <input type="checkbox" id="network-system" name="useSystemProxy" ${useSystem ? 'checked' : ''}>
@@ -391,7 +379,6 @@ function networkCard() {
 
       <div class="source-card__actions">
         <span class="source-card__error" data-form-error="network"></span>
-        <button class="btn btn--ghost btn--sm" type="button" data-net-find>${icon('spark')} Найти рабочий</button>
         <button class="btn btn--ghost btn--sm" type="button" data-net-test>${icon('refresh')} Проверить</button>
         <button class="btn btn--accent btn--sm" type="submit">${icon('check')} Сохранить</button>
       </div>
@@ -584,34 +571,6 @@ async function checkDpi() {
   toast(text, { icon: probe?.ok ? 'check' : 'alert' });
 }
 
-async function autoFindProxy() {
-  const host = screen.root?.querySelector('[data-net-status]');
-  const button = screen.root?.querySelector('[data-net-find]');
-  if (button) button.disabled = true;
-  if (host) host.textContent = 'Ищу рабочий прокси… это может занять до минуты';
-
-  const result = await findProxy();
-
-  if (button) button.disabled = false;
-
-  if (!result?.ok) {
-    const message = result?.cancelled ? 'Поиск остановлен' : (result?.message || 'Рабочих прокси не нашлось');
-    if (host) host.textContent = message;
-    toast(message, { type: 'warn' });
-    return;
-  }
-
-  const input = screen.root?.querySelector('#network-proxy');
-  if (input) input.value = result.proxy;
-  const systemToggle = screen.root?.querySelector('#network-system');
-  if (systemToggle) systemToggle.checked = false;
-
-  const text = `Найден рабочий прокси: ${result.proxy} — аудио SoundCloud качается`;
-  if (host) host.textContent = text;
-  toast(text, { icon: 'check' });
-  app.networkState = await getNetwork();
-}
-
 /** Проверка соединения с SoundCloud: идёт ли трафик через прокси. */
 async function runNetworkTest() {
   const host = screen.root?.querySelector('[data-net-status]');
@@ -641,7 +600,6 @@ async function submitForm(form) {
     clientSecret: String(data.get('clientSecret') || '').trim(),
     proxy: String(data.get('proxy') || '').trim(),
     useSystemProxy: Boolean(data.get('useSystemProxy')),
-    autoProxy: Boolean(data.get('autoProxy')),
   };
   const errorHint = form.querySelector('[data-form-error]');
 
@@ -650,7 +608,6 @@ async function submitForm(form) {
     const result = await saveNetwork({
       proxy: values.proxy,
       useSystemProxy: values.useSystemProxy,
-      autoProxy: values.autoProxy,
     });
     if (!result.ok) {
       if (errorHint) errorHint.textContent = result.error || 'Не удалось сохранить';
@@ -746,11 +703,6 @@ function onClick(event) {
 
   if (target?.closest('[data-dpi-check]')) {
     checkDpi();
-    return;
-  }
-
-  if (target?.closest('[data-net-find]')) {
-    autoFindProxy();
     return;
   }
 
