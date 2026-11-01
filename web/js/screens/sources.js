@@ -3,7 +3,7 @@
    Секреты приходят с сервера только маской; формы отправляют PUT /api/settings.
    ========================================================================= */
 
-import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy, getDpi, applyDpi } from '../api.js';
+import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy, getDpi, applyDpi, checkSoundcloudKey } from '../api.js';
 import { icon, SOURCE_MARKS } from '../components.js';
 import {
   app,
@@ -524,9 +524,29 @@ function setBusy(form, busy) {
 }
 
 /**
- * Автоподбор прокси: сервер перебирает публичные прокси и проверяет реальное
- * аудио SoundCloud, найденный сразу применяется и подставляется в поле.
+ * Проверить автоключ SoundCloud.
+ *
+ * Раньше кнопка не имела обработчика и молча ничего не делала.
+ * SoundCloud перестал отдавать client_id со страниц, поэтому чаще всего
+ * здесь честно придёт «ключ не получен» — это лучше, чем тишина.
  */
+async function checkScAutoKey() {
+  const out = screen.root?.querySelector('[data-sc-auto-state]');
+  const button = screen.root?.querySelector('[data-sc-auto]');
+  if (button) button.disabled = true;
+  if (out) out.textContent = 'Проверяю…';
+
+  const result = await checkSoundcloudKey();
+
+  if (button) button.disabled = false;
+  if (out) {
+    out.textContent = result.ok
+      ? `Автоключ работает (${result.clientId || ''})`
+      : `${result.message}. Вставьте свой client_id из DevTools — поиск и волна начнут работать.`;
+  }
+  toast(result.ok ? 'Автоключ работает' : result.message, { icon: result.ok ? 'check' : 'alert' });
+}
+
 /** Применить обход: дописать домены SoundCloud в списки zapret. */
 async function applyDpiFix() {
   const host = screen.root?.querySelector('[data-dpi-status]');
@@ -693,6 +713,11 @@ function onClick(event) {
 
   if (target?.closest('[data-sp-paste]')) {
     pasteSpotifyKey();
+    return;
+  }
+
+  if (target?.closest('[data-sc-auto]')) {
+    checkScAutoKey();
     return;
   }
 

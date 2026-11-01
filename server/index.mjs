@@ -957,6 +957,33 @@ function reasonMessage(reason) {
     throw badRequest('Неподдерживаемый метод');
   }
 
+  if (route[0] === 'soundcloud' && route[1] === 'keycheck') {
+    // Проверка автоключа: получен ли client_id и работает ли он на деле.
+    // Кнопка «Проверить автоключ» в «Подключениях» вызывала несуществующий
+    // маршрут и молча ничего не делала.
+    try {
+      const clientId = await providers.soundcloud?.acquireClientId?.() || '';
+      if (!clientId) {
+        sendJson(res, 200, { ok: false, message: 'Автоключ не получен' });
+        return;
+      }
+
+      // короткий настоящий запрос: если API принял ключ, он отвечает 200/401,
+      // а не отказом авторизации — этого достаточно
+      const probe = await providers.soundcloud?.search?.('test', 1).catch((err) => ({ error: err }));
+      const works = !probe?.error;
+
+      sendJson(res, 200, {
+        ok: works,
+        clientId: `${clientId.slice(0, 6)}…`,
+        message: works ? 'Автоключ работает' : 'Ключ получен, но запрос не прошёл',
+      });
+    } catch (err) {
+      sendJson(res, 200, { ok: false, message: (err && err.message) || 'Не удалось проверить' });
+    }
+    return;
+  }
+
   if (route[0] === 'soundcloud' && route[1] === 'session') {
     // сессия после входа: сохраняем cookie и сразу проверяем, кто вошёл
     if (req.method === 'DELETE') {

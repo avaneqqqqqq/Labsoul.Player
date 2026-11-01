@@ -298,6 +298,15 @@ export async function findProxy() {
   }
 }
 
+/** Проверить, работает ли автоключ SoundCloud. */
+export async function checkSoundcloudKey() {
+  try {
+    return await request('/api/soundcloud/keycheck', { method: 'POST', body: {}, timeout: 40000 });
+  } catch (err) {
+    return { ok: false, message: err?.message || 'Сервер не ответил' };
+  }
+}
+
 /** Состояние обхода блокировки SoundCloud (zapret). */
 export async function getDpi() {
   try {
