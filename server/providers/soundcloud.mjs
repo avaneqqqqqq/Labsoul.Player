@@ -537,7 +537,9 @@ function apiUrl(pathname, params = {}) {
 
 async function callApi(pathname, params, clientId) {
   const url = apiUrl(pathname, params);
-  url.searchParams.set('client_id', clientId);
+  // Пустой client_id нельзя ставить в URL: сервер получает `?client_id=` и
+  // отвечает 401 даже при валидном Authorization: OAuth.
+  if (clientId) url.searchParams.set('client_id', clientId);
   return httpText(url.toString(), {
     timeout: TIMEOUT_MS,
     headers: { accept: 'application/json', ...authHeader() },
@@ -545,6 +547,26 @@ async function callApi(pathname, params, clientId) {
 }
 
 async function apiJson(pathname, params = {}, { retry = true } = {}) {
+  // Сохранённый вход (oauth_token) заменяет client_id: api-v2 принимает
+  // `Authorization: OAuth <token>` и обходится без ключа. Это важно, потому что
+  // SoundCloud перестал отдавать client_id со страниц — автоключ не находится,
+  // и без этой ветки всё падало с AUTH_FAILED при живом аккаунте.
+  if (oauthToken()) {
+    const authorized = await callApi(pathname, params, '');
+    if (authorized.status !== 401) {
+      if (authorized.status === 404) throw fail('NOT_FOUND', 'SoundCloud: трек не найден');
+      if (authorized.status === 403) throw fail('NOT_PLAYABLE', 'SoundCloud запретил доступ к треку (HTTP 403)');
+      if (authorized.status === 429) throw fail('UPSTREAM', 'SoundCloud ограничил частоту запросов (HTTP 429)');
+      if (!authorized.ok) throw fail('UPSTREAM', `SoundCloud ответил HTTP ${authorized.status}`);
+      try {
+        return JSON.parse(authorized.body);
+      } catch {
+        throw fail('UPSTREAM', 'SoundCloud вернул некорректный JSON');
+      }
+    }
+    // токен отклонён — пробуем обычный путь через client_id
+  }
+
   let clientId = await getClientId();
   let response = await callApi(pathname, params, clientId);
 
