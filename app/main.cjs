@@ -899,6 +899,43 @@ function hideUpdateBanner() {
   if (bannerWin && !bannerWin.isDestroyed()) bannerWin.close();
 }
 
+/**
+ * Одна проверка обновлений с ожиданием результата.
+ *
+ * Слушатели снимаются после завершения, чтобы повторные проверки не
+ * накапливали обработчики и не получали ответ от старой проверки.
+ *
+ * @returns {Promise<object|null>} объект обновления или null, если его нет
+ */
+function checkUpdateOnce(instance, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      reject(new Error('сервер обновлений не ответил'));
+    }, timeoutMs);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      instance.removeListener('update-available', onAvailable);
+      instance.removeListener('update-not-available', onNone);
+      instance.removeListener('error', onError);
+    };
+
+    const onAvailable = (value) => { cleanup(); resolve(value); };
+    const onNone = () => { cleanup(); resolve(null); };
+    const onError = (error) => { cleanup(); reject(error); };
+
+    instance.once('update-available', onAvailable);
+    instance.once('update-not-available', onNone);
+    instance.once('error', onError);
+
+    Promise.resolve(instance.checkForUpdates()).catch((error) => {
+      cleanup();
+      reject(error);
+    });
+  });
+}
+
 /** Скачиваем обновление через electron-updater; если нельзя — открываем страницу релиза. */
 async function startDownload() {
   const instance = getUpdater();
@@ -916,20 +953,15 @@ async function startDownload() {
   showUpdateBanner();
 
   try {
-    // electron-updater требует, чтобы проверка завершилась и сохранила updateInfo,
-    // иначе downloadUpdate() отвечает «Please check update first». Дождёмся
-    // события update-available (или update-not-available) и только потом качаем.
-    const info = await new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('сервер обновлений не ответил')), 30000);
-      const done = (value) => { clearTimeout(timer); resolve(value); };
-      const fail = (error) => { clearTimeout(timer); reject(error); };
+    // Проверка обновлений могла уже пройти раньше — electron-updater держит
+    // старый updateInfo и отвечает «Please check update first». Сбрасываем
+    // кэш, иначе повторная проверка не находит обновление.
+    try {
+      instance.updateInfo = null;
+      instance.updateInfoAndProvider = null;
+    } catch { /* поле может быть недоступно */ }
 
-      instance.once('update-available', (value) => done(value));
-      instance.once('update-not-available', () => done(null));
-      instance.once('error', (error) => fail(error));
-
-      Promise.resolve(instance.checkForUpdates()).catch(fail);
-    });
+    const info = await checkUpdateOnce(instance, 30000);
 
     if (!info) throw new Error('установлена последняя версия');
     log('обновление: начинаем скачивание ' + (info.version || ''));
@@ -1039,7 +1071,9 @@ ipcMain.on('banner:action', (_event, action) => {
 /** Спрашиваем локальный сервер (он кэширует ответ GitHub на час). */
 async function checkUpdates({ manual = false } = {}) {
   try {
-    const res = await fetch('http://127.0.0.1:' + currentPort + '/api/update', {
+    // по кнопке обходим кэш сервера: иначе отдаётся ответ часовой давности
+    const suffix = manual ? '?force=1' : '';
+    const res = await fetch('http://127.0.0.1:' + currentPort + '/api/update' + suffix, {
       signal: AbortSignal.timeout(15000),
     });
     const data = await res.json();

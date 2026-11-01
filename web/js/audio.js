@@ -105,11 +105,63 @@ let audioCtx = null;
 let sourceNode = null;
 let preampNode = null;
 let outNode = null;
+/** Анализатор спектра: питает визуализатор «под бит». */
+let analyserNode = null;
 let eqNodes = [];
 // если Web Audio не смог отдать звук — играем напрямую, без эквалайзера
 let bypassGraph = false;
 
+/* Два независимых плеера: нужны для настоящего кроссфейда.
+   Пока один трек гаснет, второй уже звучит — как в Spotify. */
+let masterNode = null;
+let altAudio = null;
+let altSourceNode = null;
+let altPreampNode = null;
+let altOutNode = null;
+let altEqNodes = [];
+/** Какая цепочка сейчас активна: 'main' | 'alt'. */
+let activeChain = 'main';
+/** Таймер кроссфейда. */
+let crossfadeTimer = 0;
+/** Ключ трека, для которого уже запускали автоматический переход. */
+let crossfadeArmedFor = null;
+
 const dbToGain = (db) => (db === 0 ? 1 : 10 ** (db / 20));
+
+/**
+ * Построить цепочку для одного аудиоэлемента:
+ *   элемент → предусиление → 10 полос → выход (gain) → общий мастер.
+ *
+ * Два независимых плеера нужны для настоящего кроссфейда: старый трек
+ * продолжает звучать и гаснет, пока новый уже набирает громкость — как в
+ * Spotify и Яндекс.Музыке. Эквалайзер у каждого свой, чтобы кривая не
+ * применялась дважды.
+ */
+function buildChain(el) {
+  const source = audioCtx.createMediaElementSource(el);
+  const preamp = audioCtx.createGain();
+  const out = audioCtx.createGain();
+
+  const bands = EQ_HZ.map((freq) => {
+    const node = audioCtx.createBiquadFilter();
+    node.type = 'peaking';
+    node.frequency.value = freq;
+    node.Q.value = 1.3;
+    node.gain.value = 0;
+    return node;
+  });
+
+  let cursor = preamp;
+  source.connect(cursor);
+  for (const node of bands) {
+    cursor.connect(node);
+    cursor = node;
+  }
+  cursor.connect(out);
+  out.connect(masterNode);
+
+  return { source, preamp, out, bands };
+}
 
 function ensureGraph() {
   if (bypassGraph) return false;
@@ -118,25 +170,38 @@ function ensureGraph() {
   if (!Ctx) return false;
   try {
     audioCtx = new Ctx();
-    sourceNode = audioCtx.createMediaElementSource(audio);
-    preampNode = audioCtx.createGain();
-    outNode = audioCtx.createGain();
-    eqNodes = EQ_HZ.map((freq) => {
-      const node = audioCtx.createBiquadFilter();
-      node.type = 'peaking';
-      node.frequency.value = freq;
-      node.Q.value = 1.3;
-      node.gain.value = 0;
-      return node;
-    });
-    let cursor = preampNode;
-    sourceNode.connect(cursor);
-    for (const node of eqNodes) {
-      cursor.connect(node);
-      cursor = node;
+    masterNode = audioCtx.createGain();
+    masterNode.connect(audioCtx.destination);
+
+    // основная цепочка — элемент из разметки
+    const main = buildChain(audio);
+    sourceNode = main.source;
+    preampNode = main.preamp;
+    outNode = main.out;
+    eqNodes = main.bands;
+
+    // вторая цепочка — только для кроссфейда, создаём заранее
+    altAudio = document.createElement('audio');
+    altAudio.preload = 'auto';
+    altAudio.crossOrigin = 'anonymous';
+    const second = buildChain(altAudio);
+    altSourceNode = second.source;
+    altPreampNode = second.preamp;
+    altOutNode = second.out;
+    altEqNodes = second.bands;
+    altOutNode.gain.value = 0;
+
+    // анализатор спектра для визуализатора «под бит»: подключаем параллельно,
+    // на звук не влияет (он только читает данные)
+    try {
+      analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 256;
+      analyserNode.smoothingTimeConstant = 0.72;
+      masterNode.connect(analyserNode);
+    } catch {
+      analyserNode = null;
     }
-    cursor.connect(outNode);
-    outNode.connect(audioCtx.destination);
+
     applyEq();
     return true;
   } catch (err) {
@@ -146,12 +211,17 @@ function ensureGraph() {
   }
 }
 
+/** Эквалайзер применяется к обеим цепочкам. */
 function applyEq() {
-  if (!preampNode || !eqNodes.length) return;
-  preampNode.gain.value = theme.eq.on ? dbToGain(theme.eq.preamp) : 1;
-  eqNodes.forEach((node, i) => {
-    node.gain.value = theme.eq.on ? Number(theme.eq.bands[i] || 0) : 0;
-  });
+  const apply = (preamp, nodes) => {
+    if (!preamp || !nodes.length) return;
+    preamp.gain.value = theme.eq.on ? dbToGain(theme.eq.preamp) : 1;
+    nodes.forEach((node, i) => {
+      node.gain.value = theme.eq.on ? Number(theme.eq.bands[i] || 0) : 0;
+    });
+  };
+  apply(preampNode, eqNodes);
+  apply(altPreampNode, altEqNodes);
 }
 
 function resumeCtx() {
@@ -331,7 +401,15 @@ function playCurrent() {
   if (!track) { stopAll(); return; }
   stopSimulation();
   commitHistory();
-  try { audio.pause(); } catch { /* ignore */ }
+
+  // Настоящий кроссфейд: старый трек продолжает звучать и гаснет, пока новый
+  // набирает громкость. Без него — короткое затухание и сразу новый.
+  const wantCrossfade = crossfadeReady() && state.playing && !audio.paused;
+  if (wantCrossfade) startCrossfade();
+  else { try { audio.pause(); } catch { /* ignore */ } }
+
+  // новый трек — сбрасываем метку автоматического перехода
+  crossfadeArmedFor = null;
 
   state.current = track;
   state.time = 0;
@@ -364,12 +442,15 @@ function playCurrent() {
   const url = streamUrl(track);
   if (!url) { startSimulation(); return; }
 
+  // при кроссфейде новый трек грузится во второй элемент, пока первый гаснет
+  const el = playbackElement();
+
   try {
     // элемент читает Web Audio: без crossOrigin поток считается кросс-доменным
     // и createMediaElementSource выдаёт тишину (эквалайзер «ломает» звук)
-    if (audio.crossOrigin !== 'anonymous') audio.crossOrigin = 'anonymous';
-    audio.src = url;
-    audio.load();
+    if (el.crossOrigin !== 'anonymous') el.crossOrigin = 'anonymous';
+    el.src = url;
+    el.load();
   } catch {
     startSimulation();
     return;
@@ -382,7 +463,7 @@ function playCurrent() {
   // и плеер остался бы совершенно без звука
   ensureRunning(() => {
     fadeIn();
-    const attempt = audio.play();
+    const attempt = el.play();
     if (attempt && typeof attempt.then === 'function') {
       attempt.then(() => {
         state.playing = true;
@@ -412,6 +493,88 @@ function ensureRunning(action) {
   if (!audioCtx || bypassGraph) { action(); return; }
   if (audioCtx.state === 'running') { action(); return; }
   audioCtx.resume().then(action).catch(action);
+}
+
+/* ---------------------------- кроссфейд ---------------------------------- */
+
+/** Готов ли движок к настоящему кроссфейду. */
+function crossfadeReady() {
+  return Boolean(
+    theme.crossfadeFull &&
+    audioCtx && audioCtx.state === 'running' &&
+    altAudio && altOutNode && !bypassGraph,
+  );
+}
+
+/** Активный элемент и его выход. */
+function chainOf(name) {
+  return name === 'alt'
+    ? { el: altAudio, out: altOutNode }
+    : { el: audio, out: outNode };
+}
+
+/**
+ * Плавно погасить текущий трек и переключить воспроизведение на другой
+ * элемент. Вызывается за crossfadeSec секунд до конца трека либо при
+ * ручном переключении, если включён полный кроссфейд.
+ */
+function startCrossfade() {
+  if (!crossfadeReady()) return false;
+
+  const seconds = Math.max(1, Math.min(12, Number(theme.crossfadeSec) || 4));
+  const from = chainOf(activeChain);
+  const to = chainOf(activeChain === 'alt' ? 'main' : 'alt');
+
+  // новый трек будет играть в другом элементе — готовим его заранее
+  pendingChain = activeChain === 'alt' ? 'main' : 'alt';
+
+  const now = audioCtx.currentTime;
+  const end = now + seconds;
+
+  try {
+    // старый трек гаснет, новый появляется
+    from.out.gain.cancelScheduledValues(now);
+    from.out.gain.setValueAtTime(from.out.gain.value, now);
+    from.out.gain.linearRampToValueAtTime(0, end);
+  } catch { /* ignore */ }
+
+  // гасим старый элемент после затухания
+  clearTimeout(crossfadeTimer);
+  crossfadeTimer = setTimeout(() => {
+    try { from.el.pause(); } catch { /* ignore */ }
+  }, seconds * 1000 + 120);
+
+  return { from: activeChain, to: pendingChain, seconds };
+}
+
+/** Элемент, в который нужно загрузить следующий трек. */
+let pendingChain = 'main';
+
+/** Вернуть цепочку к жизни после кроссфейда. */
+function takeChain(name) {
+  activeChain = name;
+  const target = chainOf(name);
+  try {
+    const now = audioCtx ? audioCtx.currentTime : 0;
+    target.out.gain.cancelScheduledValues(now);
+    target.out.gain.setValueAtTime(1, now);
+  } catch { /* ignore */ }
+  return target.el;
+}
+
+/** Элемент, в который следует грузить трек прямо сейчас. */
+function playbackElement() {
+  if (pendingChain !== activeChain && crossfadeReady()) {
+    const name = pendingChain;
+    pendingChain = activeChain;
+    return takeChain(name);
+  }
+  return audio;
+}
+
+/** Элемент, который сейчас звучит (с учётом кроссфейда). */
+function activeEl() {
+  return activeChain === 'alt' && altAudio ? altAudio : audio;
 }
 
 function handleEnded() {
@@ -524,8 +687,9 @@ export function play() {
     return;
   }
   resumeCtx();
-  if (!audio.src) { playCurrent(); return; }
-  audio.play().then(() => {
+  const el = activeEl();
+  if (!el.src) { playCurrent(); return; }
+  el.play().then(() => {
     state.playing = true;
     emit('state');
   }).catch(() => {
@@ -541,6 +705,7 @@ export function pause() {
     return;
   }
   try { audio.pause(); } catch { /* ignore */ }
+  try { altAudio?.pause(); } catch { /* ignore */ }
   state.playing = false;
   emit('state');
 }
@@ -585,8 +750,9 @@ export function seek(seconds) {
   const total = state.duration || state.current?.duration || 0;
   const value = clamp(Number(seconds) || 0, 0, total);
   state.time = value;
-  if (!state.simulated && audio.src) {
-    try { audio.currentTime = value; } catch { /* ignore */ }
+  const seekEl = activeEl();
+  if (!state.simulated && seekEl.src) {
+    try { seekEl.currentTime = value; } catch { /* ignore */ }
   }
   emit('time');
 }
@@ -596,19 +762,27 @@ export function seekBy(delta) {
   seek(clamp(state.time + Number(delta || 0), 0, total));
 }
 
+/** Громкость и mute применяем к обоим элементам (кроссфейд). */
+function applyVolume() {
+  for (const el of [audio, altAudio]) {
+    if (!el) continue;
+    el.volume = state.volume;
+    el.muted = state.muted;
+  }
+}
+
 export function setVolume(value) {
   const v = clamp(Number(value) || 0, 0, 1);
   state.volume = v;
-  state.muted = v === 0 ? true : false;
-  audio.volume = v;
-  audio.muted = state.muted;
+  state.muted = v === 0;
+  applyVolume();
   persistUi();
   emit('state');
 }
 
 export function toggleMute() {
   state.muted = !state.muted;
-  audio.muted = state.muted;
+  applyVolume();
   persistUi();
   emit('state');
 }
@@ -745,50 +919,112 @@ export function sendWaveFeedback(type, track) {
 /* Реальные события <audio>                                            */
 /* ------------------------------------------------------------------ */
 
-audio.addEventListener('loadedmetadata', () => {
-  if (Number.isFinite(audio.duration) && audio.duration > 0) {
-    state.duration = audio.duration;
-    emit('time');
-  }
-});
-audio.addEventListener('timeupdate', () => {
-  if (state.simulated) return;
-  state.time = audio.currentTime || 0;
-  emit('time');
-});
-audio.addEventListener('play', () => {
-  if (state.simulated) return;
-  state.playing = true;
-  state.loading = false;
-  emit('state');
-});
-audio.addEventListener('pause', () => {
-  if (state.simulated) return;
-  state.playing = false;
-  emit('state');
-});
-audio.addEventListener('waiting', () => {
-  if (state.simulated) return;
-  state.loading = true;
-  emit('state');
-});
-audio.addEventListener('playing', () => {
-  if (state.simulated) return;
-  state.loading = false;
-  state.playing = true;
-  state.error = null;
-  emit('state');
-});
-audio.addEventListener('playing', () => {
-  clearStallWatchdog();
-  state.loading = false;
-});
+/** Подписать события на элемент (основной и второй для кроссфейда). */
+function wireElement(el, isAlt) {
+  // события второго элемента актуальны только когда он звучит
+  const relevant = () => !isAlt || activeChain === 'alt';
 
-audio.addEventListener('ended', () => {
-  clearStallWatchdog();
-  if (state.simulated) return;
-  handleEnded();
-});
+  el.addEventListener('loadedmetadata', () => {
+    if (!relevant()) return;
+    if (Number.isFinite(el.duration) && el.duration > 0) {
+      state.duration = el.duration;
+      emit('time');
+    }
+  });
+
+  el.addEventListener('timeupdate', () => {
+    if (state.simulated || !relevant()) return;
+    state.time = el.currentTime || 0;
+    emit('time');
+    // за N секунд до конца — плавно переходим на следующий трек
+    maybeCrossfade();
+  });
+
+  el.addEventListener('play', () => {
+    if (state.simulated || !relevant()) return;
+    state.playing = true;
+    state.loading = false;
+    emit('state');
+  });
+
+  el.addEventListener('pause', () => {
+    if (state.simulated || !relevant()) return;
+    // пауза от кроссфейда не должна останавливать интерфейс
+    if (state.loading) return;
+    state.playing = false;
+    emit('state');
+  });
+
+  el.addEventListener('waiting', () => {
+    if (state.simulated || !relevant()) return;
+    state.loading = true;
+    emit('state');
+  });
+
+  el.addEventListener('playing', () => {
+    if (state.simulated || !relevant()) return;
+    state.loading = false;
+    state.playing = true;
+    state.error = null;
+    emit('state');
+  });
+
+  el.addEventListener('playing', () => {
+    if (!relevant()) return;
+    clearStallWatchdog();
+    state.loading = false;
+  });
+
+  el.addEventListener('ended', () => {
+    if (!relevant()) return;
+    clearStallWatchdog();
+    if (state.simulated) return;
+    handleEnded();
+  });
+
+  el.addEventListener('error', () => {
+    if (!relevant()) return;
+    clearStallWatchdog();
+    if (state.simulated || !el.src) return;
+    state.loading = false;
+    state.playing = false;
+    state.error = 'Не удалось получить поток. Проверьте подключение источника.';
+    emit('error');
+    emit('state');
+  });
+}
+
+wireElement(audio, false);
+if (altAudio) wireElement(altAudio, true);
+
+/**
+ * Плавный переход ровно за crossfadeSec до конца трека — как в Spotify:
+ * текущий трек уходит, следующий уже звучит.
+ */
+function maybeCrossfade() {
+  if (!crossfadeReady() || !theme.crossfadeFull) return;
+  if (!state.playing || state.repeat === 'one') return;
+  if (!state.duration || state.duration < 12) return;
+
+  const seconds = Math.max(1, Math.min(12, Number(theme.crossfadeSec) || 4));
+  const remaining = state.duration - state.currentTime;
+  if (remaining > seconds) return;
+  if (remaining <= 0) return;
+
+  // не запускаем переход дважды для одного трека
+  const key = `${state.current?.id}:${state.index}`;
+  if (crossfadeArmedFor === key) return;
+  crossfadeArmedFor = key;
+
+  const idx = nextIndex(true);
+  if (idx === -1 || idx === state.index) return;
+
+  startCrossfade();
+  state.lastFade = { from: state.index, at: Date.now() };
+  state.index = idx;
+  playCurrent();
+  emit('queue');
+}
 /* Сторож загрузки: поток может «зависнуть» (сервер отдал 409, сеть оборвалась) —
    элемент при этом не присылает error, и плеер выглядит застывшим. */
 let stallWatchdog = 0;
@@ -812,16 +1048,6 @@ function clearStallWatchdog() {
   stallWatchdog = 0;
 }
 
-audio.addEventListener('error', () => {
-  clearStallWatchdog();
-  if (state.simulated || !audio.src) return;
-  state.loading = false;
-  state.playing = false;
-  state.error = 'Не удалось получить поток. Проверьте подключение источника.';
-  emit('error');
-  emit('state');
-});
-
 /* ------------------------------------------------------------------ */
 /* Инициализация                                                       */
 /* ------------------------------------------------------------------ */
@@ -831,7 +1057,6 @@ audio.muted = state.muted;
 initMediaSessionHandlers();
 
 /* ------------------------ плавные переходы и прогрев ----------------------- */
-
 /**
  * Плавное появление звука в начале трека.
  *
@@ -927,6 +1152,15 @@ export function clearPreload() {
   if (warmAudio) {
     try { warmAudio.removeAttribute('src'); warmAudio.load(); } catch { /* ignore */ }
   }
+}
+
+/**
+ * Анализатор спектра для визуализатора «под бит».
+ * null, если граф отключён (демо-режим или аудио недоступно).
+ */
+export function getAnalyser() {
+  if (bypassGraph || !audioCtx || !analyserNode) return null;
+  return analyserNode;
 }
 
 export const player = {

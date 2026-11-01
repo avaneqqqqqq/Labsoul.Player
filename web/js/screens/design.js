@@ -232,6 +232,7 @@ function shellHtml() {
       <button class="design-tab is-on" type="button" data-tab-section="look">${icon('palette')} <span>Внешний вид</span></button>
       <button class="design-tab" type="button" data-tab-section="form">${icon('type')} <span>Форма и текст</span></button>
       <button class="design-tab" type="button" data-tab-section="blocks">${icon('library')} <span>Блоки</span></button>
+      <button class="design-tab" type="button" data-tab-section="motion">${icon('spark')} <span>Анимации</span></button>
       <button class="design-tab" type="button" data-tab-section="eq">${icon('eq')} <span>Эквалайзер</span></button>
     </nav>
 
@@ -335,14 +336,73 @@ function shellHtml() {
             <div class="ctl__label">Текст сразу<small>открывать текст при входе в полноэкранный</small></div>
             <label class="toggle"><input type="checkbox" data-toggle="lyricsAuto" ${theme.lyricsAuto ? 'checked' : ''}><span class="toggle__track"></span></label>
           </div>
+        </div>
+
+        <div class="panel" data-section="motion">
+          <div class="panel__head">${icon('spark')}<h3>Анимации</h3><span class="hint">движение и плавность</span></div>
+
           <div class="ctl">
-            <div class="ctl__label">Анимации<small>переходы и hover-эффекты</small></div>
+            <div class="ctl__label">Включить анимации<small>главный выключатель движения</small></div>
             <label class="toggle"><input type="checkbox" data-toggle="anim" ${theme.anim ? 'checked' : ''}><span class="toggle__track"></span></label>
           </div>
+
           <div class="ctl">
             <div class="ctl__label">Плавный звук<small>нарастание в начале трека и затухание при смене</small></div>
             <label class="toggle"><input type="checkbox" data-toggle="crossfade" ${theme.crossfade !== false ? 'checked' : ''}><span class="toggle__track"></span></label>
           </div>
+
+          <div class="ctl">
+            <div class="ctl__label">Кроссфейд<small>два трека звучат одновременно при переходе</small></div>
+            <label class="toggle"><input type="checkbox" data-toggle="crossfadeFull" ${theme.crossfadeFull ? 'checked' : ''}><span class="toggle__track"></span></label>
+          </div>
+
+          <div class="ctl">
+            <div class="ctl__label">Длина кроссфейда<small>сколько секунд накладывать треки</small></div>
+            <div class="ctl__range">
+              <input class="rng" type="range" min="1" max="12" step="1" value="${theme.crossfadeSec || 4}" data-range="crossfadeSec" aria-label="Длина кроссфейда">
+              <span class="rng-val" data-val-for="crossfadeSec">${theme.crossfadeSec || 4} с</span>
+            </div>
+          </div>
+
+          <div class="ctl">
+            <div class="ctl__label">Визуализатор под бит<small>полоски двигаются по спектру трека</small></div>
+            <label class="toggle"><input type="checkbox" data-toggle="beat" ${theme.beat !== false ? 'checked' : ''}><span class="toggle__track"></span></label>
+          </div>
+
+          <div class="ctl">
+            <div class="ctl__label">Переходы экранов<small>как появляется новый экран</small></div>
+            <select class="select" data-select="screenAnim">
+              ${['slide', 'fade', 'zoom', 'none'].map((id) => `<option value="${id}" ${(theme.screenAnim || 'slide') === id ? 'selected' : ''}>${{ slide: 'Сдвиг', fade: 'Растворение', zoom: 'Приближение', none: 'Без' }[id]}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="ctl">
+            <div class="ctl__label">Скорость<small>быстро или спокойно</small></div>
+            <select class="select" data-select="speed">
+              ${['slow', 'normal', 'fast'].map((id) => `<option value="${id}" ${(theme.speed || 'normal') === id ? 'selected' : ''}>${{ slow: 'Спокойно', normal: 'Обычно', fast: 'Быстро' }[id]}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="ctl">
+            <div class="ctl__label">Наведение на строки<small>подъём и подсветка</small></div>
+            <select class="select" data-select="hover">
+              ${['lift', 'glow', 'none'].map((id) => `<option value="${id}" ${(theme.hover || 'lift') === id ? 'selected' : ''}>${{ lift: 'Подъём', glow: 'Свечение', none: 'Без' }[id]}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="ctl">
+            <div class="ctl__label">Обложка при смене трека<small>как появляется новая обложка</small></div>
+            <select class="select" data-select="coverAnim">
+              ${['fade', 'scale', 'none'].map((id) => `<option value="${id}" ${(theme.coverAnim || 'fade') === id ? 'selected' : ''}>${{ fade: 'Растворение', scale: 'Масштаб', none: 'Без' }[id]}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="ctl">
+            <div class="ctl__label">Пульсация обложки<small>реагирует на музыку</small></div>
+            <label class="toggle"><input type="checkbox" data-toggle="coverPulse" ${theme.coverPulse ? 'checked' : ''}><span class="toggle__track"></span></label>
+          </div>
+
+          <p class="footnote">Движение отключается целиком, если в Windows включено «Уменьшение движения».</p>
         </div>
 
         <div class="panel" data-section="blocks">

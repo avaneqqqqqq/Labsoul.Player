@@ -111,7 +111,7 @@ export function rowHtml(track, opts = {}) {
 
   return `
     <div class="row${current ? ' is-current' : ''}" data-row-id="${esc(track.id)}" data-row-index="${index}">
-      <span class="row__num">${current ? eqBars('row-eq') : (index ? String(index).padStart(2, '0') : '')}</span>
+      <span class="row__num">${current ? `<span class="row-eq" data-visualizer aria-hidden="true"><i></i><i></i><i></i><i></i></span>` : (index ? String(index).padStart(2, '0') : '')}</span>
       <button class="row__art" type="button" data-act="play" data-id="${esc(track.id)}" style="${trackStyle(track)}" aria-label="Играть: ${esc(track.title)} — ${artist}">
         ${coverImg(track)}
         <span class="row__play">${icon('play')}</span>

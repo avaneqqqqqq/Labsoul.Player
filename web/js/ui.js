@@ -4,7 +4,7 @@
    ========================================================================= */
 
 import { getLyrics, getUpdate, isDemo, net, ping } from './api.js';
-import { player } from './audio.js';
+import { player, EQ_HZ, EQ_LABELS, EQ_PRESETS } from './audio.js';
 import {
   coverImg,
   icon,
@@ -277,7 +277,7 @@ function playerTemplate(snap) {
     </div>
 
     <div class="pl-right">
-      <span class="pl-eq" title="Играет" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span class="pl-eq" data-visualizer title="Играет" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
       ${srcName ? `<span class="pl-src" title="${esc(SOURCE_NAMES[track.source] || '')}">${esc(srcName)}</span>` : ''}
       <button class="pl-btn${theme.eq.on ? ' on' : ''}" type="button" data-pl="eq" title="Эквалайзер" aria-label="Эквалайзер">${icon('eq')}</button>
       <button class="pl-btn" type="button" data-pl="mute" title="Звук" aria-label="Выключить звук">${icon(snap.muted || snap.volume === 0 ? 'volume-mute' : 'volume')}</button>
@@ -434,12 +434,139 @@ function onPlayerClick(event) {
       break;
     }
     case 'queue': toggleQueue(); break;
-    case 'eq': {
-      go('design');
-      setTimeout(() => document.getElementById('eq-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 280);
-      break;
-    }
+    case 'eq': toggleEqPopover(target); break;
     default: break;
+  }
+}
+
+/* --------------------- мини-окно эквалайзера ---------------------- */
+
+let eqPopover = null;
+
+/**
+ * Открыть/закрыть эквалайзер всплывающим окном над мини-плеером.
+ *
+ * Раньше кнопка уводила на экран «Оформление» и прокручивала к блоку
+ * эквалайзера — приходилось возвращаться назад к музыке. Теперь настройка
+ * открывается рядом с плеером, не меняя экран.
+ */
+function toggleEqPopover(button) {
+  if (eqPopover) { closeEqPopover(); return; }
+
+  const chip = button.closest('.pl-right') || button;
+  const rect = chip.getBoundingClientRect();
+
+  const pop = document.createElement('div');
+  pop.className = 'eq-pop';
+  pop.innerHTML = `
+    <div class="eq-pop__head">
+      <b>Эквалайзер</b>
+      <button class="eq-pop__close" type="button" aria-label="Закрыть">✕</button>
+    </div>
+    <label class="switch-row">
+      <input type="checkbox" id="eq-pop-on" ${theme.eq.on ? 'checked' : ''}>
+      <span>Включить</span>
+    </label>
+    <div class="eq-pop__presets" data-eq-presets></div>
+    <div class="eq-pop__gains" data-eq-gains></div>
+    <p class="eq-pop__hint">Настройка сохраняется и не сбрасывается при обновлении.</p>
+  `;
+  document.body.appendChild(pop);
+
+  // ставим окно над кнопкой
+  const left = Math.max(12, Math.min(window.innerWidth - 300, rect.right - 280));
+  pop.style.left = `${left}px`;
+  pop.style.bottom = `${window.innerHeight - rect.top + 12}px`;
+
+  buildEqControls(pop);
+  eqPopover = pop;
+
+  const onDocClick = (event) => {
+    if (!pop.contains(event.target) && event.target !== button) closeEqPopover();
+  };
+  // закрываем по клику мимо; подписку снимаем при закрытии
+  setTimeout(() => document.addEventListener('mousedown', onDocClick), 0);
+  pop.addEventListener('click', (event) => {
+    if (event.target.closest('.eq-pop__close')) closeEqPopover();
+  });
+  pop._onDocClick = onDocClick;
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeEqPopover();
+  });
+}
+
+function closeEqPopover() {
+  if (!eqPopover) return;
+  if (eqPopover._onDocClick) document.removeEventListener('mousedown', eqPopover._onDocClick);
+  eqPopover.remove();
+  eqPopover = null;
+}
+
+/** Заполнить окно ползунками и пресетами. */
+function buildEqControls(pop) {
+  const presetsBox = pop.querySelector('[data-eq-presets]');
+  const gainsBox = pop.querySelector('[data-eq-gains]');
+  if (!presetsBox || !gainsBox) return;
+
+  // пресеты берём из плеера: это те же профили, что в «Оформлении»
+  presetsBox.innerHTML = Object.entries(EQ_PRESETS).map(([id, preset]) => (
+    `<button class="eq-pop__preset${theme.eq.preset === id ? ' on' : ''}" type="button" data-preset="${id}">${preset.name}</button>`
+  )).join('');
+
+  // ползунки по полосам: EQ_HZ — реальные частоты, bands — усиление в дБ
+  gainsBox.innerHTML = EQ_HZ.map((freq, index) => {
+    const value = Number(theme.eq.bands?.[index]) || 0;
+    return `<label class="eq-pop__band">
+      <span>${EQ_LABELS[index]}</span>
+      <input class="rng rng--vert" type="range" min="-12" max="12" step="1"
+        value="${value}" data-band="${index}" aria-label="${freq} Гц">
+      <b>${value > 0 ? '+' : ''}${value}</b>
+    </label>`;
+  }).join('');
+
+  presetsBox.addEventListener('click', (event) => {
+    const btn = event.target.closest('[data-preset]');
+    if (!btn) return;
+    const preset = EQ_PRESETS[btn.dataset.preset];
+    if (!preset) return;
+    update('eq.bands', [...preset.bands], { save: true, apply: true });
+    update('eq.preset', btn.dataset.preset, { save: true, apply: false });
+    for (const item of presetsBox.querySelectorAll('.eq-pop__preset')) {
+      item.classList.toggle('on', item === btn);
+    }
+    refreshEqBands(pop);
+  });
+
+  gainsBox.addEventListener('input', (event) => {
+    const input = event.target.closest('[data-band]');
+    if (!input) return;
+    const index = Number(input.dataset.band);
+    const value = Number(input.value);
+    const label = input.parentElement?.querySelector('b');
+    if (label) label.textContent = `${value > 0 ? '+' : ''}${value}`;
+    const bands = Array.isArray(theme.eq.bands) ? [...theme.eq.bands] : new Array(EQ_HZ.length).fill(0);
+    bands[index] = value;
+    update('eq.bands', bands, { save: true, apply: true });
+    // своя настройка: ни один пресет больше не подходит
+    update('eq.preset', 'custom', { save: true, apply: false });
+    for (const item of presetsBox.querySelectorAll('.eq-pop__preset')) item.classList.remove('on');
+  });
+
+  pop.querySelector('#eq-pop-on')?.addEventListener('change', (event) => {
+    update('eq.on', event.target.checked, { save: true, apply: true });
+    const chip = document.querySelector('[data-pl="eq"]');
+    if (chip) chip.classList.toggle('on', event.target.checked);
+  });
+}
+
+/** Перерисовать ползунки после выбора пресета. */
+function refreshEqBands(pop) {
+  for (const input of pop.querySelectorAll('[data-band]')) {
+    const value = Number(theme.eq.bands?.[Number(input.dataset.band)]) || 0;
+    input.value = String(value);
+    const label = input.parentElement?.querySelector('b');
+    if (label) label.textContent = `${value > 0 ? '+' : ''}${value}`;
   }
 }
 

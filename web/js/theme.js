@@ -69,6 +69,21 @@ export const DEFAULTS = {
   barSeek: true,
   // плавное появление и затухание звука при смене трека
   crossfade: true,
+  // полный кроссфейд: два трека звучат одновременно
+  crossfadeFull: false,
+  crossfadeSec: 4,
+  // визуализатор двигается по настоящему спектру
+  beat: true,
+  // как появляется новый экран: slide | fade | zoom | none
+  screenAnim: 'slide',
+  // общая скорость анимаций: slow | normal | fast
+  speed: 'normal',
+  // реакция строк на наведение: lift | glow | none
+  hover: 'lift',
+  // появление обложки: fade | scale | none
+  coverAnim: 'fade',
+  // мягкая пульсация обложки под музыку
+  coverPulse: false,
   wallpaper: 'cover',
   density: 'normal',
   radius: 22,
@@ -312,6 +327,13 @@ export function applyTheme({ emitEvent = false } = {}) {
   body.dataset.density = theme.density;
   body.dataset.font = theme.font;
   body.dataset.anim = theme.anim ? 'on' : 'off';
+  // настройки движения: интерфейс и CSS реагируют на эти атрибуты
+  body.dataset.screenAnim = theme.anim ? (theme.screenAnim || 'slide') : 'none';
+  body.dataset.speed = theme.speed || 'normal';
+  body.dataset.hover = theme.anim ? (theme.hover || 'lift') : 'none';
+  body.dataset.coverAnim = theme.anim ? (theme.coverAnim || 'fade') : 'none';
+  body.dataset.beat = theme.beat !== false ? 'on' : 'off';
+  body.dataset.coverPulse = theme.coverPulse ? 'on' : 'off';
 
   body.style.setProperty('--radius', `${theme.radius}px`);
   body.style.setProperty('--cover-radius', `${theme.coverRadius}px`);
@@ -369,6 +391,9 @@ export function setNowPlaying(track) {
   palette = paletteFor(track || null);
   applyTheme({ emitEvent: true });
 
+  // мини-плеер обновился — сообщаем подписчикам (визуализатор подключит main.js)
+  emitNowPlaying();
+
   if (track?.cover) {
     const current = track;
     paletteFromCover(track).then((fromCover) => {
@@ -376,6 +401,21 @@ export function setNowPlaying(track) {
       palette = fromCover;
       applyTheme({ emitEvent: true });
     }).catch(() => { /* остаёмся на детерминированной палитре */ });
+  }
+}
+
+/** Подписчики на смену трека в мини-плеере. */
+const nowPlayingSubs = new Set();
+
+/** Подписаться на смену трека (используется визуализатором). */
+export function onNowPlaying(fn) {
+  nowPlayingSubs.add(fn);
+  return () => nowPlayingSubs.delete(fn);
+}
+
+function emitNowPlaying() {
+  for (const fn of nowPlayingSubs) {
+    try { fn(nowPlaying); } catch { /* не ломаем плеер */ }
   }
 }
 

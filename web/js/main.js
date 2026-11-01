@@ -20,8 +20,31 @@ import {
   setRoute,
   subscribe as storeSubscribe,
 } from './store.js';
-import { applyTheme, setNowPlaying, restoreFromServer as restoreTheme } from './theme.js';
+import { applyTheme, setNowPlaying, restoreFromServer as restoreTheme, onNowPlaying, theme } from './theme.js';
 import { initShell } from './ui.js';
+import { BeatVisualizer } from './visualizer.js';
+import { getAnalyser } from './audio.js';
+
+/** Визуализатор ритма в мини-плеере: виден на любом экране. */
+let playerVisualizer = null;
+
+function syncPlayerVisualizer() {
+  const node = document.querySelector('.pl-eq[data-visualizer]');
+  if (!node) return;
+  try {
+    if (playerVisualizer) { playerVisualizer.stop(); playerVisualizer = null; }
+
+    // настройка выключает спектральный режим: остаётся мягкая анимация
+    const live = theme.beat !== false && theme.anim !== false;
+    if (!live) {
+      node.classList.remove('is-live');
+      return;
+    }
+
+    playerVisualizer = new BeatVisualizer(node);
+    playerVisualizer.attach(getAnalyser());
+  } catch { /* визуализатор не критичен */ }
+}
 
 const SCREENS = {
   wave: waveScreen,
@@ -116,6 +139,10 @@ function boot() {
   initStore();
   initShell();
   setNowPlaying(player.getState().current);
+
+  // полоски в мини-плеере двигаются по настоящему спектру трека
+  onNowPlaying(() => syncPlayerVisualizer());
+  syncPlayerVisualizer();
 
   if (!location.hash) {
     history.replaceState(null, '', '#wave');

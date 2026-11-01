@@ -613,6 +613,20 @@ body[data-variant="vinyl"] .row__play { border-radius: 50%; }
 body[data-playing="false"] .row-eq i,
 body[data-playing="false"] .pl-eq i { animation-play-state: paused; }
 
+/* Ритмичный режим: столбики двигаются по настоящему спектру трека.
+   Высоту задаёт --lvl (0…1), который считает BeatVisualizer. */
+.row-eq.is-live i {
+  animation: none;
+  height: calc(14px * var(--lvl, .3));
+  transition: height 60ms linear, background-color 200ms ease;
+  will-change: height;
+}
+.row-eq.is-live i:nth-child(1) { background: var(--accent); }
+.row-eq.is-live i:nth-child(2) { background: var(--accent); opacity: .92; }
+.row-eq.is-live i:nth-child(3) { background: var(--accent); opacity: .84; }
+.row-eq.is-live i:nth-child(4) { background: var(--accent); opacity: .76; }
+body[data-playing="false"] .row-eq.is-live i { transition: height 320ms ease; }
+
 /* карточки-обложки в волне */
 .cover-card {
   position: relative; padding: 0; border: 0; border-radius: calc(var(--radius) - 4px);
@@ -884,6 +898,16 @@ body.hide-pl-progress .pl-line { display: none; }
 .pl-eq i:nth-child(2) { height: 90%; animation-delay: -500ms; }
 .pl-eq i:nth-child(3) { height: 60%; animation-delay: -80ms; }
 .pl-eq i:nth-child(4) { height: 100%; animation-delay: -350ms; }
+
+/* ритмичный режим в мини-плеере: высота от анализатора спектра */
+.pl-eq.is-live { height: 18px; gap: 2.5px; }
+.pl-eq.is-live i {
+  animation: none;
+  width: 3px;
+  height: calc(18px * var(--lvl, .3));
+  transition: height 55ms linear;
+  will-change: height;
+}
 .pl-vol { width: 78px; flex: none; display: flex; align-items: center; }
 .pl-vol input.rng { width: 100%; }
 body.hide-pl-vol .pl-vol,
@@ -1281,5 +1305,150 @@ body.hide-pl-seek .pl-line { display: none; }
   #content > * {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+
+/* ------------------------- мини-окно эквалайзера -------------------------- */
+.eq-pop {
+  position: fixed;
+  z-index: 320;
+  width: 288px;
+  padding: 14px 14px 12px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--panel-solid, rgba(18, 18, 24, .96));
+  backdrop-filter: blur(22px);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .55);
+  animation: eq-pop-in 180ms cubic-bezier(.22, .61, .36, 1);
+}
+
+@keyframes eq-pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.eq-pop__head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 10px; font-size: 14px;
+}
+
+.eq-pop__close {
+  width: 24px; height: 24px; border-radius: 8px; border: 0;
+  background: transparent; color: var(--dim); cursor: pointer; font-size: 13px;
+}
+.eq-pop__close:hover { background: rgba(255, 255, 255, .08); color: var(--text); }
+
+.eq-pop__presets {
+  display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 14px;
+}
+
+.eq-pop__preset {
+  padding: 5px 10px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--dim); cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease;
+}
+.eq-pop__preset:hover { color: var(--text); border-color: rgba(255, 255, 255, .28); }
+.eq-pop__preset.on {
+  background: var(--accent); border-color: var(--accent); color: #101014; font-weight: 600;
+}
+
+.eq-pop__gains {
+  display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; align-items: end;
+}
+
+.eq-pop__band {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  font-size: 9.5px; color: var(--dim);
+}
+.eq-pop__band b { font-size: 9.5px; font-weight: 600; color: var(--text); }
+
+/* вертикальный ползунок полосы */
+.rng--vert {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 5px; height: 78px; padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.eq-pop__hint {
+  margin: 10px 0 0; font-size: 11px; color: var(--dim); line-height: 1.4;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .eq-pop { animation: none; }
+}
+
+
+/* ------------------- настройки движения (раздел «Анимации») ---------------- */
+
+/* скорость: единый множитель длительности анимаций */
+body[data-speed="slow"] { --dur: 1.5; }
+body[data-speed="normal"] { --dur: 1; }
+body[data-speed="fast"] { --dur: .55; }
+
+/* появление экрана: сдвиг / растворение / приближение */
+body[data-screen-anim="slide"] #content > * { animation: scr-slide calc(320ms * var(--dur, 1)) cubic-bezier(.22,.61,.36,1); }
+body[data-screen-anim="fade"] #content > * { animation: scr-fade calc(280ms * var(--dur, 1)) ease; }
+body[data-screen-anim="zoom"] #content > * { animation: scr-zoom calc(320ms * var(--dur, 1)) cubic-bezier(.22,.61,.36,1); }
+body[data-screen-anim="none"] #content > * { animation: none; }
+
+@keyframes scr-slide { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+@keyframes scr-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scr-zoom { from { opacity: 0; transform: scale(.985); } to { opacity: 1; transform: none; } }
+
+/* наведение на строки: подъём / свечение / без */
+body[data-hover="none"] .row:hover,
+body[data-hover="none"] .wave__item:hover { transform: none; }
+
+body[data-hover="glow"] .row:hover,
+body[data-hover="glow"] .wave__item:hover {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+/* обложка при смене трека */
+body[data-cover-anim="fade"] .pl-now__art img,
+body[data-cover-anim="fade"] .np__cover img {
+  animation: cov-fade calc(280ms * var(--dur, 1)) ease;
+}
+body[data-cover-anim="scale"] .pl-now__art img,
+body[data-cover-anim="scale"] .np__cover img {
+  animation: cov-scale calc(320ms * var(--dur, 1)) cubic-bezier(.22,.61,.36,1);
+}
+body[data-cover-anim="none"] .pl-now__art img,
+body[data-cover-anim="none"] .np__cover img { animation: none; }
+
+@keyframes cov-fade { from { opacity: .3; } to { opacity: 1; } }
+@keyframes cov-scale { from { opacity: .3; transform: scale(.94); } to { opacity: 1; transform: none; } }
+
+/* пульсация обложки под музыку */
+body[data-cover-pulse="on"] .pl-now__art { position: relative; }
+body[data-cover-pulse="on"] .pl-now__art::after {
+  content: '';
+  position: absolute; inset: -2px;
+  border-radius: inherit;
+  border: 1.5px solid var(--accent);
+  opacity: 0;
+  animation: cov-pulse 2.4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes cov-pulse {
+  0%, 100% { opacity: 0; transform: scale(1); }
+  50% { opacity: .55; transform: scale(1.06); }
+}
+
+/* уважаем системное «уменьшить движение» и выключенные анимации */
+body[data-anim="off"] #content > *,
+body[data-anim="off"] .pl-now__art img,
+body[data-anim="off"] .np__cover img,
+body[data-anim="off"] .pl-now__art::after { animation: none !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  #content > *, .pl-now__art img, .np__cover img, .pl-now__art::after {
+    animation: none !important;
   }
 }

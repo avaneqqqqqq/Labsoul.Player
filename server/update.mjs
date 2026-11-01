@@ -95,9 +95,16 @@ export function isLabsoulRelease(release) {
 
 let cache = { at: 0, data: null };
 
-export async function checkForUpdate() {
+/**
+ * Проверить обновления.
+ *
+ * @param {{force?: boolean}} [opts] — force: игнорировать кэш.
+ *   Нужно для кнопки «Проверить обновления»: иначе пользователь видит
+ *   ответ часовой давности и решает, что новая версия не находится.
+ */
+export async function checkForUpdate({ force = false } = {}) {
   const current = currentVersion();
-  if (cache.data && Date.now() - cache.at < CACHE_TTL_MS) {
+  if (!force && cache.data && Date.now() - cache.at < CACHE_TTL_MS) {
     return { ...cache.data, current };
   }
 

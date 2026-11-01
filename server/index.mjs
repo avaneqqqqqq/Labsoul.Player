@@ -741,7 +741,10 @@ async function handleApi(req, res, url) {
   }
 
   if (route[0] === 'update') {
-    sendJson(res, 200, await checkForUpdate());
+    // ?force=1 — проверка по кнопке: кэш игнорируем, иначе отдаётся
+    // ответ часовой давности и кажется, что обновление не находится
+    const force = url.searchParams.get('force') === '1';
+    sendJson(res, 200, await checkForUpdate({ force }));
     return;
   }
 

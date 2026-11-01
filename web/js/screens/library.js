@@ -4,7 +4,8 @@
    ========================================================================= */
 
 import { bindTrackActions } from '../actions.js';
-import { player } from '../audio.js';
+import { player, getAnalyser } from '../audio.js';
+import { bindVisualizer, releaseVisualizer } from '../visualizer.js';
 import {
   emptyState,
   eqBars,
@@ -35,7 +36,7 @@ import { toast } from '../toast.js';
 import { dayKey, dayLabel, esc, humanizeError, plural, pluralTracks } from '../utils.js';
 
 const TAB_KEY = 'player-library-tab';
-let tab = 'history';
+let tab = 'likes';
 let tabExplicit = false;
 try {
   const saved = sessionStorage.getItem(TAB_KEY);
@@ -107,9 +108,6 @@ function summaryHtml() {
 function toolbarHtml() {
   return `<div class="lib-toolbar">
     <div class="seg" role="tablist" aria-label="Раздел библиотеки">
-      <button type="button" role="tab" data-tab="history" class="${tab === 'history' ? 'on' : ''}" aria-selected="${tab === 'history'}">
-        История <span class="chip__count">${app.history.items.length}</span>
-      </button>
       <button type="button" role="tab" data-tab="likes" class="${tab === 'likes' ? 'on' : ''}" aria-selected="${tab === 'likes'}">
         Избранное <span class="chip__count">${libraryTracks().length}</span>
       </button>
@@ -118,6 +116,9 @@ function toolbarHtml() {
       </button>
       <button type="button" role="tab" data-tab="playlists" class="${tab === 'playlists' ? 'on' : ''}" aria-selected="${tab === 'playlists'}">
         Плейлисты <span class="chip__count">${(app.playlists?.items || []).length}</span>
+      </button>
+      <button type="button" role="tab" data-tab="history" class="${tab === 'history' ? 'on' : ''}" aria-selected="${tab === 'history'}">
+        История <span class="chip__count">${app.history.items.length}</span>
       </button>
     </div>
     <div class="lib-toolbar__spacer"></div>
@@ -448,17 +449,24 @@ function paint({ bodyOnly = false } = {}) {
 function syncRows() {
   if (!screen.root) return;
   const currentId = player.getState().current?.id;
+  let live = null;
   for (const row of screen.root.querySelectorAll('.row[data-row-id]')) {
     const isCurrent = row.dataset.rowId === currentId;
     row.classList.toggle('is-current', isCurrent);
     const num = row.querySelector('.row__num');
     if (!num) continue;
-    if (isCurrent) num.innerHTML = eqBars('row-eq');
-    else {
+    if (isCurrent) {
+      num.innerHTML = '<span class="row-eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>';
+      live = num.querySelector('.row-eq');
+    } else {
       const index = Number(row.dataset.rowIndex) || 0;
       num.textContent = index ? String(index).padStart(2, '0') : '';
     }
   }
+
+  // подключаем ритмичный визуализатор к текущей строке
+  if (live) bindVisualizer(live, getAnalyser());
+  else releaseVisualizer();
 }
 
 function playAll({ shuffle = false } = {}) {
