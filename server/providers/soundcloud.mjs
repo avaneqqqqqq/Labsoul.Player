@@ -40,7 +40,7 @@ const MAX_LIST_BYTES = 3 * 1024 * 1024;
 // Буфер HLS ограничен, чтобы 2-часовой DJ-сет не съел всю память.
 const MAX_HLS_BYTES = 120 * 1024 * 1024;
 const MAX_HLS_SEGMENTS = 4000;
-const HLS_CONCURRENCY = 4;
+const HLS_CONCURRENCY = 12;
 
 const USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -955,7 +955,9 @@ async function hlsToBuffer(playlistUrl, transcoding) {
   const parts = [];
   let total = 0;
   if (initUrl) {
-    const init = await httpBufferChunked(initUrl, { timeout: TIMEOUT_MS });
+    // init-сегмент небольшой, но и его качаем целиком: дробление на куски
+    // по 8 КБ добавляло десятки лишних запросов
+    const init = await httpBuffer(initUrl, { timeout: TIMEOUT_MS });
     if (!init.ok) throw fail('UPSTREAM', `HLS init-сегмент SoundCloud недоступен (HTTP ${init.status})`);
     total += init.buffer.length;
     parts.push(init.buffer);
@@ -971,7 +973,10 @@ async function hlsToBuffer(playlistUrl, transcoding) {
       cursor += 1;
       if (index >= segments.length) return;
       try {
-        const chunk = await httpBufferChunked(segments[index], { timeout: TIMEOUT_MS });
+        // Сегмент качаем ОДНИМ запросом: CDN отдаёт его целиком за ~90 мс.
+        // Раньше здесь стояла нарезка по 8 КБ — это сотни запросов и
+        // задержка в 4–10 секунд перед началом воспроизведения.
+        const chunk = await httpBuffer(segments[index], { timeout: TIMEOUT_MS });
         if (!chunk.ok) {
           throw fail('UPSTREAM', `HLS-сегмент SoundCloud #${index} недоступен (HTTP ${chunk.status})`);
         }

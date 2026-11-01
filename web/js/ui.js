@@ -475,7 +475,7 @@ function toggleEqPopover(button) {
 
   // ставим окно над кнопкой
   // окно шире эквалайзера: 10 ползунков должны помещаться целиком
-  const left = Math.max(12, Math.min(window.innerWidth - 352, rect.right - 340));
+  const left = Math.max(12, Math.min(window.innerWidth - 532, rect.right - 520));
   pop.style.left = `${left}px`;
   pop.style.bottom = `${window.innerHeight - rect.top + 12}px`;
 
