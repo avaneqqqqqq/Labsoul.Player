@@ -431,6 +431,11 @@ export async function loadLibraryLikes({ force = false } = {}) {
     // getLikes возвращает {groups:[...]} — в состоянии храним именно массив групп
     const result = await getLikes(remote, 150);
     app.library.remote = Array.isArray(result?.groups) ? result.groups : [];
+    // Регистрируем треки в реестре: без этого кнопка play на строке избранного
+    // молча ничего не делает — trackById() не находит трек по data-id.
+    for (const group of app.library.remote) {
+      rememberTracks(group?.items);
+    }
     app.library.loadedAt = Date.now();
   } catch (err) {
     app.library.remote = [];
@@ -501,6 +506,8 @@ export async function loadLocalTracks({ force = false } = {}) {
   emit('local');
   try {
     app.local.items = await getLocalTracks();
+    // локальные треки тоже должны быть в реестре для кнопки play
+    rememberTracks(app.local.items);
     app.local.loadedAt = Date.now();
   } catch (err) {
     app.local.error = err?.message || 'Не удалось прочитать локальную библиотеку';
@@ -608,6 +615,8 @@ export async function openPlaylist(playlistId) {
   try {
     const data = await getPlaylistTracks(app.playlists.source, playlistId);
     app.playlists.tracks = safeTracks(data?.items);
+    // регистрируем в реестре: иначе play на строке плейлиста не сработает
+    rememberTracks(app.playlists.tracks);
     app.playlists.error = data?.error || null;
   } catch (err) {
     app.playlists.tracks = [];
