@@ -273,12 +273,12 @@ export async function getNetwork() {
 }
 
 /** Сохранить настройки прокси (применяются сразу). */
-export async function saveNetwork({ proxy = '', useSystemProxy = false }) {
+export async function saveNetwork({ proxy = '', useSystemProxy = false, autoProxy } = {}) {
   try {
     const data = await request('/api/network', {
       method: 'PUT',
-      body: { proxy, useSystemProxy },
-      timeout: 15000,
+      body: { proxy, useSystemProxy, ...(typeof autoProxy === 'boolean' ? { autoProxy } : {}) },
+      timeout: 20000,
     });
     return { ok: true, ...data };
   } catch (err) {

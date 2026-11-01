@@ -25,6 +25,7 @@ import * as lyrics from './lyrics.mjs';
 import * as audioconvert from './audioconvert.mjs';
 import * as libraryCache from './librarycache.mjs';
 import * as proxySupport from './proxy.mjs';
+import * as scProxy from './scproxy.mjs';
 import * as proxyFinder from './proxyfind.mjs';
 
 const PORT = Number(
@@ -64,16 +65,31 @@ function makeStub(name) {
 async function loadProviders() {
   const settings = store.loadSettings();
 
-  // прокси применяем ДО провайдеров: он влияет на все их запросы, включая медиа
+  // Прокси нужен только SoundCloud: домен soundcloud.com и его медиа-CDN
+  // заблокированы в РФ. Яндекса, Spotify и остального это не касается.
   try {
-    const proxyState = await proxySupport.refresh(settings.network || {});
-    if (proxyState.active) {
-      store.log(`[proxy] включён (${proxyState.activeSource}): ${proxyState.activeMasked}`);
-    } else if (proxyState.error) {
-      store.log(`[proxy] не включён: ${proxyState.error}`);
+    if (settings.network?.autoProxy !== false) {
+      // система автоподбора включена: берём сохранённый прокси (если был)
+      if (settings.network?.proxy) {
+        await scProxy.adopt(settings.network.proxy);
+        store.log(`[proxy] принят сохранённый прокси: ${settings.network.proxy}`);
+      }
+      // первичный подбор — в фоне, чтобы не тормозить старт
+      setTimeout(() => {
+        scProxy.ensure({ force: true }).then((result) => {
+          store.log(`[proxy] автоподбор: ${result?.message || 'без изменений'}`);
+        }).catch(() => {});
+      }, 3000);
+    } else {
+      // автоподбор выключен: применяем только ручной прокси, если задан
+      const proxyState = await proxySupport.refresh(settings.network || {});
+      if (proxyState.active) {
+        store.log(`[proxy] ручной режим (${proxyState.activeSource}): ${proxyState.activeMasked}`);
+        await scProxy.adopt(proxyState.activeMasked || settings.network?.proxy || '');
+      }
     }
   } catch (err) {
-    store.log(`[proxy] ошибка: ${err.message}`);
+    store.log(`[proxy] ошибка инициализации: ${(err && err.message) || err}`);
   }
 
   for (const name of PROVIDER_NAMES) {
@@ -807,7 +823,15 @@ function reasonMessage(reason) {
   if (route[0] === 'network') {
     // прокси: состояние, проверка соединения и сохранение — без перезапуска
     if (req.method === 'GET') {
-      sendJson(res, 200, { ...proxySupport.status(), ffmpeg: audioconvert.hasFfmpeg() });
+      const settings = store.loadSettings();
+      sendJson(res, 200, {
+        ...proxySupport.status(),
+        // система автоподбора: включена по умолчанию, отключается в настройках
+        autoProxy: settings.network?.autoProxy !== false,
+        autoProxyCurrent: scProxy.current() || '',
+        autoProxyLast: scProxy.last(),
+        ffmpeg: audioconvert.hasFfmpeg(),
+      });
       return;
     }
 
@@ -862,13 +886,34 @@ function reasonMessage(reason) {
         network: {
           proxy: proxyValue,
           useSystemProxy: Boolean(body?.useSystemProxy),
+          // выключатель системы автоподбора для SoundCloud
+          ...(typeof body?.autoProxy === 'boolean' ? { autoProxy: body.autoProxy } : {}),
         },
       });
 
-      const state = await proxySupport.refresh(store.loadSettings().network || {});
+      const saved = store.loadSettings().network || {};
+      const auto = saved.autoProxy !== false;
+
+      if (!auto) {
+        // автоподбор выключен: снимаем прокси и работаем напрямую
+        await scProxy.reset();
+        const state = await proxySupport.refresh(saved);
+        store.log('[proxy] автоподбор выключен пользователем');
+        sendJson(res, 200, { ok: true, autoProxy: false, ...state });
+        return;
+      }
+
+      // ручной адрес задан — принимаем его; пустой — пусть подбирает сам
+      if (proxyValue) {
+        await scProxy.adopt(proxyValue);
+      } else {
+        scProxy.ensure({ force: true }).catch(() => {});
+      }
+
+      const state = await proxySupport.refresh(saved);
       const label = state.active ? `${state.activeMasked} (${state.activeSource})` : 'выключен';
-      store.log(`[proxy] применено: ${label}`);
-      sendJson(res, 200, { ok: true, ...state });
+      store.log(`[proxy] применено: ${label}, автоподбор: ${auto ? 'вкл' : 'выкл'}`);
+      sendJson(res, 200, { ok: true, autoProxy: auto, ...state });
       return;
     }
 

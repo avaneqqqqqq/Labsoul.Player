@@ -20,6 +20,7 @@
  */
 
 import * as proxy from '../proxy.mjs';
+import * as scProxy from '../scproxy.mjs';
 
 export const id = 'soundcloud';
 
@@ -132,10 +133,12 @@ async function httpFetch(url, { method = 'GET', headers = {}, body, timeout = TI
     'accept-language': 'en-US,en;q=0.9',
     ...headers,
   };
-  // Прокси применяется ТОЛЬКО к запросам SoundCloud: медиа-серверы сервиса
-  // недоступны из РФ. Остальные источники (Яндекс, Spotify) ходят напрямую.
-  const dispatcher = proxy.soundcloudDispatcher();
-  try {
+
+  // Прокси применяется ТОЛЬКО к запросам SoundCloud: домен soundcloud.com и
+  // медиа-CDN заблокированы в РФ. Яндекса, Spotify, текстов и обновлений это
+  // не касается — они ходят напрямую.
+  const attempt = async () => {
+    const dispatcher = proxy.soundcloudDispatcher();
     return await fetch(url, {
       method,
       headers: requestHeaders,
@@ -144,7 +147,21 @@ async function httpFetch(url, { method = 'GET', headers = {}, body, timeout = TI
       signal: AbortSignal.timeout(timeout),
       ...(dispatcher ? { dispatcher } : {}),
     });
+  };
+
+  try {
+    return await attempt();
   } catch (error) {
+    // Сетевой сбой — прокси мог умереть. Просим автоподбор найти новый
+    // (если он включён в настройках) и повторяем запрос один раз.
+    const recovered = await scProxy.recover(error);
+    if (recovered) {
+      try {
+        return await attempt();
+      } catch (retryError) {
+        throw fail('UPSTREAM', networkMessage(url, retryError, timeout));
+      }
+    }
     throw fail('UPSTREAM', networkMessage(url, error, timeout));
   }
 }

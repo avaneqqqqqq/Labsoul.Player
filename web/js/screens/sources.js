@@ -342,6 +342,8 @@ function networkCard() {
   const useSystem = Boolean(net.useSystemProxy);
   const state = app.networkState || null;
   const active = Boolean(state?.active);
+  // система автоподбора: по умолчанию включена
+  const autoProxy = state?.autoProxy !== undefined ? Boolean(state.autoProxy) : net.autoProxy !== false;
 
   const statusText = active
     ? `Активен: ${esc(state.activeMasked)}${state.activeSource === 'system' ? ' (системный)' : ''}`
@@ -370,6 +372,15 @@ function networkCard() {
           value="${esc(proxy)}">
         <span class="field__hint">Подойдёт socks5:// или http:// — например порт вашего VPN-клиента</span>
       </label>
+
+      <label class="switch-row switch-row--main">
+        <input type="checkbox" id="network-auto" name="autoProxy" ${autoProxy ? 'checked' : ''}>
+        <span><b>Подбирать прокси для SoundCloud автоматически</b></span>
+      </label>
+      <p class="net-hint">
+        Пока включено: labsoul сам находит рабочий прокси и меняет его, если текущий перестал отвечать.
+        Касается только SoundCloud — Яндекс, Spotify и остальное ходят напрямую.
+      </p>
 
       <label class="switch-row">
         <input type="checkbox" id="network-system" name="useSystemProxy" ${useSystem ? 'checked' : ''}>
@@ -531,12 +542,17 @@ async function submitForm(form) {
     clientSecret: String(data.get('clientSecret') || '').trim(),
     proxy: String(data.get('proxy') || '').trim(),
     useSystemProxy: Boolean(data.get('useSystemProxy')),
+    autoProxy: Boolean(data.get('autoProxy')),
   };
   const errorHint = form.querySelector('[data-form-error]');
 
   // сеть и прокси — отдельная ветка, остальной код не трогаем
   if (source === 'network') {
-    const result = await saveNetwork({ proxy: values.proxy, useSystemProxy: values.useSystemProxy });
+    const result = await saveNetwork({
+      proxy: values.proxy,
+      useSystemProxy: values.useSystemProxy,
+      autoProxy: values.autoProxy,
+    });
     if (!result.ok) {
       if (errorHint) errorHint.textContent = result.error || 'Не удалось сохранить';
       toast(result.error || 'Не удалось сохранить прокси', { type: 'err' });

@@ -55,7 +55,8 @@ const DEFAULT_SETTINGS = {
   soundcloud: { clientId: '', profileUrl: '', cookies: '', cookiesAt: 0 },
   spotify: { clientId: '', clientSecret: '' },
   // прокси: свой адрес или системный из Windows (нужно для доступа к SC из РФ)
-  network: { proxy: '', useSystemProxy: false },
+  // autoProxy — автоматически подбирать и менять прокси для SoundCloud
+  network: { proxy: '', useSystemProxy: false, autoProxy: true },
   // из каких источников собирать «Волну» (порядок = порядок в интерфейсе)
   wave: { sources: ['yandex', 'soundcloud'] },
 };
@@ -104,6 +105,8 @@ export function maskedSettings() {
       proxy: s.network?.proxy || '',
       hasProxy: Boolean(s.network?.proxy),
       useSystemProxy: Boolean(s.network?.useSystemProxy),
+      // автоподбор прокси для SoundCloud: по умолчанию включён
+      autoProxy: s.network?.autoProxy !== false,
     },
   };
 }

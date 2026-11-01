@@ -1068,3 +1068,19 @@ mark.hit {
 .sc-helper__steps { margin: 10px 0 0; padding-left: 18px; color: var(--dim); font-size: 12.5px; line-height: 1.7; }
 .sc-helper__steps li { margin-bottom: 2px; }
 .sc-helper__steps b { color: var(--text); font-weight: 600; }
+
+/* главный переключатель автоподбора прокси */
+.switch-row--main {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--panel) 60%, transparent);
+}
+
+.net-hint {
+  margin: 6px 0 10px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--dim);
+}
