@@ -298,6 +298,24 @@ export async function findProxy() {
   }
 }
 
+/** Состояние обхода блокировки SoundCloud (zapret). */
+export async function getDpi() {
+  try {
+    return await request('/api/dpi', { timeout: 20000 });
+  } catch (err) {
+    return { folders: [], probe: { ok: false, error: err?.message } };
+  }
+}
+
+/** Дописать домены SoundCloud в списки установленного zapret. */
+export async function applyDpi() {
+  try {
+    return await request('/api/dpi/apply', { method: 'POST', body: {}, timeout: 30000 });
+  } catch (err) {
+    return { ok: false, message: err?.message || 'не удалось применить' };
+  }
+}
+
 /** Остановить автоподбор. */
 export async function stopFindProxy() {
   try {

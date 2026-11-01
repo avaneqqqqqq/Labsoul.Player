@@ -3,7 +3,7 @@
    Секреты приходят с сервера только маской; формы отправляют PUT /api/settings.
    ========================================================================= */
 
-import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy } from '../api.js';
+import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy, getDpi, applyDpi } from '../api.js';
 import { icon, SOURCE_MARKS } from '../components.js';
 import {
   app,
@@ -398,8 +398,63 @@ function networkCard() {
     </form>`;
 }
 
+/**
+ * Карточка обхода блокировки SoundCloud (zapret / DPI).
+ *
+ * У большинства пользователей в РФ уже стоит zapret для YouTube и Discord.
+ * Мы не запускаем второй обходчик — дописываем домены SoundCloud в его списки.
+ */
+function dpiCard() {
+  const state = app.dpiState || null;
+  const folders = Array.isArray(state?.folders) ? state.folders : [];
+  const probe = state?.probe || null;
+  const works = Boolean(probe?.ok);
+  const found = folders.length > 0;
+
+  const statusText = works
+    ? `SoundCloud открывается (${probe.ms ?? 0} мс) — можно слушать`
+    : found
+      ? 'SoundCloud пока не открывается — добавьте домены в списки zapret'
+      : 'Zapret не найден на этом компьютере';
+
+  const foldersList = found
+    ? `<ul class="dpi__folders">${folders.map((folder) => `<li>${esc(folder)}</li>`).join('')}</ul>`
+    : '';
+
+  return `<form class="source-card" data-source-form="dpi" novalidate>
+      <header class="source-card__head">
+        <div class="source-card__logo source-card__logo--net">${icon('connection')}</div>
+        <div class="source-card__title">
+          <h2>Обход блокировки</h2>
+          <p>SoundCloud через zapret — без прокси</p>
+        </div>
+        <span class="pill ${works ? 'pill--ok' : 'pill--idle'}">${works ? 'работает' : found ? 'нужна настройка' : 'нет zapret'}</span>
+      </header>
+
+      <p class="source-card__note">
+        В России SoundCloud блокируется провайдером, а не самим сервисом.
+        Если у вас уже стоит <b>zapret</b> (обычно для YouTube и Discord), достаточно добавить
+        домены SoundCloud в его списки — второй обходчик не нужен, они не конфликтуют.
+      </p>
+
+      ${found ? `<div class="dpi__found"><b>Найден zapret:</b>${foldersList}</div>` : ''}
+
+      <div class="net-status ${works ? 'net-status--ok' : ''}" data-dpi-status>${statusText}</div>
+
+      <div class="source-card__actions">
+        <span class="source-card__error" data-form-error="dpi"></span>
+        <button class="btn btn--accent btn--sm" type="button" data-dpi-apply>
+          ${icon('check')} ${found ? 'Добавить домены в zapret' : 'Где скачать'}
+        </button>
+        <button class="btn btn--ghost btn--sm" type="button" data-dpi-check>
+          ${icon('refresh')} Проверить
+        </button>
+      </div>
+    </form>`;
+}
+
 function cardsHtml() {
-  return yandexCard() + soundcloudCard() + spotifyCard() + networkCard();
+  return yandexCard() + soundcloudCard() + spotifyCard() + dpiCard() + networkCard();
 }
 
 function paintOverview() {
@@ -485,6 +540,50 @@ function setBusy(form, busy) {
  * Автоподбор прокси: сервер перебирает публичные прокси и проверяет реальное
  * аудио SoundCloud, найденный сразу применяется и подставляется в поле.
  */
+/** Применить обход: дописать домены SoundCloud в списки zapret. */
+async function applyDpiFix() {
+  const host = screen.root?.querySelector('[data-dpi-status]');
+  const button = screen.root?.querySelector('[data-dpi-apply]');
+  if (button) button.disabled = true;
+  if (host) host.textContent = 'Добавляю домены SoundCloud в списки zapret…';
+
+  const result = await applyDpi();
+  if (button) button.disabled = false;
+
+  if (!result?.ok) {
+    const message = result?.message || 'Не удалось применить';
+    if (host) host.textContent = message;
+    if (result?.folders && result.folders.length === 0) {
+      window.open('https://github.com/Flowseal/zapret-discord-youtube/releases', '_blank', 'noopener');
+      return;
+    }
+    toast(message, { type: 'warn' });
+    return;
+  }
+
+  const text = result.probe?.ok
+    ? 'Домены добавлены — SoundCloud уже открывается'
+    : `Домены добавлены (${result.added}). Перезапустите стратегию zapret: закройте winws и запустите general.bat заново`;
+  if (host) host.textContent = text;
+  toast(text, { icon: 'check' });
+
+  app.dpiState = await getDpi();
+  paintStates();
+}
+
+/** Проверка: открывается ли SoundCloud сейчас. */
+async function checkDpi() {
+  const host = screen.root?.querySelector('[data-dpi-status]');
+  if (host) host.textContent = 'Проверяю SoundCloud…';
+  app.dpiState = await getDpi();
+  paintStates();
+  const probe = app.dpiState?.probe;
+  const text = probe?.ok
+    ? `SoundCloud открывается (${probe.ms} мс)`
+    : `SoundCloud не открывается: ${probe?.error || 'нет ответа'}`;
+  toast(text, { icon: probe?.ok ? 'check' : 'alert' });
+}
+
 async function autoFindProxy() {
   const host = screen.root?.querySelector('[data-net-status]');
   const button = screen.root?.querySelector('[data-net-find]');
@@ -640,6 +739,16 @@ function onClick(event) {
     return;
   }
 
+  if (target?.closest('[data-dpi-apply]')) {
+    applyDpiFix();
+    return;
+  }
+
+  if (target?.closest('[data-dpi-check]')) {
+    checkDpi();
+    return;
+  }
+
   if (target?.closest('[data-net-find]')) {
     autoFindProxy();
     return;
@@ -785,6 +894,12 @@ const screenModule = {
     // состояние прокси подтягиваем отдельно: карточка сети рисуется до загрузки
     getNetwork().then((state) => {
       app.networkState = state;
+      paintStates();
+    });
+
+    // состояние обхода блокировки SoundCloud (zapret)
+    getDpi().then((state) => {
+      app.dpiState = state;
       paintStates();
     });
   },

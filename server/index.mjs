@@ -27,6 +27,7 @@ import * as libraryCache from './librarycache.mjs';
 import * as proxySupport from './proxy.mjs';
 import * as scProxy from './scproxy.mjs';
 import * as proxyFinder from './proxyfind.mjs';
+import * as dpi from './dpi.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -1009,6 +1010,45 @@ function reasonMessage(reason) {
     return;
   }
 
+  if (route[0] === 'dpi') {
+    // Обход блокировки SoundCloud через zapret (DPI).
+    // У большинства в РФ уже стоит zapret для YouTube/Discord — мы НЕ запускаем
+    // второй обходчик, а дописываем домены SoundCloud в его списки.
+    if (req.method === 'GET') {
+      sendJson(res, 200, {
+        ...dpi.status(),
+        folders: dpi.findZapretFolders(),
+        running: await dpi.detectRunning(),
+        probe: await dpi.probe(),
+      });
+      return;
+    }
+
+    if (req.method === 'POST' && route[1] === 'apply') {
+      const folders = dpi.findZapretFolders();
+      if (!folders.length) {
+        sendJson(res, 200, {
+          ok: false,
+          message: 'Установленный zapret не найден. Поставьте сборку Flowseal и повторите.',
+          folders: [],
+        });
+        return;
+      }
+      const results = dpi.addDomainsToZapret(folders);
+      const added = results.reduce((sum, item) => sum + (item.added || []).length, 0);
+      store.log(`[dpi] домены SoundCloud добавлены: ${added} шт. в ${results.length} папках`);
+      sendJson(res, 200, { ok: true, added, results, probe: await dpi.probe() });
+      return;
+    }
+
+    if (req.method === 'POST' && route[1] === 'probe') {
+      sendJson(res, 200, await dpi.probe());
+      return;
+    }
+
+    throw badRequest('Неподдерживаемый метод');
+  }
+
   if (route[0] === 'likes') {
     // избранное по источникам: какие сервисы включены, такие и опрашиваем
     const settings = store.loadSettings();
@@ -1120,6 +1160,7 @@ const server = http.createServer((req, res) => {
 lyrics.configure();
 audioconvert.configure();
 libraryCache.configure();
+dpi.configure();
 
 server.listen(PORT, '127.0.0.1', async () => {
   await loadProviders();
