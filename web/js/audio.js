@@ -106,6 +106,8 @@ let sourceNode = null;
 let preampNode = null;
 let outNode = null;
 let eqNodes = [];
+/** Анализатор спектра: питает визуализатор «под бит». */
+let analyserNode = null;
 // если Web Audio не смог отдать звук — играем напрямую, без эквалайзера
 let bypassGraph = false;
 
@@ -140,6 +142,18 @@ function ensureGraph() {
     }
     cursor.connect(outNode);
     outNode.connect(audioCtx.destination);
+
+    // анализатор спектра для визуализатора «под бит»: подключаем параллельно,
+    // на звук не влияет (он только читает данные)
+    try {
+      analyserNode = audioCtx.createAnalyser();
+      analyserNode.fftSize = 256;
+      analyserNode.smoothingTimeConstant = 0.72;
+      outNode.connect(analyserNode);
+    } catch {
+      analyserNode = null;
+    }
+
     applyEq();
     return true;
   } catch (err) {
@@ -970,6 +984,15 @@ export function clearPreload() {
   if (warmAudio) {
     try { warmAudio.removeAttribute('src'); warmAudio.load(); } catch { /* ignore */ }
   }
+}
+
+/**
+ * Анализатор спектра для визуализатора «под бит».
+ * null, если граф отключён (демо-режим или аудио недоступно).
+ */
+export function getAnalyser() {
+  if (bypassGraph || !audioCtx || !analyserNode) return null;
+  return analyserNode;
 }
 
 export const player = {

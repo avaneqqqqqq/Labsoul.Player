@@ -1,6 +1,6 @@
 {
   "name": "labsoul",
-  "version": "1.0.62",
+  "version": "1.0.63",
   "private": true,
   "type": "module",
   "description": "labsoul — свой музыкальный плеер: Яндекс.Музыка, SoundCloud, Spotify, лента «Волна», гибкая кастомизация",
@@ -8,7 +8,7 @@
     "start": "node server/index.mjs",
     "desktop": "npm --prefix app start",
     "doctor": "node server/doctor.mjs",
-    "test": "node server/selftest.mjs && node app/oauth.test.cjs && node server/streamtest.mjs && node server/yandexmock.mjs && node server/lyricstest.mjs",
+    "test": "node server/selftest.mjs && node app/oauth.test.cjs && node server/streamtest.mjs && node server/yandexmock.mjs && node server/lyricstest.mjs && node server/importtest.mjs",
     "check": "node --check server/index.mjs && node --check server/store.mjs && node --check server/wave.mjs && node --check server/streaming.mjs && node --check server/linkimport.mjs && node --check server/selftest.mjs && node --check server/streamtest.mjs && node --check server/yandexmock.mjs && node --check server/doctor.mjs && node --check server/providers/yandex.mjs && node --check server/providers/soundcloud.mjs && node --check server/providers/spotify.mjs && node --check app/main.cjs && node --check app/preload.cjs && node --check app/oauth.cjs",
     "pack": "npm --prefix app run dist"
   },
