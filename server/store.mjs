@@ -59,6 +59,9 @@ const DEFAULT_SETTINGS = {
   network: { proxy: '', useSystemProxy: false, autoProxy: true },
   // из каких источников собирать «Волну» (порядок = порядок в интерфейсе)
   wave: { sources: ['yandex', 'soundcloud'] },
+  // оформление плеера хранится здесь, чтобы не сбрасываться при обновлении:
+  // localStorage живёт в профиле Chromium и теряется вместе с папкой версии
+  theme: { data: null, savedAt: 0 },
 };
 
 export function loadSettings() {
@@ -107,6 +110,11 @@ export function maskedSettings() {
       useSystemProxy: Boolean(s.network?.useSystemProxy),
       // автоподбор прокси для SoundCloud: по умолчанию включён
       autoProxy: s.network?.autoProxy !== false,
+    },
+    // оформление: отдаём как есть, чтобы применить при старте интерфейса
+    theme: {
+      data: s.theme?.data || null,
+      savedAt: s.theme?.savedAt || 0,
     },
   };
 }

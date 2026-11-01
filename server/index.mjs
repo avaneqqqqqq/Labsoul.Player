@@ -584,6 +584,29 @@ async function handleApi(req, res, url) {
     return;
   }
 
+  if (route[0] === 'theme') {
+    // Оформление плеера: хранится на сервере, чтобы не сбрасываться при
+    // обновлении (localStorage живёт в профиле Chromium и теряется).
+    if (req.method === 'GET') {
+      const settings = store.loadSettings();
+      sendJson(res, 200, {
+        theme: settings.theme?.data || null,
+        savedAt: settings.theme?.savedAt || 0,
+      });
+      return;
+    }
+    if (req.method === 'PUT' || req.method === 'POST') {
+      const body = await readJson(req);
+      if (!body || typeof body.theme !== 'object' || body.theme === null) {
+        throw badRequest('Нужен объект theme');
+      }
+      store.saveSettings({ theme: { data: body.theme, savedAt: Date.now() } });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+    throw badRequest('Неподдерживаемый метод');
+  }
+
   if (route[0] === 'settings') {
     if (req.method === 'GET') {
       sendJson(res, 200, { settings: store.maskedSettings() });

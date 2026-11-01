@@ -169,6 +169,33 @@ function persisted(themeValue) {
   return copy;
 }
 
+/**
+ * Сохранение на сервере.
+ *
+ * localStorage живёт в профиле Chromium внутри папки версии: при обновлении
+ * профиль меняется, и оформление сбрасывалось. Поэтому дублируем тему в
+ * настройках сервера (userData/data/settings.json) — они переживают обновления.
+ */
+let serverSaveTimer = 0;
+let lastServerPayload = '';
+
+function scheduleServerSave(data) {
+  clearTimeout(serverSaveTimer);
+  serverSaveTimer = setTimeout(async () => {
+    serverSaveTimer = 0;
+    const body = JSON.stringify({ theme: data });
+    if (body === lastServerPayload) return;
+    try {
+      const res = await fetch('/api/theme', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body,
+      });
+      if (res.ok) lastServerPayload = body;
+    } catch { /* сервер недоступен — остаётся локальная копия */ }
+  }, 600);
+}
+
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -179,8 +206,33 @@ function scheduleSave() {
       const withoutWall = { ...data };
       delete withoutWall.customWall;
       writeJSON(STORAGE_KEY, withoutWall);
+      scheduleServerSave(withoutWall);
+      return;
     }
+    scheduleServerSave(data);
   }, 140);
+}
+
+/**
+ * Подтянуть оформление с сервера, если локальная копия потерялась
+ * (например, после обновления приложения).
+ * @returns {Promise<boolean>} применена ли серверная тема
+ */
+export async function restoreFromServer() {
+  // если локальная копия есть — она свежее, ничего не делаем
+  if (readJSON(STORAGE_KEY, null)) return false;
+  try {
+    const res = await fetch('/api/theme', { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return false;
+    const data = await res.json();
+    if (!data || !data.theme) return false;
+    writeJSON(STORAGE_KEY, data.theme);
+    Object.assign(theme, normalizeTheme(data.theme));
+    applyTheme({ emitEvent: true });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function emit() {
