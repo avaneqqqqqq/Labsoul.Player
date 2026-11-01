@@ -1225,3 +1225,61 @@ body.hide-pl-seek .pl-line { display: none; }
 .stylepick .sp-preset.is-on {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .2), 0 0 0 2px var(--text);
 }
+
+/* плавные переходы интерфейса: как в Spotify и Яндекс.Музыке */
+:root {
+  --ease-smooth: cubic-bezier(.22, .61, .36, 1);
+}
+
+/* смена обложки и названия трека */
+.np__cover img,
+.np__title,
+.np__artist,
+.track__title {
+  transition: opacity 260ms var(--ease-smooth), transform 320ms var(--ease-smooth);
+}
+
+/* появление трека в очереди и ленте */
+.wave__item,
+.queue__item,
+.track,
+.pl-card {
+  transition: background-color 220ms var(--ease-smooth),
+              transform 260ms var(--ease-smooth),
+              opacity 260ms var(--ease-smooth);
+}
+
+/* наведение - мягкий подъём, как в стримингах */
+.wave__item:hover,
+.queue__item:hover,
+.track:hover {
+  transform: translateY(-1px);
+}
+
+/* полоса прогресса тянется плавно */
+.pb__fill,
+.np__seek-fill {
+  transition: width 180ms linear, background-color 260ms var(--ease-smooth);
+}
+
+/* переключение экранов */
+#content > * {
+  animation: screen-in 320ms var(--ease-smooth);
+}
+
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* уважаем системную настройку «уменьшить движение» */
+@media (prefers-reduced-motion: reduce) {
+  .wave__item,
+  .queue__item,
+  .track,
+  .pl-card,
+  #content > * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

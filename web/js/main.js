@@ -1,5 +1,5 @@
-﻿/* =========================================================================
-   labsoul вЂ” С‚РѕС‡РєР° РІС…РѕРґР°: С‚РµРјР°, РјР°СЂС€СЂСѓС‚С‹, Р¶РёР·РЅРµРЅРЅС‹Р№ С†РёРєР» СЌРєСЂР°РЅРѕРІ.
+/* =========================================================================
+   labsoul — точка входа: тема, маршруты, жизненный цикл экранов.
    ========================================================================= */
 
 import { isOnline, ping } from './api.js';
@@ -39,17 +39,17 @@ function routeFromHash() {
   return ROUTES.includes(raw) ? raw : 'wave';
 }
 
-// СЃС‡С‘С‚С‡РёРє РїР°РґРµРЅРёР№ СЌРєСЂР°РЅР°: РїРѕСЃР»Рµ РѕС€РёР±РєРё РґР°С‘Рј РІРµСЂРЅСѓС‚СЊСЃСЏ РЅР° В«Р’РѕР»РЅСѓВ», РЅРµ РїРµСЂРµР·Р°РіСЂСѓР¶Р°СЏ РІСЃС‘
+// счётчик падений экрана: после ошибки даём вернуться на «Волну», не перезагружая всё
 let screenErrorCount = 0;
 
 function paintCrash(container, error) {
   container.innerHTML = `<div class="empty" style="margin-top:40px">
     <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#i-alert"></use></svg>
-    <b>Р­РєСЂР°РЅ РЅРµ Р·Р°РіСЂСѓР·РёР»СЃСЏ</b>
-    <span>${String(error?.message || error || 'РќРµРёР·РІРµСЃС‚РЅР°СЏ РѕС€РёР±РєР°')}</span>
+    <b>Экран не загрузился</b>
+    <span>${String(error?.message || error || 'Неизвестная ошибка')}</span>
     <div class="empty__actions">
-      <button class="btn btn--accent btn--sm" type="button" onclick="location.reload()">РћР±РЅРѕРІРёС‚СЊ СЃС‚СЂР°РЅРёС†Сѓ</button>
-      <button class="btn btn--ghost btn--sm" type="button" onclick="location.hash='#wave';location.reload()">Р’РµСЂРЅСѓС‚СЊСЃСЏ РЅР° В«Р’РѕР»РЅСѓВ»</button>
+      <button class="btn btn--accent btn--sm" type="button" onclick="location.reload()">Обновить страницу</button>
+      <button class="btn btn--ghost btn--sm" type="button" onclick="location.hash='#wave';location.reload()">Вернуться на «Волну»</button>
     </div>
   </div>`;
 }
@@ -75,7 +75,7 @@ function renderRoute() {
     setRoute(route);
     content.scrollTop = 0;
   } catch (err) {
-    console.error('[labsoul] РЅРµ СѓРґР°Р»РѕСЃСЊ РѕС‚СЂРёСЃРѕРІР°С‚СЊ СЌРєСЂР°РЅ', err);
+    console.error('[labsoul] не удалось отрисовать экран', err);
     paintCrash(content, err);
     setRoute(route);
   } finally {
@@ -94,25 +94,23 @@ async function detectServer() {
     if (app.route === 'library') loadHistory();
     if (app.route === 'search' && app.search.query.trim()) runSearch(app.search.query);
     if (app.route === 'sources') loadSettings();
-    // РџРµСЂРІС‹Р№ СЂРµРЅРґРµСЂ СЃР»СѓС‡РёР»СЃСЏ, РїРѕРєР° СЂРµР¶РёРј Р±С‹Р» В«РЅРµРёР·РІРµСЃС‚РµРЅВ» (РґРµРјРѕ-РІРёРґ): РїРµСЂРµСЂРёСЃРѕРІС‹РІР°РµРј
-    // СЌРєСЂР°РЅ СѓР¶Рµ РЅР° Р¶РёРІС‹С… РґР°РЅРЅС‹С…, РёРЅР°С‡Рµ РїРѕРґРїРёСЃРё Рё РїРѕРґСЃРєР°Р·РєРё РѕСЃС‚Р°СЋС‚СЃСЏ РґРµРјРѕРЅСЃС‚СЂР°С†РёРѕРЅРЅС‹РјРё.
+    // Первый рендер случился, пока режим был «неизвестен» (демо-вид): перерисовываем
+    // экран уже на живых данных, иначе подписи и подсказки остаются демонстрационными.
     renderRoute();
     return;
   }
-  // РЎРµСЂРІРµСЂР° РЅРµС‚ вЂ” РїРµСЂРµСЂРёСЃРѕРІС‹РІР°РµРј СЌРєСЂР°РЅ, С‡С‚РѕР±С‹ РґР°РЅРЅС‹Рµ РїСЂРёС€Р»Рё РёР· js/demo.js,
-  // Р° РЅРµ РёР· РЅРµСѓРґР°С‡РЅРѕРіРѕ РїРµСЂРІРѕРіРѕ Р·Р°РїСЂРѕСЃР°.
+  // Сервера нет — перерисовываем экран, чтобы данные пришли из js/demo.js,
+  // а не из неудачного первого запроса.
   renderRoute();
 }
 
 function boot() {
   applyTheme();
 
-  // РћС„РѕСЂРјР»РµРЅРёРµ РјРѕРіР»Рѕ РїРѕС‚РµСЂСЏС‚СЊСЃСЏ РїСЂРё РѕР±РЅРѕРІР»РµРЅРёРё (localStorage Р¶РёРІС‘С‚ РІ РїСЂРѕС„РёР»Рµ
-  // Chromium). Р•СЃР»Рё Р»РѕРєР°Р»СЊРЅРѕР№ РєРѕРїРёРё РЅРµС‚ вЂ” Р·Р°Р±РёСЂР°РµРј СЃРѕС…СЂР°РЅС‘РЅРЅСѓСЋ РЅР° СЃРµСЂРІРµСЂРµ.
+  // Оформление могло потеряться при обновлении: localStorage живёт в профиле
+  // Chromium. Если локальной копии нет — забираем сохранённую на сервере.
   restoreTheme().then((restored) => {
-    if (restored) {
-      setNowPlaying(player.getState().current);
-    }
+    if (restored) setNowPlaying(player.getState().current);
   });
 
   initStore();
