@@ -4,7 +4,8 @@
 
 import { bindTrackActions } from '../actions.js';
 import { isDemo } from '../api.js';
-import { player } from '../audio.js';
+import { player, getAnalyser } from '../audio.js';
+import { BeatVisualizer } from '../visualizer.js';
 import {
   coverCardHtml,
   coverImg,
@@ -136,7 +137,7 @@ function heroHtml() {
         <h2>Моя волна</h2>
         <p class="wave-hero__desc">Бесконечный поток из трёх сервисов. Лайк — чаще, пропуск — реже: лента подстраивается под ваш вкус.</p>
         <div class="wave-hero__now">
-          ${played ? eqBars('pl-eq') : ''}
+          ${played ? '<span class="pl-eq is-live" data-hero-visualizer aria-hidden="true"><i></i><i></i><i></i><i></i></span>' : ''}
           ${focus
             ? `<b>${esc(focus.title)}</b><span>— ${esc(artistsLine(focus))}</span>`
             : '<span>Волна готова — нажмите «Слушать»</span>'}
@@ -281,6 +282,23 @@ function paintHero() {
   if (!screen.root) return;
   const host = screen.root.querySelector('#wave-hero');
   if (host) host.innerHTML = heroHtml();
+  // полоски в шапке двигаются по спектру трека, а не по CSS
+  bindHeroVisualizer();
+}
+
+/** Подключить анализатор к полоскам в шапке волны. */
+function bindHeroVisualizer() {
+  const node = screen.root?.querySelector('[data-hero-visualizer]');
+  if (!node) return;
+  try {
+    if (screen.heroViz) screen.heroViz.stop();
+    if (theme.beat === false || theme.anim === false) {
+      node.classList.remove('is-live');
+      return;
+    }
+    screen.heroViz = new BeatVisualizer(node);
+    screen.heroViz.attach(getAnalyser());
+  } catch { /* визуализатор не критичен */ }
 }
 
 function syncCurrentRows() {

@@ -755,7 +755,8 @@ function onInput(event) {
     const key = input.dataset.range;
     update(key, clamp(Number(input.value), Number(input.min), Number(input.max)));
     const out = screen.root?.querySelector(`[data-val-for="${key}"]`);
-    if (out) out.textContent = `${input.value}px`;
+    // у каждого параметра своя единица: пиксели, проценты или секунды
+    if (out) out.textContent = rangeLabel(key, input.value);
     input.style.setProperty('--p', `${((Number(input.value) - Number(input.min)) / (Number(input.max) - Number(input.min))) * 100}%`);
     return;
   }
@@ -794,8 +795,23 @@ function onInput(event) {
   }
 }
 
+/** Подпись значения ползунка с правильной единицей измерения. */
+function rangeLabel(key, value) {
+  if (key === 'lyricsSize' || key === 'uiScale') return `${value}%`;
+  if (key === 'crossfadeSec') return `${value} с`;
+  return `${value}px`;
+}
+
 function onChange(event) {
   const input = event.target;
+
+  // выпадающие списки раздела «Анимации»: раньше они отсекались проверкой
+  // на HTMLInputElement и настройка не применялась вовсе
+  if (input instanceof HTMLSelectElement && input.dataset.select) {
+    update(input.dataset.select, input.value);
+    return;
+  }
+
   if (!(input instanceof HTMLInputElement)) return;
 
   if (input.id === 'wall-upload' && input.files?.[0]) {

@@ -154,6 +154,19 @@ function normalizeTheme(raw) {
   if (Number.isFinite(raw.blur)) out.blur = clamp(Math.round(raw.blur), 0, 48);
   if (typeof raw.grain === 'boolean') out.grain = raw.grain;
   if (typeof raw.anim === 'boolean') out.anim = raw.anim;
+
+  // настройки движения: без этих строк новые поля отбрасывались при загрузке
+  // из localStorage и настройки «не сохранялись»
+  if (typeof raw.crossfade === 'boolean') out.crossfade = raw.crossfade;
+  if (typeof raw.crossfadeFull === 'boolean') out.crossfadeFull = raw.crossfadeFull;
+  if (Number.isFinite(raw.crossfadeSec)) out.crossfadeSec = clamp(Math.round(raw.crossfadeSec), 1, 12);
+  if (typeof raw.beat === 'boolean') out.beat = raw.beat;
+  if (typeof raw.coverPulse === 'boolean') out.coverPulse = raw.coverPulse;
+  if (['slide', 'fade', 'zoom', 'none'].includes(raw.screenAnim)) out.screenAnim = raw.screenAnim;
+  if (['slow', 'normal', 'fast'].includes(raw.speed)) out.speed = raw.speed;
+  if (['lift', 'glow', 'none'].includes(raw.hover)) out.hover = raw.hover;
+  if (['fade', 'scale', 'none'].includes(raw.coverAnim)) out.coverAnim = raw.coverAnim;
+
   if (FONTS.has(raw.font)) out.font = raw.font;
   if (CARD_SIZES.has(raw.cards)) out.cards = raw.cards;
   if (['auto', '2', '3', '4', '5', '6'].includes(String(raw.cols))) out.cols = String(raw.cols);

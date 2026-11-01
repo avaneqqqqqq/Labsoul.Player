@@ -408,8 +408,9 @@ function playCurrent() {
   if (wantCrossfade) startCrossfade();
   else { try { audio.pause(); } catch { /* ignore */ } }
 
-  // новый трек — сбрасываем метку автоматического перехода
-  crossfadeArmedFor = null;
+  // метку НЕ сбрасываем здесь: после автоперехода она должна остаться,
+  // иначе на первом же timeupdate новый трек снова уйдёт вперёд
+  // (сбрасывается она только по смене трека вручную — см. next/prev)
 
   state.current = track;
   state.time = 0;
@@ -716,6 +717,8 @@ export function toggle() {
 }
 
 export function next(auto = false) {
+  // ручное переключение — метка автоперехода больше не актуальна
+  if (!auto) crossfadeArmedFor = null;
   const idx = nextIndex(auto);
   if (idx === -1) {
     fadeOut();
@@ -1004,20 +1007,35 @@ if (altAudio) wireElement(altAudio, true);
 function maybeCrossfade() {
   if (!crossfadeReady() || !theme.crossfadeFull) return;
   if (!state.playing || state.repeat === 'one') return;
-  if (!state.duration || state.duration < 12) return;
+  if (!(state.duration > 0)) return;
 
   const seconds = Math.max(1, Math.min(12, Number(theme.crossfadeSec) || 4));
-  const remaining = state.duration - state.currentTime;
-  if (remaining > seconds) return;
-  if (remaining <= 0) return;
 
-  // не запускаем переход дважды для одного трека
+  // ВАЖНО: время берём у активного элемента. Если смотреть на state.time
+  // (он от прошлого трека), условие «до конца 0 секунд» истинно всегда —
+  // и переход запускается на каждом событии: треки листаются без остановки.
+  const el = activeEl();
+  const currentTime = Number(el?.currentTime) || 0;
+  const duration = Number(el?.duration) > 0 ? Number(el.duration) : state.duration;
+  if (!(duration > seconds)) return;
+
+  const remaining = duration - currentTime;
+  if (!(remaining > 0)) return;
+  if (remaining > seconds) return;
+
+  // трек должен реально играть: сразу после загрузки время почти ноль,
+  // и переход сработал бы мгновенно на новом треке
+  if (currentTime < 1) return;
+
+  // метка живёт до конца текущего трека — повторно не переходим
   const key = `${state.current?.id}:${state.index}`;
   if (crossfadeArmedFor === key) return;
-  crossfadeArmedFor = key;
 
   const idx = nextIndex(true);
   if (idx === -1 || idx === state.index) return;
+
+  // ставим метку только когда переход действительно состоится
+  crossfadeArmedFor = key;
 
   startCrossfade();
   state.lastFade = { from: state.index, at: Date.now() };
