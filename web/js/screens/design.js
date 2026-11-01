@@ -347,19 +347,14 @@ function shellHtml() {
           </div>
 
           <div class="ctl">
-            <div class="ctl__label">Плавный звук<small>нарастание в начале трека и затухание при смене</small></div>
+            <div class="ctl__label">Плавный звук<small>нарастание в начале трека</small></div>
             <label class="toggle"><input type="checkbox" data-toggle="crossfade" ${theme.crossfade !== false ? 'checked' : ''}><span class="toggle__track"></span></label>
           </div>
 
           <div class="ctl">
-            <div class="ctl__label">Кроссфейд<small>два трека звучат одновременно при переходе</small></div>
-            <label class="toggle"><input type="checkbox" data-toggle="crossfadeFull" ${theme.crossfadeFull ? 'checked' : ''}><span class="toggle__track"></span></label>
-          </div>
-
-          <div class="ctl">
-            <div class="ctl__label">Длина кроссфейда<small>сколько секунд накладывать треки</small></div>
+            <div class="ctl__label">Затухание в конце<small>трек плавно уходит, следующий начинается с нарастания</small></div>
             <div class="ctl__range">
-              <input class="rng" type="range" min="1" max="12" step="1" value="${theme.crossfadeSec || 4}" data-range="crossfadeSec" aria-label="Длина кроссфейда">
+              <input class="rng" type="range" min="1" max="12" step="1" value="${theme.crossfadeSec || 4}" data-range="crossfadeSec" aria-label="Длина затухания">
               <span class="rng-val" data-val-for="crossfadeSec">${theme.crossfadeSec || 4} с</span>
             </div>
           </div>
