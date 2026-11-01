@@ -285,16 +285,28 @@ export async function commitSettings(payload) {
 export async function loadWaveMore({ force = false, quick = false } = {}) {
   if (app.wave.loading) return;
   if (app.wave.done && !force) return;
-  app.wave.loading = true;
-  app.wave.error = null;
-  emit('wave');
+
+  // Быстрый режим не показывает скелетоны: если лента уже есть, экран
+  // рисуется сразу, а свежая партия догружается незаметно в фоне.
+  // Раньше здесь выставлялся loading=true, интерфейс снова показывал
+  // скелетоны и полная загрузка выглядела как «10 секунд ожидания».
+  const silent = quick && app.wave.items.length > 0;
+
+  if (!silent) {
+    app.wave.loading = true;
+    app.wave.error = null;
+    emit('wave');
+  }
+
   try {
     const batch = await getWave(20, app.wave.station, app.wave.sources, { quick });
     if (batch.station) app.wave.station = batch.station;
     if (batch.batchId) app.wave.batchId = batch.batchId;
     const items = safeTracks(batch.items);
     // быстрый режим: отдали готовую ленту — следом просим свежую партию
-    if (quick && items.length) setTimeout(() => loadWaveMore({ force: true }), 300);
+    if (quick && items.length) {
+      setTimeout(() => loadWaveMore({ force: true, quick: true }), 300);
+    }
     // сервер ещё собирает партию (warming) — повторим чуть позже, ленту не закрываем
     if (!items.length && batch.warming) {
       setTimeout(() => loadWaveMore(), 900);

@@ -20,6 +20,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import * as store from './store.mjs';
+import * as libraryCache from './librarycache.mjs';
 
 const LOCAL_STATION = 'local:wave';
 const DEFAULT_STATION = 'user:onyourwave';
@@ -171,8 +172,25 @@ const waveKey = (station, wanted) => `${station}|${wanted.join(',')}`;
  */
 export function readyBatch(key) {
   const entry = prepared.get(key);
-  if (!entry || !Array.isArray(entry.items) || !entry.items.length) return null;
-  return { ...entry, items: entry.items.slice() };
+  if (entry && Array.isArray(entry.items) && entry.items.length) {
+    return { ...entry, items: entry.items.slice() };
+  }
+
+  // Память пуста (первый запуск приложения) — берём последнюю ленту с диска.
+  // Без этого первый вход всегда ждал полную сборку волны.
+  try {
+    const cached = libraryCache.loadWave(key);
+    if (cached && Array.isArray(cached.items) && cached.items.length) {
+      return {
+        items: cached.items.slice(),
+        station: cached.station || String(key).split('|')[0],
+        cached: true,
+        cachedAt: cached.at ? new Date(cached.at).toISOString() : undefined,
+      };
+    }
+  } catch { /* кэш недоступен — соберём заново */ }
+
+  return null;
 }
 
 function kickPrepare(key, want, station, wanted) {
