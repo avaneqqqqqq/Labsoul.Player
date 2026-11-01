@@ -87,7 +87,48 @@ function startServer(port) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   log(`запуск сервера: ${SERVER_ENTRY} (port ${port})`);
 
-  serverProcess = spawn(process.execPath, [SERVER_ENTRY, `--port=${port}`], {
+  // Перезапуск сервера вместо аварийного выхода из приложения.
+  //
+  // Раньше любой разрыв связи с дочерним процессом закрывал labsoul целиком:
+  // пользователь видел, что приложение просто исчезло. Теперь сервер
+  // поднимается заново, а если не удаётся за несколько попыток — только тогда
+  // показываем понятное сообщение.
+  let restarts = 0;
+
+  const attach = (child) => {
+    child.on('exit', (code, signal) => {
+      log(`сервер остановился: code=${code} signal=${signal}`);
+      if (serverProcess === child) serverProcess = null;
+      if (quitting) return;
+
+      if (restarts >= 3) {
+        log('сервер не поднимается после 3 попыток — закрываем приложение');
+        dialog.showErrorBox(
+          'labsoul не удалось запустить',
+          `Локальный сервер падает при старте (${restarts} попыток).\n\nЛог: ${logPath()}`,
+        );
+        app.quit();
+        return;
+      }
+
+      restarts += 1;
+      log(`перезапуск сервера, попытка ${restarts}`);
+      setTimeout(() => {
+        if (quitting) return;
+        const child2 = spawnServer(currentPort || 5270);
+        serverProcess = child2;
+        attach(child2);
+      }, 800);
+    });
+  };
+
+  serverProcess = spawnServer(port);
+  attach(serverProcess);
+}
+
+/** Запуск дочернего процесса сервера (вынесено для перезапуска). */
+function spawnServer(port) {
+  const child = spawn(process.execPath, [SERVER_ENTRY, `--port=${port}`], {
     cwd: PLAYER_ROOT,
     env: {
       ...process.env,
@@ -99,21 +140,11 @@ function startServer(port) {
     stdio: ['ignore', 'pipe', 'pipe'],
     windowsHide: true,
   });
-
-  serverProcess.stdout.on('data', (chunk) => log('[server] ' + String(chunk).trim()));
-  serverProcess.stderr.on('data', (chunk) => log('[server:err] ' + String(chunk).trim()));
-  serverProcess.on('exit', (code, signal) => {
-    log(`сервер остановился: code=${code} signal=${signal}`);
-    serverProcess = null;
-    if (!quitting) {
-      dialog.showErrorBox(
-        'labsoul остановлен',
-        'Локальный сервер завершился. Подробности — в файле logs/desktop.log в папке данных приложения.',
-      );
-      app.quit();
-    }
-  });
+  child.stdout.on('data', (chunk) => log('[server] ' + String(chunk).trim()));
+  child.stderr.on('data', (chunk) => log('[server:err] ' + String(chunk).trim()));
+  return child;
 }
+
 
 function stopServer() {
   if (!serverProcess) return;
@@ -137,6 +168,39 @@ function stopServer() {
       });
     } catch { /* процесса уже нет — это нормально */ }
   }
+}
+
+/**
+ * Освободить файлы приложения перед установкой обновления.
+ *
+ * Установщик не может заменить labsoul.exe, пока файл кем-то держится: отсюда
+ * «Не удалось закрыть labsoul». Здесь МЫ не убиваем себя по имени —
+ * наоборот, гасим всё, что мешает установщику, и даём процессам время
+ * освободить дескрипторы.
+ *
+ * @param {number} waitMs — сколько ждать освобождения файла
+ */
+async function releaseFilesForInstaller(waitMs = 8000) {
+  if (process.platform !== 'win32') return true;
+  const exePath = process.execPath;
+
+  const locked = () => {
+    try {
+      const fd = fs.openSync(exePath, 'r+');
+      fs.closeSync(fd);
+      return false;
+    } catch {
+      return true;
+    }
+  };
+
+  const deadline = Date.now() + waitMs;
+  while (locked() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  const freed = !locked();
+  log(`освобождение файлов перед установкой: ${freed ? 'готово' : 'файл всё ещё занят'}`);
+  return freed;
 }
 
 /* --------------------------------- окно ---------------------------------- */
@@ -880,13 +944,18 @@ async function startDownload() {
 }
 
 /** Перезапуск с установкой скачанного обновления. */
-function restartToInstall() {
+async function restartToInstall() {
   const instance = getUpdater();
   if (instance && updateFlow.phase === 'ready') {
     try {
       quitting = true;
-      // isSilent=true — установщик не показывает мастер и сразу ставит новую версию,
-      // isForceRunAfter=true — после установки labsoul запускается сам
+      // Сначала гасим сервер и дожидаемся, пока установщик сможет заменить
+      // labsoul.exe. Иначе NSIS выдаёт «Не удалось закрыть labsoul» и
+      // установка висит на диалоге «Повторить / Отмена».
+      stopServer();
+      await releaseFilesForInstaller();
+      log('запуск установщика обновления');
+      // isSilent=true — без мастера; isForceRunAfter=true — labsoul запустится сам
       instance.quitAndInstall(true, true);
       return;
     } catch (err) {
@@ -1055,12 +1124,24 @@ if (!app.requestSingleInstanceLock()) {
     currentPort = await findFreePort(5270);
     startServer(currentPort);
 
-    const healthy = await waitForHealth(currentPort);
+    let healthy = await waitForHealth(currentPort);
+
+    // Сервер мог не успеть подняться с первого раза (медленный диск, антивирус,
+    // первый запуск после обновления). Даём вторую попытку на свободном порту,
+    // прежде чем показывать ошибку.
+    if (!healthy) {
+      log('health не ответил с первой попытки — пробуем ещё раз');
+      stopServer();
+      currentPort = await findFreePort(5270);
+      startServer(currentPort);
+      healthy = await waitForHealth(currentPort);
+    }
+
     log(`health: ${healthy ? 'ok' : 'не ответил'}`);
     if (!healthy) {
       dialog.showErrorBox(
         'Не удалось запустить labsoul',
-        `Локальный сервер не ответил на порту ${currentPort}. Лог: ${logPath()}`,
+        `Локальный сервер не ответил на порту ${currentPort} после двух попыток.\n\nЛог: ${logPath()}`,
       );
       app.quit();
       return;
