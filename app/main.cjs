@@ -943,19 +943,72 @@ async function startDownload() {
   }
 }
 
+/**
+ * Установщик обновления нужно запустить САМОСТОЯТЕЛЬНО, а не через
+ * quitAndInstall.
+ *
+ * Причина: quitAndInstall стартует установщик и тут же завершает приложение.
+ * Процессы Electron (окно, рендерер, GPU) ещё несколько секунд держат
+ * labsoul.exe — и NSIS показывает «Не удалось закрыть labsoul».
+ *
+ * Здесь: находим скачанный установщик в кеше обновлений и запускаем его
+ * detached-процессом, а приложение закрываем уже после.
+ */
+function launchDownloadedInstaller() {
+  const candidates = [
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'labsoul-desktop-updater', 'pending'),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, 'labsoul-desktop-updater'),
+  ].filter(Boolean);
+
+  for (const dir of candidates) {
+    try {
+      if (!fs.existsSync(dir)) continue;
+      const files = fs.readdirSync(dir).filter((name) => /setup\.exe$/i.test(name));
+      if (!files.length) continue;
+      // берём самый свежий файл
+      const full = files
+        .map((name) => path.join(dir, name))
+        .sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs)[0];
+
+      log('запуск установщика напрямую: ' + full);
+      const child = spawn(full, ['--updated', '/S', '--force-run'], {
+        detached: true,
+        stdio: 'ignore',
+        windowsHide: false,
+      });
+      child.unref();
+      return true;
+    } catch (err) {
+      log('не удалось запустить установщик: ' + ((err && err.message) || err));
+    }
+  }
+  return false;
+}
+
 /** Перезапуск с установкой скачанного обновления. */
 async function restartToInstall() {
   const instance = getUpdater();
   if (instance && updateFlow.phase === 'ready') {
     try {
       quitting = true;
-      // Сначала гасим сервер и дожидаемся, пока установщик сможет заменить
-      // labsoul.exe. Иначе NSIS выдаёт «Не удалось закрыть labsoul» и
-      // установка висит на диалоге «Повторить / Отмена».
+      // гасим сервер, чтобы он не держал файлы
       stopServer();
-      await releaseFilesForInstaller();
-      log('запуск установщика обновления');
-      // isSilent=true — без мастера; isForceRunAfter=true — labsoul запустится сам
+
+      // Дожидаемся полного освобождения labsoul.exe. Сам Electron отпускает
+      // его только при выходе, поэтому ждём ограниченно и не блокируемся.
+      await releaseFilesForInstaller(3000);
+
+      // Запускаем установщик отдельным процессом: он не зависит от нашего
+      // завершения и не попадёт под закрытие.
+      if (launchDownloadedInstaller()) {
+        log('установщик запущен, закрываем приложение');
+        // даём установщику время перехватить файлы
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        app.exit(0);
+        return;
+      }
+
+      log('установщик не найден — пробуем штатный путь');
       instance.quitAndInstall(true, true);
       return;
     } catch (err) {

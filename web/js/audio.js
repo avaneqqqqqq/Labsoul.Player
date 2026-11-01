@@ -377,23 +377,41 @@ function playCurrent() {
 
   emit('state');
   armStallWatchdog();
-  fadeIn();
-  const attempt = audio.play();
-  if (attempt && typeof attempt.then === 'function') {
-    attempt.then(() => {
-      state.playing = true;
-      state.loading = false;
-      emit('state');
-    }).catch((err) => {
-      state.loading = false;
-      state.playing = false;
-      state.error = err?.name === 'NotAllowedError'
-        ? 'Браузер ждёт нажатия кнопки воспроизведения'
-        : 'Не удалось получить звук с сервера';
-      emit('error');
-      emit('state');
-    });
-  }
+  // запускаем аудиоконтекст и только потом включаем плавное нарастание:
+  // расписание громкости в приостановленном контексте не действует,
+  // и плеер остался бы совершенно без звука
+  ensureRunning(() => {
+    fadeIn();
+    const attempt = audio.play();
+    if (attempt && typeof attempt.then === 'function') {
+      attempt.then(() => {
+        state.playing = true;
+        state.loading = false;
+        emit('state');
+      }).catch((err) => {
+        state.loading = false;
+        state.playing = false;
+        state.error = err?.name === 'NotAllowedError'
+          ? 'Браузер ждёт нажатия кнопки воспроизведения'
+          : 'Не удалось получить звук с сервера';
+        emit('error');
+        emit('state');
+      });
+    }
+  });
+}
+
+/**
+ * Убедиться, что аудиоконтекст работает, и вызвать действие.
+ *
+ * Аудиоконтекст после сворачивания окна или смены вкладки переходит в
+ * «suspended»: Web Audio при этом молчит, хотя элемент играет. Поэтому
+ * запускаем контекст и только после этого включаем звук.
+ */
+function ensureRunning(action) {
+  if (!audioCtx || bypassGraph) { action(); return; }
+  if (audioCtx.state === 'running') { action(); return; }
+  audioCtx.resume().then(action).catch(action);
 }
 
 function handleEnded() {
@@ -827,21 +845,47 @@ const FADE_OUT_MS = 320;
 /** Включены ли плавные переходы (настройка оформления). */
 const crossfadeOn = () => theme.crossfade !== false;
 
+/** Таймер страховки громкости: плеер не должен оставаться немым. */
+let gainSafety = 0;
+
 function fadeIn() {
-  if (!crossfadeOn()) return;
+  if (!crossfadeOn()) {
+    safeGain(1);
+    return;
+  }
   if (bypassGraph || !audioCtx || !outNode) return;
+  // контекст ещё не запущен: расписание начнёт действовать только после
+  // resume, а до этого громкость осталась бы нулевой — звука вообще не будет
+  if (audioCtx.state !== 'running') {
+    safeGain(1);
+    return;
+  }
   try {
     const now = audioCtx.currentTime;
     outNode.gain.cancelScheduledValues(now);
     outNode.gain.setValueAtTime(0, now);
     outNode.gain.linearRampToValueAtTime(1, now + FADE_IN_MS / 1000);
-  } catch { /* граф не готов — играем как есть */ }
+    // страховка: через 1,5 с гарантированно возвращаем полную громкость
+    clearTimeout(gainSafety);
+    gainSafety = setTimeout(() => safeGain(1), 1500);
+  } catch { safeGain(1); }
+}
+
+/** Принудительно полная громкость — страховка от «немого» плеера. */
+function safeGain(value) {
+  if (bypassGraph || !audioCtx || !outNode) return;
+  try {
+    const now = audioCtx.currentTime;
+    outNode.gain.cancelScheduledValues(now);
+    outNode.gain.setValueAtTime(value, now);
+  } catch { /* ignore */ }
 }
 
 /** Плавное затухание перед сменой трека. */
 function fadeOut() {
   if (!crossfadeOn()) return;
   if (bypassGraph || !audioCtx || !outNode) return;
+  if (audioCtx.state !== 'running') return;
   try {
     const now = audioCtx.currentTime;
     outNode.gain.cancelScheduledValues(now);
