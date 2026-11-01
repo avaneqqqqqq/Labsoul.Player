@@ -377,6 +377,7 @@ function playCurrent() {
 
   emit('state');
   armStallWatchdog();
+  fadeIn();
   const attempt = audio.play();
   if (attempt && typeof attempt.then === 'function') {
     attempt.then(() => {
@@ -534,6 +535,7 @@ export function toggle() {
 export function next(auto = false) {
   const idx = nextIndex(auto);
   if (idx === -1) {
+    fadeOut();
     pause();
     state.time = state.duration;
     commitHistory();
@@ -810,7 +812,77 @@ audio.volume = state.volume;
 audio.muted = state.muted;
 initMediaSessionHandlers();
 
+/* ------------------------ плавные переходы и прогрев ----------------------- */
+
+/**
+ * Плавное появление звука в начале трека.
+ *
+ * Spotify и Яндекс.Музыка стартуют трек с короткого нарастания, а не с
+ * резкого удара. Делаем то же через выходной узел эквалайзера: громкость
+ * пользователя не затрагивается.
+ */
+const FADE_IN_MS = 220;
+const FADE_OUT_MS = 320;
+
+function fadeIn() {
+  if (bypassGraph || !audioCtx || !outNode) return;
+  try {
+    const now = audioCtx.currentTime;
+    outNode.gain.cancelScheduledValues(now);
+    outNode.gain.setValueAtTime(0, now);
+    outNode.gain.linearRampToValueAtTime(1, now + FADE_IN_MS / 1000);
+  } catch { /* граф не готов — играем как есть */ }
+}
+
+/** Плавное затухание перед сменой трека. */
+function fadeOut() {
+  if (bypassGraph || !audioCtx || !outNode) return;
+  try {
+    const now = audioCtx.currentTime;
+    outNode.gain.cancelScheduledValues(now);
+    outNode.gain.setValueAtTime(outNode.gain.value, now);
+    outNode.gain.linearRampToValueAtTime(0, now + FADE_OUT_MS / 1000);
+  } catch { /* ignore */ }
+}
+
+/** Элемент для прогрева следующего трека. */
+let warmAudio = null;
+let warmUrl = '';
+
+/**
+ * Предзагрузка следующего трека.
+ *
+ * Основной аудиоэлемент нельзя наполнить заранее, поэтому тянем поток
+ * отдельным объектом: сервер успевает собрать и закешировать результат
+ * (HLS, конвертация в MP3), и переход происходит без паузы.
+ */
+export function preloadTrack(track) {
+  if (!track || !track.id || !isOnline()) return;
+  const url = streamUrl(track);
+  if (!url || url === warmUrl) return;
+  warmUrl = url;
+  try {
+    if (!warmAudio) {
+      warmAudio = new Audio();
+      warmAudio.preload = 'auto';
+      warmAudio.crossOrigin = 'anonymous';
+    }
+    warmAudio.src = url;
+    warmAudio.load();
+  } catch { /* прогрев не критичен */ }
+}
+
+/** Сбросить прогрев. */
+export function clearPreload() {
+  warmUrl = '';
+  if (warmAudio) {
+    try { warmAudio.removeAttribute('src'); warmAudio.load(); } catch { /* ignore */ }
+  }
+}
+
 export const player = {
+  preloadTrack,
+  clearPreload,
   playTracks,
   playAt,
   playTrack,

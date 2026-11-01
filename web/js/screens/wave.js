@@ -323,10 +323,25 @@ function extendQueue() {
   if (fresh.length < 12 && !app.wave.loading) loadWaveMore();
 }
 
+/** Прогрев ближайших треков: к переходу звук уже готов, паузы нет. */
+function warmNext(count = 2) {
+  const snap = player.getState();
+  if (snap.context?.type !== 'wave') return;
+  if (!Array.isArray(snap.queue) || !snap.queue.length) return;
+  const index = Number.isFinite(snap.index) ? snap.index : 0;
+  for (let step = 1; step <= count; step += 1) {
+    const upcoming = snap.queue[index + step];
+    if (upcoming && upcoming.playable !== false) player.preloadTrack(upcoming);
+  }
+}
+
 function ensureAhead() {
   if (!screen.root) return;
   const snap = player.getState();
   if (snap.context?.type !== 'wave') return;
+
+  // прогреваем следующие два трека — переключение становится мгновенным
+  warmNext(2);
 
   const total = Array.isArray(snap.queue) ? snap.queue.length : 0;
   const index = Number.isFinite(snap.index) ? snap.index : -1;
