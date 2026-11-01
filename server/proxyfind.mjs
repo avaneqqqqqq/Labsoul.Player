@@ -25,7 +25,9 @@ const LIST_SOURCES = [
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36';
 
 /** Простая проверка «прокси вообще живой». */
-const ALIVE_URL = 'http://httpbin.org/ip';
+// Отсев по самому SoundCloud: httpbin.org из РФ часто недоступен, и живые
+// прокси отбрасывались, не дойдя до главной проверки.
+const ALIVE_URL = 'https://api-v2.soundcloud.com/';
 
 let cancelled = false;
 
@@ -206,7 +208,7 @@ export async function findWorkingProxy({ clientId, trackId, onProgress } = {}) {
     }
 
     // если долго ничего нет — продолжаем, но первые партии самые живые
-    if (checked >= 2400) break;
+    if (checked >= 3600) break;
   }
 
   return { ok: false, message: 'Рабочих прокси не нашлось. Публичные прокси живут недолго — попробуйте позже.' };

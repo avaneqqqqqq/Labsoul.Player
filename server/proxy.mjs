@@ -122,20 +122,27 @@ function readSystemProxy() {
 }
 
 /**
- * Быстрая проверка, жив ли прокси: стучимся на лёгкий адрес.
- * Мёртвый прокси (публичные живут часами) иначе вешает ВСЕ запросы на 8 секунд.
+ * Быстрая проверка, жив ли прокси.
+ *
+ * Проверяем на самом SoundCloud, а не на httpbin.org: httpbin из РФ часто
+ * недоступен, и живой прокси ошибочно признавался мёртвым — из-за этого
+ * рабочая музыка не включалась.
+ *
+ * Ответ 401/403 тоже считается успехом: он означает, что соединение через
+ * прокси прошло и запрос дошёл до сервиса.
  */
-async function isAlive(url, timeout = 6000) {
+async function isAlive(url, timeout = 8000) {
   const ready = await loadUndici();
   if (!ready) return false;
   try {
-    const agent = new ProxyAgent({ uri: url, connectTimeout: 4000 });
-    const response = await fetch('http://httpbin.org/ip', {
+    const agent = new ProxyAgent({ uri: url, connectTimeout: 5000 });
+    const response = await fetch('https://api-v2.soundcloud.com/', {
       dispatcher: agent,
       signal: AbortSignal.timeout(timeout),
-      headers: { 'user-agent': 'labsoul' },
+      headers: { 'user-agent': 'Mozilla/5.0' },
     });
-    return response.ok;
+    // любой осмысленный ответ значит, что прокси работает
+    return response.status > 0 && response.status < 500;
   } catch {
     return false;
   }

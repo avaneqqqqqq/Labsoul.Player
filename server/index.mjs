@@ -290,22 +290,34 @@ async function getDescriptor(source, sourceId, force = false) {
   if (!force && hit && Date.now() - hit.at < DESC_TTL) return hit.desc;
   const provider = providers[source];
   if (!provider) throw badRequest('Неизвестный источник');
-  // провайдер может «залипнуть» на медиа-CDn: ограничиваем ожидание
-  const desc = await Promise.race([
-    provider.stream(sourceId),
-    new Promise((_, reject) => setTimeout(() => {
-      const err = new Error('Таймаут получения потока');
-      err.code = 'UPSTREAM_TIMEOUT';
-      reject(err);
-    }, 15000)),
-  ]);
-  if (!desc || (!desc.url && !desc.buffer && !desc.filePath)) {
-    const err = new Error('Источник не вернул поток');
-    err.code = 'NOT_PLAYABLE';
-    throw err;
+
+  // Провайдер может «залипнуть» на медиа-CDN: ограничиваем ожидание.
+  // Важно: таймер обязательно очищаем. Иначе после успешного ответа он
+  // срабатывает позже, отклоняет уже ненужный промис и роняет процесс
+  // необработанным исключением.
+  let timer = null;
+  try {
+    const desc = await Promise.race([
+      provider.stream(sourceId),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const err = new Error('Таймаут получения потока');
+          err.code = 'UPSTREAM_TIMEOUT';
+          reject(err);
+        }, 15000);
+        if (typeof timer.unref === 'function') timer.unref();
+      }),
+    ]);
+    if (!desc || (!desc.url && !desc.buffer && !desc.filePath)) {
+      const err = new Error('Источник не вернул поток');
+      err.code = 'NOT_PLAYABLE';
+      throw err;
+    }
+    descCache.set(key, { at: Date.now(), desc });
+    return desc;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
-  descCache.set(key, { at: Date.now(), desc });
-  return desc;
 }
 
 function openUpstream(urlStr, headers, redirects = 4) {
