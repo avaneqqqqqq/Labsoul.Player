@@ -531,7 +531,8 @@ export const waveScreen = {
     content?.addEventListener('scroll', onContentScroll, { passive: true });
     screen.unsubs.push(() => content?.removeEventListener('scroll', onContentScroll));
     if (!app.wave.items.length && !app.wave.loading) {
-      loadWaveMore();
+      // быстрый старт: сервер отдаёт уже собранную ленту, свежая придёт следом
+      loadWaveMore({ quick: true });
     } else {
       checkFill();
     }

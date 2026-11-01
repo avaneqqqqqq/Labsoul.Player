@@ -67,6 +67,8 @@ export const DEFAULTS = {
   coverRadius: 22,
   lyricsAuto: false,
   barSeek: true,
+  // плавное появление и затухание звука при смене трека
+  crossfade: true,
   wallpaper: 'cover',
   density: 'normal',
   radius: 22,

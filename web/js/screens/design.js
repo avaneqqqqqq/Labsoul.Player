@@ -339,6 +339,10 @@ function shellHtml() {
             <div class="ctl__label">Анимации<small>переходы и hover-эффекты</small></div>
             <label class="toggle"><input type="checkbox" data-toggle="anim" ${theme.anim ? 'checked' : ''}><span class="toggle__track"></span></label>
           </div>
+          <div class="ctl">
+            <div class="ctl__label">Плавный звук<small>нарастание в начале трека и затухание при смене</small></div>
+            <label class="toggle"><input type="checkbox" data-toggle="crossfade" ${theme.crossfade !== false ? 'checked' : ''}><span class="toggle__track"></span></label>
+          </div>
         </div>
 
         <div class="panel" data-section="blocks">

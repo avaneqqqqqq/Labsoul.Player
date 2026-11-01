@@ -485,15 +485,17 @@ export async function getWaveStations() {
   }
 }
 
-export async function getWave(limit = 20, station = 'user:onyourwave', sources = null) {
+export async function getWave(limit = 20, station = 'user:onyourwave', sources = null, { quick = false } = {}) {
   const list = Array.isArray(sources) && sources.length ? sources : null;
   if (isDemo()) return normalizeWave(demoWave(limit, list));
   try {
     const params = new URLSearchParams({ limit: String(limit), station });
     if (list) params.set('sources', list.join(','));
+    // быстрый режим: сервер отдаёт уже собранную ленту, не дожидаясь ротора
+    if (quick) params.set('quick', '1');
     // волна собирается на сервере до 12 секунд: даём запас, иначе таймаут
     // засчитывался как «сервер недоступен» и интерфейс уходил в демо-режим
-    return normalizeWave(await request(`/api/wave?${params.toString()}`, { timeout: 40000 }));
+    return normalizeWave(await request(`/api/wave?${params.toString()}`, { timeout: quick ? 8000 : 40000 }));
   } catch (err) {
     if (isNetworkError(err)) { degrade(err); return normalizeWave(demoWave(limit, list)); }
     throw err;

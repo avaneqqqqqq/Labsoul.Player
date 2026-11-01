@@ -824,7 +824,11 @@ initMediaSessionHandlers();
 const FADE_IN_MS = 220;
 const FADE_OUT_MS = 320;
 
+/** Включены ли плавные переходы (настройка оформления). */
+const crossfadeOn = () => theme.crossfade !== false;
+
 function fadeIn() {
+  if (!crossfadeOn()) return;
   if (bypassGraph || !audioCtx || !outNode) return;
   try {
     const now = audioCtx.currentTime;
@@ -836,6 +840,7 @@ function fadeIn() {
 
 /** Плавное затухание перед сменой трека. */
 function fadeOut() {
+  if (!crossfadeOn()) return;
   if (bypassGraph || !audioCtx || !outNode) return;
   try {
     const now = audioCtx.currentTime;

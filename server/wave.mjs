@@ -160,6 +160,21 @@ const pending = new Map();     // ключ -> промис сборки (тот 
 
 const waveKey = (station, wanted) => `${station}|${wanted.join(',')}`;
 
+/**
+ * Готовая партия из заготовки — для мгновенного старта.
+ *
+ * Ротор Яндекса думает 6–9 секунд, поэтому при открытии приложения отдаём
+ * уже собранную ленту сразу, а свежую подгружаем следующим запросом.
+ * Треки НЕ помечаются показанными: их покажет либо этот ответ, либо основной.
+ *
+ * @param {string} key — ключ вида `станция|источники`
+ */
+export function readyBatch(key) {
+  const entry = prepared.get(key);
+  if (!entry || !Array.isArray(entry.items) || !entry.items.length) return null;
+  return { ...entry, items: entry.items.slice() };
+}
+
 function kickPrepare(key, want, station, wanted) {
   if (prepared.has(key) || preparing.has(key)) return;
   preparing.add(key);

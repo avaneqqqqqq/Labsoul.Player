@@ -716,10 +716,23 @@ async function handleApi(req, res, url) {
     const fromQuery = url.searchParams.get('sources');
     const saved = store.loadSettings().wave?.sources;
     const sources = fromQuery ? fromQuery.split(',') : saved;
+    const waveKey = `${station}|${(sources || []).join(',')}`;
+
+    // Быстрый старт: если лента уже загружалась недавно, отдаём её сразу,
+    // не дожидаясь ротора Яндекса (он думает 6–9 секунд). Свежие треки
+    // подтянутся следующим запросом.
+    const quick = url.searchParams.get('quick') === '1';
+    if (quick) {
+      const fresh = waveEngine.readyBatch(waveKey);
+      if (fresh) {
+        sendJson(res, 200, { ...fresh, fromCache: true });
+        return;
+      }
+    }
+
     const result = await waveEngine.getWave(limit, station, sources);
 
     // кэш ленты: сохраняем непустые партии и используем их, когда сервис недоступен
-    const waveKey = `${station}|${(sources || []).join(',')}`;
     if (Array.isArray(result.items) && result.items.length) {
       libraryCache.saveWave(waveKey, result.items, result.station || station);
     } else {
