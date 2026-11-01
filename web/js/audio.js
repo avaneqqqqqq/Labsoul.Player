@@ -125,6 +125,8 @@ let activeChain = 'main';
 let crossfadeTimer = 0;
 /** Ключ трека, для которого уже запускали автоматический переход. */
 let crossfadeArmedFor = null;
+/** Элемент, в который нужно загрузить следующий трек ('main' | 'alt'). */
+let pendingChain = 'main';
 
 const dbToGain = (db) => (db === 0 ? 1 : 10 ** (db / 20));
 
@@ -447,6 +449,12 @@ function playCurrent() {
   const el = playbackElement();
 
   try {
+    // Элемент мог остаться с прошлого трека: load() не всегда обнуляет
+    // позицию при смене src, и новый трек начинался «то с минуты, то почти
+    // в конце». Сбрасываем позицию и останавливаем явно.
+    try { el.pause(); } catch { /* ignore */ }
+    try { el.currentTime = 0; } catch { /* ignore */ }
+
     // элемент читает Web Audio: без crossOrigin поток считается кросс-доменным
     // и createMediaElementSource выдаёт тишину (эквалайзер «ломает» звук)
     if (el.crossOrigin !== 'anonymous') el.crossOrigin = 'anonymous';
@@ -524,43 +532,51 @@ function startCrossfade() {
 
   const seconds = Math.max(1, Math.min(12, Number(theme.crossfadeSec) || 4));
   const from = chainOf(activeChain);
-  const to = chainOf(activeChain === 'alt' ? 'main' : 'alt');
+  const toName = activeChain === 'alt' ? 'main' : 'alt';
+  const to = chainOf(toName);
 
-  // новый трек будет играть в другом элементе — готовим его заранее
-  pendingChain = activeChain === 'alt' ? 'main' : 'alt';
+  // новый трек будет играть в другом элементе
+  pendingChain = toName;
 
   const now = audioCtx.currentTime;
   const end = now + seconds;
 
+  // Новый элемент стартует из тишины: иначе он подхватит остаток громкости
+  // от прошлого раза и два трека наложатся — это и было «двоение звука».
   try {
-    // старый трек гаснет, новый появляется
+    to.out.gain.cancelScheduledValues(now);
+    to.out.gain.setValueAtTime(0, now);
+  } catch { /* ignore */ }
+
+  try {
+    // старый трек плавно уходит в тишину
     from.out.gain.cancelScheduledValues(now);
     from.out.gain.setValueAtTime(from.out.gain.value, now);
     from.out.gain.linearRampToValueAtTime(0, end);
   } catch { /* ignore */ }
 
-  // гасим старый элемент после затухания
+  // новый нарастает от нуля до полной ровно к моменту, когда старый умолк
+  try {
+    to.out.gain.linearRampToValueAtTime(1, end);
+  } catch { /* ignore */ }
+
+  // гасим старый элемент после затухания и освобождаем поток
   clearTimeout(crossfadeTimer);
   crossfadeTimer = setTimeout(() => {
     try { from.el.pause(); } catch { /* ignore */ }
-  }, seconds * 1000 + 120);
+    try { from.el.removeAttribute('src'); from.el.load(); } catch { /* ignore */ }
+  }, seconds * 1000 + 150);
 
-  return { from: activeChain, to: pendingChain, seconds };
+  return { from: activeChain, to: toName, seconds };
 }
-
-/** Элемент, в который нужно загрузить следующий трек. */
-let pendingChain = 'main';
 
 /** Вернуть цепочку к жизни после кроссфейда. */
 function takeChain(name) {
   activeChain = name;
-  const target = chainOf(name);
-  try {
-    const now = audioCtx ? audioCtx.currentTime : 0;
-    target.out.gain.cancelScheduledValues(now);
-    target.out.gain.setValueAtTime(1, now);
-  } catch { /* ignore */ }
-  return target.el;
+  // громкость не трогаем: при кроссфейде она уже расписана (нарастание от 0).
+  // Раньше здесь стояло «сразу 1» — это обрывало плавное нарастание,
+  // звук скакал, и новый трек звучал поверх старого.
+  return chainOf(name).el;
 }
 
 /** Элемент, в который следует грузить трек прямо сейчас. */
@@ -570,7 +586,19 @@ function playbackElement() {
     pendingChain = activeChain;
     return takeChain(name);
   }
-  return audio;
+
+  // обычный запуск без кроссфейда: активная цепочка должна звучать в полную,
+  // иначе после выключения кроссфейда трек останется приглушённым
+  if (!crossfadeReady()) {
+    try {
+      const now = audioCtx ? audioCtx.currentTime : 0;
+      const target = chainOf(activeChain).out;
+      target.gain.cancelScheduledValues(now);
+      target.gain.setValueAtTime(1, now);
+    } catch { /* ignore */ }
+  }
+
+  return chainOf(activeChain).el;
 }
 
 /** Элемент, который сейчас звучит (с учётом кроссфейда). */
