@@ -483,3 +483,106 @@ body.np-open { overflow: hidden; }
   background: var(--text);
   -webkit-appearance: none;
 }
+
+
+/* ------------------------- клип к треку --------------------------------- */
+.np__chip--clip[aria-pressed="true"] {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+}
+
+.np__clips {
+  grid-area: lyrics;
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(var(--np-lyr-width, 100%), 100%);
+  max-height: min(var(--np-lyr-height, 72vh), 900px);
+  padding: var(--np-lyr-pad, 18px);
+  border: 1px solid var(--np-lyr-border, var(--border));
+  border-radius: var(--np-lyr-radius, 22px);
+  box-shadow: var(--np-lyr-shadow, 0 18px 50px -24px rgba(0, 0, 0, .7));
+  background: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .015));
+  animation: fade-in 200ms ease;
+}
+
+.np__clips-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: calc(var(--np-lyr-radius, 22px) - 6px);
+  overflow: hidden;
+  background: #000;
+  flex: none;
+}
+
+.np__clips-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.np__clips-list {
+  display: grid;
+  gap: 4px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.np__clips-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, .03);
+  color: var(--dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.np__clips-item:hover { background: rgba(255, 255, 255, .07); color: var(--text); }
+
+.np__clips-item.on {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  color: var(--text);
+}
+
+.np__clips-title {
+  font-size: 12.5px;
+  font-weight: 550;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np__clips-author {
+  font-size: 11px;
+  opacity: .65;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.np__clips-note {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 220px;
+  color: var(--dim);
+  font-size: 13px;
+  text-align: center;
+}
+
+.np__clips-note b { color: var(--text); font-weight: 600; }
+.np__clips-note span { font-size: 12px; opacity: .75; }

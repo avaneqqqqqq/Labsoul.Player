@@ -1291,3 +1291,24 @@ mark.hit {
 .source-grid--net {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
 }
+
+
+/* кнопка сброса рядом с заголовком раздела */
+.panel__reset {
+  margin-left: 8px;
+  padding: 3px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--mute);
+  font: inherit;
+  font-size: 10.5px;
+  letter-spacing: .02em;
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease;
+}
+.panel__reset:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+.panel__head .panel__reset { margin-left: auto; }

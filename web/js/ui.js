@@ -809,9 +809,18 @@ function lyricWordsHtml(line) {
     .join('');
 }
 
+/**
+ * Готовые тексты этой сессии: заголовок трека → ответ сервера.
+ * Повторное открытие текста больше не ждёт сеть.
+ */
+const lyricsMemo = new Map();
+
 function lyricsState() {
   if (!nowPlaying.lyrics) {
-    nowPlaying.lyrics = { key: null, status: 'idle', synced: [], plain: '', provider: null, instrumental: false, open: false, index: -1 };
+    nowPlaying.lyrics = {
+      key: null, status: 'idle', synced: [], plain: '', provider: null,
+      instrumental: false, open: false, index: -1, shownLines: [],
+    };
   }
   return nowPlaying.lyrics;
 }
@@ -862,10 +871,14 @@ function renderLyrics() {
     }
     scrollBox?.classList.remove('is-plain');
     trackBox.style.transform = '';
-    trackBox.innerHTML = state.synced
-      .map((line, index) => ({ line, index }))
-      .filter(({ line }) => !isPlaceholder(line.text))
-      .map(({ line, index }) => `<div class="np__lyric" data-lyric="${index}" data-lyric-time="${line.time}" title="Перейти к строке">
+    // Показываем только строки с текстом. Раньше в data-lyric писался индекс
+    // ИСХОДНОГО массива, а state.synced фильтр не проходил — при клике на
+    // верхнюю строку seekToLyric брал чужую (часто первую) и музыка
+    // перескакивала в начало. Теперь индекс — это позиция в показанном списке.
+    const shown = state.synced.filter((line) => !isPlaceholder(line.text));
+    state.shownLines = shown;
+    trackBox.innerHTML = shown
+      .map((line, index) => `<div class="np__lyric" data-lyric="${index}" data-lyric-time="${line.time}" title="Перейти к строке">
         <span class="np__lyric-text">${lyricWordsHtml(line)}</span>
         <button class="np__lyric-share" type="button" data-np-share="${index}" title="Поделиться строкой" aria-label="Поделиться строкой">${icon('external')}</button>
       </div>`)
@@ -994,30 +1007,52 @@ async function loadLyrics(track) {
   state.synced = [];
   state.plain = '';
   state.instrumental = false;
+
+  // Текст, который уже загружали в этой сессии, показываем сразу — без
+  // мигания «Ищем текст…» и без повторного запроса к серверу.
+  const memorized = lyricsMemo.get(key);
+  if (memorized) {
+    applyLyricsResult(memorized);
+    return;
+  }
+
   renderLyrics();
 
   try {
     const data = await getLyrics(track.source, track.sourceId);
     if (state.key !== key) return; // трек успел смениться
-
-    if (data?.available && Array.isArray(data.synced) && data.synced.length) {
-      state.status = 'ready';
-      state.synced = data.synced;
-      state.plain = data.plain || '';
-      state.provider = data.provider || null;
-    } else if (data?.available && data.plain) {
-      state.status = 'ready';
-      state.synced = [];
-      state.plain = data.plain;
-      state.provider = data.provider || null;
-    } else {
-      state.status = 'none';
-      state.instrumental = Boolean(data?.instrumental);
+    lyricsMemo.set(key, data);
+    // держим не больше сотни текстов, чтобы не копить память
+    if (lyricsMemo.size > 100) {
+      lyricsMemo.delete(lyricsMemo.keys().next().value);
     }
+
+    applyLyricsResult(data);
   } catch {
     if (state.key === key) state.status = 'none';
+    renderLyrics();
   }
+}
 
+/**
+ * Применить ответ сервера к состоянию панели.
+ * Отдельной функцией, потому что используется и при загрузке, и из кэша.
+ */
+function applyLyricsResult(data) {
+  if (data?.available && Array.isArray(data.synced) && data.synced.length) {
+    state.status = 'ready';
+    state.synced = data.synced;
+    state.plain = data.plain || '';
+    state.provider = data.provider || null;
+  } else if (data?.available && data.plain) {
+    state.status = 'ready';
+    state.synced = [];
+    state.plain = data.plain;
+    state.provider = data.provider || null;
+  } else {
+    state.status = 'none';
+    state.instrumental = Boolean(data?.instrumental);
+  }
   renderLyrics();
 }
 
@@ -1034,10 +1069,119 @@ function toggleLyrics() {
 /** Клик по строке — перемотка на её время. */
 function seekToLyric(index) {
   const state = lyricsState();
-  const line = state.synced[index];
+  // берём из показанного списка — индексы в разметке соответствуют ему
+  const line = (state.shownLines || state.synced)[index];
   if (!line) return;
-  player.seek(Math.max(0, line.time + 0.05));
-  syncLyrics(line.time + 0.05, true);
+  const at = Math.max(0, line.time + 0.05);
+  player.seek(at);
+  syncLyrics(at, true);
+}
+
+/* --------------------------- клипы к треку ------------------------------- */
+
+const clipsState = { open: false, items: [], loading: false, key: null, current: null };
+
+/**
+ * Показать или скрыть панель клипа в полноэкранном плеере.
+ *
+ * Видео ищется на YouTube: публичное API Яндекса клипы не отдаёт.
+ */
+async function toggleClips() {
+  const track = player.getState().current;
+  if (!track) { toast('Сначала включите трек', { type: 'warn' }); return; }
+
+  clipsState.open = !clipsState.open;
+
+  // открытие клипа закрывает текст — они занимают одно место
+  if (clipsState.open) {
+    const lyrics = lyricsState();
+    if (lyrics.open) { lyrics.open = false; renderLyrics(); }
+  }
+
+  if (clipsState.open && clipsState.key !== track.id) {
+    clipsState.key = track.id;
+    clipsState.items = [];
+    clipsState.current = null;
+    await loadClips(track);
+  }
+  renderClips();
+}
+
+async function loadClips(track) {
+  clipsState.loading = true;
+  renderClips();
+  try {
+    const artist = (track.artists || [])[0] || '';
+    const data = await net(`/api/clips?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(artist)}`);
+    // трек мог смениться, пока грузили
+    if (clipsState.key !== track.id) return;
+    clipsState.items = Array.isArray(data?.items) ? data.items : [];
+    clipsState.current = clipsState.items[0]?.id || null;
+  } catch {
+    if (clipsState.key === track.id) clipsState.items = [];
+  } finally {
+    clipsState.loading = false;
+    renderClips();
+  }
+}
+
+function renderClips() {
+  const el = nowPlaying.el;
+  if (!el) return;
+
+  const panel = el.querySelector('[data-np-clips]');
+  if (panel) panel.remove();
+
+  el.classList.toggle('is-clips', clipsState.open);
+  const chip = el.querySelector('[data-np="clip"]');
+  if (chip) chip.setAttribute('aria-pressed', String(clipsState.open));
+
+  if (!clipsState.open) return;
+
+  const box = document.createElement('div');
+  box.className = 'np__clips';
+  box.setAttribute('data-np-clips', '');
+
+  if (clipsState.loading) {
+    box.innerHTML = '<div class="np__clips-note">Ищем клип…</div>';
+  } else if (!clipsState.items.length) {
+    box.innerHTML = `<div class="np__clips-note">
+      <b>Клип не найден</b>
+      <span>Для этого трека видео нет в поиске</span>
+    </div>`;
+  } else {
+    box.innerHTML = `
+      <div class="np__clips-frame">
+        <iframe
+          src="https://www.youtube.com/embed/${esc(clipsState.current)}?autoplay=0&rel=0"
+          title="Клип"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
+          allowfullscreen
+        ></iframe>
+      </div>
+      <div class="np__clips-list">
+        ${clipsState.items.map((video) => `
+          <button class="np__clips-item${video.id === clipsState.current ? ' on' : ''}" type="button" data-clip-id="${esc(video.id)}">
+            <span class="np__clips-title">${esc(video.title)}</span>
+            <span class="np__clips-author">${esc(video.author || '')}</span>
+          </button>`).join('')}
+      </div>`;
+
+    box.addEventListener('click', (event) => {
+      const item = event.target.closest('[data-clip-id]');
+      if (!item) return;
+      clipsState.current = item.dataset.clipId;
+      renderClips();
+    });
+  }
+
+  el.querySelector('.np__inner')?.appendChild(box);
+}
+
+function closeClips() {
+  if (!clipsState.open) return;
+  clipsState.open = false;
+  renderClips();
 }
 
 async function copyToClipboard(text) {
@@ -1065,7 +1209,7 @@ async function copyToClipboard(text) {
 async function shareLyric(index, plain = false) {
   const state = lyricsState();
   const track = player.getState().current;
-  const line = plain ? state.plainLines?.[index] : state.synced[index];
+  const line = plain ? state.plainLines?.[index] : (state.shownLines || state.synced)[index];
   const text = typeof line === 'string' ? line : line?.text;
   if (!text) return;
 
@@ -1096,6 +1240,7 @@ function npTemplate() {
           <button class="np__chip" type="button" data-np="like">${icon('heart')}<span>В избранное</span></button>
           <button class="np__chip" type="button" data-np="queue">${icon('queue')}<span>Очередь</span></button>
           <button class="np__chip np__chip--lyrics" type="button" data-np="lyrics" aria-pressed="false">${icon('type')}<span>Текст</span></button>
+          ${theme.clips === false ? '' : `<button class="np__chip np__chip--clip" type="button" data-np="clip" aria-pressed="false">${icon('video')}<span>Клип</span></button>`}
         </div>
       </div>
       <div class="np__transport">
@@ -1284,6 +1429,7 @@ function openNowPlaying() {
     if (action === 'repeat') { player.cycleRepeat(); syncNowPlaying(); return; }
     if (action === 'queue') { closeNowPlaying(); if (!app.ui.queueOpen) toggleQueue(); return; }
     if (action === 'lyrics') { toggleLyrics(); return; }
+    if (action === 'clip') { toggleClips(); return; }
     if (action === 'vol-mute') { player.toggleMute(); syncNowPlaying(); return; }
     if (action === 'artist') { openArtistPage(); return; }
     if (action === 'like') {
@@ -1498,6 +1644,10 @@ async function renderArtistPage(host, source, artist, track) {
 
 function closeNowPlaying() {
   if (!nowPlaying.el) return;
+  // клип (видео) закроется вместе с плеером: сбрасываем его состояние
+  clipsState.open = false;
+  clipsState.items = [];
+  clipsState.current = null;
   if (nowPlaying.unsub) { nowPlaying.unsub(); nowPlaying.unsub = null; }
   if (nowPlaying.onKey) { document.removeEventListener('keydown', nowPlaying.onKey); nowPlaying.onKey = null; }
   nowPlaying.el.remove();

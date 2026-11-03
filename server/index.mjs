@@ -17,6 +17,7 @@ import path from 'node:path';
 
 import * as store from './store.mjs';
 import * as waveEngine from './wave.mjs';
+import * as clips from './clips.mjs';
 import { decryptBuffer, parseRange } from './streaming.mjs';
 import { resolveLink, findCandidates } from './linkimport.mjs';
 import { checkForUpdate, currentVersion } from './update.mjs';
@@ -913,6 +914,16 @@ function reasonMessage(reason) {
   };
   return texts[reason] || null;
 }
+  if (route[0] === 'clips') {
+    // Клипы к треку: Яндексовое API видео не отдаёт, поэтому ищем на YouTube
+    const title = url.searchParams.get('title') || '';
+    const artist = url.searchParams.get('artist') || '';
+    if (!title) throw badRequest('Не указано название трека');
+    const items = await clips.searchClips({ title, artist });
+    sendJson(res, 200, { ok: true, items });
+    return;
+  }
+
   if (route[0] === 'artist') {
     // Страница исполнителя: клик по имени в плеере открывает его треки.
     // Яндекс отдаёт и исполнителя, и его популярные треки по одному id.

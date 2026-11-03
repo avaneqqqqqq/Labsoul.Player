@@ -13,6 +13,7 @@ import {
   importTheme,
   PRESETS,
   resetTheme,
+  resetThemeSection,
   setCustomWallpaper,
   subscribe as themeSubscribe,
   theme,
@@ -246,7 +247,7 @@ function shellHtml() {
         </div>
 
         <div class="panel" data-section="look">
-          <div class="panel__head">${icon('palette')}<h3>Внешний вид</h3><span class="hint">схема, стиль, акцент</span></div>
+          <div class="panel__head">${icon('palette')}<h3>Внешний вид</h3><span class="hint">схема, стиль, акцент</span><button class="panel__reset" type="button" data-reset-section="look" title="Сбросить раздел">Сброс</button></div>
           <div class="ctl">
             <div class="ctl__label">Схема<small>тёмная, светлая или AMOLED</small></div>
             <div class="seg" id="seg-scheme">${segButtons('scheme', [['dark', 'Тёмная'], ['light', 'Светлая'], ['amoled', 'AMOLED'], ['sepia', 'Сепия'], ['midnight', 'Полночь']])}</div>
@@ -289,7 +290,7 @@ function shellHtml() {
         </div>
 
         <div class="panel" data-section="form">
-          <div class="panel__head">${icon('type')}<h3>Форма</h3><span class="hint">плотность, радиусы, масштаб</span></div>
+          <div class="panel__head">${icon('type')}<h3>Форма</h3><span class="hint">плотность, радиусы, масштаб</span><button class="panel__reset" type="button" data-reset-section="form" title="Сбросить раздел">Сброс</button></div>
           <div class="ctl">
             <div class="ctl__label">Плотность<small>сколько воздуха между строками</small></div>
             <div class="seg" id="seg-density">${segButtons('density', [['compact', 'Компакт'], ['normal', 'Обычно'], ['roomy', 'Просторно']])}</div>
@@ -315,7 +316,7 @@ function shellHtml() {
         </div>
 
         <div class="panel" data-section="grid">
-          <div class="panel__head">${icon('grid')}<h3>Карточки и обложки</h3><span class="hint">сетка, размер, форма</span></div>
+          <div class="panel__head">${icon('grid')}<h3>Карточки и обложки</h3><span class="hint">сетка, размер, форма</span><button class="panel__reset" type="button" data-reset-section="grid" title="Сбросить раздел">Сброс</button></div>
           <div class="ctl">
             <div class="ctl__label">Обложки<small>размер карточек</small></div>
             <div class="seg" id="seg-cards">${segButtons('cards', [['s', 'S'], ['m', 'M'], ['l', 'L']])}</div>
@@ -334,7 +335,7 @@ function shellHtml() {
         </div>
 
         <div class="panel" data-section="lyrics">
-          <div class="panel__head">${icon('type')}<h3>Блок текста песни</h3><span class="hint">панель в полноэкранном</span></div>
+          <div class="panel__head">${icon('type')}<h3>Блок текста песни</h3><span class="hint">панель в полноэкранном</span><button class="panel__reset" type="button" data-reset-section="lyrics" title="Сбросить раздел">Сброс</button></div>
           <div class="ctl">
             <div class="ctl__label">Размер текста<small>кегль самих строк</small></div>
             <div class="ctl__body">
@@ -410,7 +411,7 @@ function shellHtml() {
         </div>
 
         <div class="panel" data-section="motion">
-          <div class="panel__head">${icon('spark')}<h3>Анимации</h3><span class="hint">движение и плавность</span></div>
+          <div class="panel__head">${icon('spark')}<h3>Анимации</h3><span class="hint">движение и плавность</span><button class="panel__reset" type="button" data-reset-section="motion" title="Сбросить раздел">Сброс</button></div>
 
           <div class="ctl">
             <div class="ctl__label">Включить анимации<small>главный выключатель движения</small></div>
@@ -472,7 +473,7 @@ function shellHtml() {
         </div>
 
         <div class="panel" data-section="blocks">
-          <div class="panel__head">${icon('library')}<h3>Блоки</h3><span class="hint">скрыть и переставить</span></div>
+          <div class="panel__head">${icon('library')}<h3>Блоки</h3><span class="hint">скрыть и переставить</span><button class="panel__reset" type="button" data-reset-section="blocks" title="Сбросить раздел">Сброс</button></div>
           <div id="block-rows">${blockRows()}</div>
           <p class="footnote">Порядок блоков меняет ленту «Волны»; переключатели скрывают элементы интерфейса целиком.</p>
         </div>
@@ -762,6 +763,15 @@ function onClick(event) {
       return;
     }
     update('wallpaper', wall);
+    return;
+  }
+
+  if (target.dataset.resetSection) {
+    const section = target.dataset.resetSection;
+    resetThemeSection(section);
+    sync();
+    const names = { look: 'Внешний вид', form: 'Форма', grid: 'Карточки', lyrics: 'Блок текста', motion: 'Анимации', blocks: 'Блоки' };
+    toast(`Сброшен раздел: ${names[section] || section}`, { icon: 'refresh' });
     return;
   }
 

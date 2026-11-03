@@ -84,6 +84,8 @@ export const DEFAULTS = {
     shadow: true,   // тень под блоком
   },
   barSeek: true,
+  // кнопка «Клип» в полноэкранном плеере: видео ищется на YouTube
+  clips: true,
   // плавное появление и затухание звука при смене трека
   crossfade: true,
   // полный кроссфейд: два трека звучат одновременно
@@ -207,6 +209,7 @@ function normalizeTheme(raw) {
     if (typeof box.shadow === 'boolean') base.shadow = box.shadow;
   }
   if (typeof raw.barSeek === 'boolean') out.barSeek = raw.barSeek;
+  if (typeof raw.clips === 'boolean') out.clips = raw.clips;
   if (WALLPAPERS.has(raw.wallpaper)) out.wallpaper = raw.wallpaper;
   if (DENSITIES.has(raw.density)) out.density = raw.density;
   if (Number.isFinite(raw.radius)) out.radius = clamp(Math.round(raw.radius), 0, 34);
@@ -542,6 +545,36 @@ export function resetTheme() {
   customWall = null;
   scheduleSave();
   applyTheme({ emitEvent: true });
+}
+
+/**
+ * Ключи оформления по разделам экрана «Оформление».
+ *
+ * Нужны для сброса отдельного раздела: раньше приходилось сбрасывать
+ * абсолютно всё, даже если поправить нужно было только один блок.
+ */
+export const SECTION_KEYS = {
+  look: ['variant', 'scheme', 'accent', 'accentAuto', 'wallpaper', 'blur', 'grain', 'barSeek'],
+  form: ['density', 'radius', 'font', 'uiScale'],
+  grid: ['cards', 'cols', 'coverRadius'],
+  lyrics: ['lyricsSize', 'lyricsAuto', 'lyricsBox'],
+  motion: ['crossfade', 'crossfadeFull', 'crossfadeSec', 'beat', 'screenAnim', 'speed', 'hover', 'coverAnim', 'coverPulse', 'anim'],
+  blocks: ['blocks', 'blockOrder'],
+  eq: ['eq', 'lab', 'normalize', 'soundMode'],
+};
+
+/** Сбросить только один раздел оформления к значениям по умолчанию. */
+export function resetThemeSection(section) {
+  const keys = SECTION_KEYS[section];
+  if (!keys) return theme;
+  for (const key of keys) {
+    if (!(key in DEFAULTS)) continue;
+    theme[key] = deepClone(DEFAULTS[key]);
+  }
+  if (keys.includes('wallpaper')) customWall = null;
+  scheduleSave();
+  applyTheme({ emitEvent: true });
+  return theme;
 }
 
 export function setCustomWallpaper(dataUrl) {

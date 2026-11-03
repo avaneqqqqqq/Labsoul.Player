@@ -455,10 +455,41 @@ async function lrcmuxLyrics(meta) {
   const lines = Array.isArray(data?.lines) ? data.lines : [];
   if (!lines.length) return null;
 
-  // Проверяем, что это тот же трек: длительность не должна расходиться сильно
+  /*
+   * Проверяем, что это тот же трек.
+   *
+   * Раньше сверялась только длительность с допуском 20 секунд, поэтому
+   * для «Brand new smile» подставлялся текст одноимённой другой песни —
+   * отсюда клипы с чужим содержимым. Теперь проверяем ещё имя трека и,
+   * если сервис отдал её, исполнителя.
+   */
   const duration = Number(data?.track?.duration) || 0;
-  if (meta.duration && duration && Math.abs(duration - meta.duration) > 20) {
+  if (meta.duration && duration && Math.abs(duration - meta.duration) > 8) {
     log(`lrcmux: другая длительность (${duration} против ${meta.duration})`);
+    return null;
+  }
+
+  const foundTitle = String(data?.track?.title || '');
+  if (foundTitle && meta.title) {
+    const score = similarity(foundTitle, meta.title);
+    if (score < 0.55) {
+      log(`lrcmux: другое название («${foundTitle}» против «${meta.title}»)`);
+      return null;
+    }
+  }
+
+  const foundArtist = String(data?.track?.artist || '');
+  if (foundArtist && meta.artist && similarity(foundArtist, meta.artist) < 0.45) {
+    log(`lrcmux: другой исполнитель («${foundArtist}» против «${meta.artist}»)`);
+    return null;
+  }
+
+  // первая строка не должна начинаться позже середины — иначе это обрывок
+  // текста с конца, и ползунок оказывается не на своём месте
+  const firstStart = Number(lines[0]?.start) || 0;
+  const totalMs = (Number(meta.duration) || duration || 0) * 1000;
+  if (totalMs && firstStart > totalMs * 0.5) {
+    log(`lrcmux: текст начинается с ${Math.round(firstStart / 1000)} с — похоже на обрывок`);
     return null;
   }
 
