@@ -565,18 +565,20 @@ body.np-open { overflow: hidden; }
  *   клип и текст        — "clips side lyrics", транспорт внизу во всю ширину
  */
 .np.is-clips .np__inner {
-  grid-template-columns: minmax(280px, 44%) minmax(220px, 1fr);
+  grid-template-columns: minmax(340px, 56%) minmax(240px, 1fr);
   grid-template-areas:
     "clips side"
     "clips transport";
-  width: min(1200px, 94vw);
+  grid-template-rows: auto 1fr;
+  width: min(1240px, 94vw);
   align-items: start;
-  gap: clamp(16px, 2vw, 32px);
+  column-gap: clamp(18px, 2.4vw, 40px);
+  row-gap: clamp(12px, 1.6vw, 22px);
 }
 
 /* клип и текст вместе: три колонки */
 .np.is-clips.is-lyrics .np__inner {
-  grid-template-columns: minmax(260px, 34%) minmax(200px, 1fr) minmax(240px, 30%);
+  grid-template-columns: minmax(320px, 42%) minmax(180px, 1fr) minmax(240px, 30%);
   grid-template-areas:
     "clips side lyrics"
     "transport transport lyrics";
@@ -584,8 +586,23 @@ body.np-open { overflow: hidden; }
 }
 
 .np.is-clips .np__left { display: none; }
-.np.is-clips .np__side { grid-area: side; align-self: start; padding-top: 4px; }
-.np.is-clips .np__transport { grid-area: transport; align-self: start; }
+.np.is-clips .np__side {
+  grid-area: side;
+  align-self: start;
+  padding-top: 2px;
+  animation: np-slide-in 260ms cubic-bezier(.22, .61, .36, 1);
+}
+.np.is-clips .np__transport {
+  grid-area: transport;
+  align-self: start;
+  animation: np-slide-in 320ms cubic-bezier(.22, .61, .36, 1);
+}
+
+/* мягкое появление справа, когда клип открыли */
+@keyframes np-slide-in {
+  from { opacity: 0; transform: translateX(14px); }
+  to { opacity: 1; transform: none; }
+}
 
 /* панель видео */
 .np.is-clips .np__clips {
@@ -608,10 +625,18 @@ body.np-open { overflow: hidden; }
 .np.is-clips .np__clips-frame {
   width: 100%;
   aspect-ratio: 16 / 9;
-  border-radius: 16px;
+  /* выше экрана не вылезает: высота ограничена 62% окна */
+  max-height: 62vh;
+  border-radius: 18px;
   overflow: hidden;
   background: #000;
-  box-shadow: 0 24px 70px -28px rgba(0, 0, 0, .85);
+  box-shadow: 0 28px 80px -30px rgba(0, 0, 0, .9);
+  animation: np-clip-in 280ms cubic-bezier(.22, .61, .36, 1);
+}
+
+@keyframes np-clip-in {
+  from { opacity: 0; transform: scale(.97); }
+  to { opacity: 1; transform: none; }
 }
 
 .np.is-clips .np__clips-frame iframe {
