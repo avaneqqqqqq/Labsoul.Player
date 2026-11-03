@@ -45,6 +45,47 @@ export async function searchClips({ title, artist }) {
   if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.items;
 
   const query = [artist, name, 'клип'].filter(Boolean).join(' ');
+  /*
+   * Два запроса разом:
+   *   1) «исполнитель название клип» — ловит официальные видео;
+   *   2) «исполнитель название» без слова «клип» — ловит те ролики,
+   *      где слово не написано, но оно и есть нужное.
+   * Раньше был один запрос, и если официального клипа нет, первым
+   * выпадал посторонний ролик с похожим названием.
+   */
+  const queries = [
+    [artist, name, 'клип'].filter(Boolean).join(' '),
+    [artist, name].filter(Boolean).join(' '),
+  ];
+
+  const pages = await Promise.all(queries.map((query) => fetchResults(query, { title, artist })));
+  const items = [];
+  const seen = new Set();
+  for (const page of pages) {
+    for (const video of page) {
+      if (seen.has(video.id)) continue;
+      seen.add(video.id);
+      items.push(video);
+    }
+  }
+
+  // Сопоставление: ставим в начало то видео, которое действительно
+  // соответствует треку. Первый результат поиска часто оказывается
+  // кавером, slowed-версией или посторонним роликом — пользователю
+  // не нужно выбирать вручную.
+  const ranked = rankVideos(items, { title, artist });
+
+  cache.set(key, { items: ranked, at: Date.now() });
+  if (cache.size > 200) {
+    const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) cache.delete(oldest[0]);
+  }
+
+  return ranked;
+}
+
+/** Запросить результаты поиска по одной строке. */
+async function fetchResults(query, meta) {
   const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
 
   const controller = new AbortController();
@@ -97,19 +138,8 @@ export async function searchClips({ title, artist }) {
     if (items.length >= 8) break;
   }
 
-  // Сопоставление: ставим в начало то видео, которое действительно
-  // соответствует треку. Первый результат поиска часто оказывается
-  // кавером, slowed-версией или посторонним роликом — пользователю
-  // не нужно выбирать вручную.
-  const ranked = rankVideos(items, { title, artist });
-
-  cache.set(key, { items: ranked, at: Date.now() });
-  if (cache.size > 200) {
-    const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-    if (oldest) cache.delete(oldest[0]);
-  }
-
-  return ranked;
+  // fetchResults только собирает найденное; отбор делает searchClips
+  return items;
 }
 
 /* ------------------------ сопоставление видео с треком ------------------- */

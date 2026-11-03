@@ -1172,7 +1172,9 @@ function renderClips() {
     // Выбора нет: сервер уже сопоставил видео с треком и поставил
     // подходящее первым — пользователю остаётся только смотреть.
     box.innerHTML = `
-      <div class="np__clips-frame" data-clip-frame></div>
+      <div class="np__clips-frame" data-clip-frame>
+        <div class="np__clips-shade" aria-hidden="true"></div>
+      </div>
       <div class="np__clips-sync">
         <label class="np__clips-synctoggle" title="Держать видео вровень с треком">
           <input type="checkbox" data-clip-sync ${theme.clipSync !== false ? 'checked' : ''}>

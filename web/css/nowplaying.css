@@ -639,12 +639,6 @@ body.np-open { overflow: hidden; }
   to { opacity: 1; transform: none; }
 }
 
-.np.is-clips .np__clips-frame iframe {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
 
 .np.is-clips .np__clips-list {
   display: flex;
@@ -756,35 +750,37 @@ body.np-open { overflow: hidden; }
   padding: 0 2px;
 }
 
-
-/* --- чистый кадр без интерфейса YouTube ------------------------------- */
+/* --------- чистый кадр: интерфейс YouTube перекрыт ------------------- */
 /*
- * У плеера YouTube свои полоса, название и кнопки. Внутрь iframe из CSS
- * не пробраться, поэтому оставляем только картинку: контейнер обрезает
- * верхнюю полосу с заголовком, элементы управления отключены параметрами
- * (controls: 0, modestbranding: 1, iv_load_policy: 3).
+ * Внутрь iframe из CSS не попасть, а controls:0 всё равно оставляет
+ * заголовок, кнопку «Другие видео» и логотип. Поэтому видео чуть
+ * увеличиваем и накрываем градиентной маской сверху и снизу — она
+ * перекрывает служебные полосы, оставляя саму картинку.
  */
 .np__clips-frame {
   position: relative;
   overflow: hidden;
-  background: #000;
 }
 
-/* сам плеер чуть крупнее контейнера: верхняя служебная полоса уходит за край */
 .np__clips-frame > div,
 .np__clips-frame iframe {
-  position: absolute;
-  inset: -52px 0 0 0 !important;
-  width: 100% !important;
-  height: calc(100% + 52px) !important;
+  position: absolute !important;
+  top: 50% !important;
+  left: 50% !important;
+  width: 118% !important;
+  height: 118% !important;
+  transform: translate(-50%, -50%) !important;
   border: 0;
+  pointer-events: none;
 }
 
-/* и мягкая маска сверху и снизу, если полоса всё же видна */
-.np__clips-frame::after {
-  content: '';
+.np__clips-shade {
   position: absolute;
   inset: 0;
+  z-index: 2;
   pointer-events: none;
-  box-shadow: inset 0 0 40px 12px rgba(0, 0, 0, .35);
+  background:
+    linear-gradient(180deg, rgba(0, 0, 0, .96) 0, rgba(0, 0, 0, .85) 7%, transparent 15%),
+    linear-gradient(0deg, rgba(0, 0, 0, .96) 0, rgba(0, 0, 0, .85) 9%, transparent 19%),
+    radial-gradient(120% 100% at 50% 50%, transparent 62%, rgba(0, 0, 0, .55) 100%);
 }

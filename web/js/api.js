@@ -520,15 +520,29 @@ export async function getPlaylistTracks(source, playlistId) {
   }
 }
 
-/** Текст песни с таймингами (LRC) — ищется на сервере по названию и исполнителю. */
+/**
+ * Текст песни с таймингами (LRC) — ищется на сервере по названию и исполнителю.
+ *
+ * Один повтор: источники текстов периодически отвечают медленно, и
+ * единственный сбой превращался в «Текст не найден» до конца сессии.
+ */
 export async function getLyrics(source, sourceId) {
   if (isDemo()) return { available: false, synced: [], plain: '' };
-  try {
-    return await request(`/api/lyrics/${encodeURIComponent(source)}/${encodeURIComponent(sourceId)}`, { timeout: 30000 });
-  } catch (err) {
-    if (isNetworkError(err)) degrade(err);
-    return { available: false, synced: [], plain: '', reason: err?.code || 'ERROR' };
+
+  const url = `/api/lyrics/${encodeURIComponent(source)}/${encodeURIComponent(sourceId)}`;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const data = await request(url, { timeout: 30000 });
+      // пустой ответ сервера — тоже повод повторить, кроме явного «нет текста»
+      if (data?.available || data?.instrumental) return data;
+      if (attempt === 2) return data;
+    } catch (err) {
+      if (isNetworkError(err)) degrade(err);
+      if (attempt === 2) return { available: false, synced: [], plain: '', reason: err?.code || 'ERROR' };
+    }
+    await new Promise((resolve) => setTimeout(resolve, 400));
   }
+  return { available: false, synced: [], plain: '' };
 }
 
 /** Категории станций: жанры, настроения, занятия (данные ротора Яндекса). */
