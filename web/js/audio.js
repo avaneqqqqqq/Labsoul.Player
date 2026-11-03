@@ -106,6 +106,18 @@ let sourceNode = null;
 let preampNode = null;
 let outNode = null;
 let eqNodes = [];
+/** Узлы расширенной обработки (Spide: Audio Lab). */
+let bassNode = null;
+let stereoNode = null;
+/** Узлы ширины стерео: расщепитель каналов, мержер и гейны L/R. */
+let stereoMerge = null;
+let widthGainL = null;
+let widthGainR = null;
+let normalizeNode = null;
+let warmthNode = null;
+let depthNode = null;
+let reverbNode = null;
+let reverbGain = null;
 /** Анализатор спектра: питает визуализатор «под бит». */
 let analyserNode = null;
 // если Web Audio не смог отдать звук — играем напрямую, без эквалайзера
@@ -125,7 +137,6 @@ function ensureGraph() {
     audioCtx = new Ctx();
     sourceNode = audioCtx.createMediaElementSource(audio);
     preampNode = audioCtx.createGain();
-    outNode = audioCtx.createGain();
     eqNodes = EQ_HZ.map((freq) => {
       const node = audioCtx.createBiquadFilter();
       node.type = 'peaking';
@@ -134,13 +145,82 @@ function ensureGraph() {
       node.gain.value = 0;
       return node;
     });
-    let cursor = preampNode;
-    sourceNode.connect(cursor);
+
+    // Усиление баса — отдельная полка на низких частотах, как в Spide:
+    // поднимает «тело» трека, не трогая середину.
+    bassNode = audioCtx.createBiquadFilter();
+    bassNode.type = 'lowshelf';
+    bassNode.frequency.value = 120;
+    bassNode.gain.value = 0;
+
+    // Ширина стерео: раскидываем каналы через расщепитель и обратный
+    // инверсивный сигнал — так расширяется стерео-поле, а не просто баланс.
+    stereoNode = audioCtx.createChannelSplitter(2);
+    stereoMerge = audioCtx.createChannelMerger(2);
+    widthGainL = audioCtx.createGain();
+    widthGainR = audioCtx.createGain();
+    widthGainL.gain.value = 1;
+    widthGainR.gain.value = 1;
+
+    // Нормализация громкости: выравнивает тихие и громкие треки.
+    normalizeNode = audioCtx.createDynamicsCompressor();
+    normalizeNode.threshold.value = -24;
+    normalizeNode.knee.value = 30;
+    normalizeNode.ratio.value = 3;
+    normalizeNode.attack.value = 0.01;
+    normalizeNode.release.value = 0.25;
+
+    // Теплота: мягкое поднятие низа и снижение верха.
+    warmthNode = audioCtx.createBiquadFilter();
+    warmthNode.type = 'highshelf';
+    warmthNode.frequency.value = 6000;
+    warmthNode.gain.value = 0;
+
+    // Глубина: дополнительная полка на самых низах.
+    depthNode = audioCtx.createBiquadFilter();
+    depthNode.type = 'peaking';
+    depthNode.frequency.value = 60;
+    depthNode.Q.value = 0.9;
+    depthNode.gain.value = 0;
+
+    // Реверберация: короткий хвост, чтобы звук не был «сухим».
+    reverbNode = audioCtx.createConvolver();
+    reverbNode.buffer = buildReverbImpulse(audioCtx, 1.6);
+    reverbGain = audioCtx.createGain();
+    reverbGain.gain.value = 0;
+
+    outNode = audioCtx.createGain();
+
+    // Цепочка: преамп → бас → 10 полос → теплота → глубина → ширина стерео →
+    // нормализация → выход (+ параллельный реверб).
+    sourceNode.connect(preampNode);
+    preampNode.connect(bassNode);
+
+    let tail = bassNode;
     for (const node of eqNodes) {
-      cursor.connect(node);
-      cursor = node;
+      tail.connect(node);
+      tail = node;
     }
-    cursor.connect(outNode);
+    tail.connect(warmthNode);
+    warmthNode.connect(depthNode);
+
+    // Ширина стерео: левый и правый каналы идут в общий мержер через
+    // собственные гейны. width=100 % — как есть, >100 — расширение,
+    // <100 — сужение к моно.
+    depthNode.connect(stereoNode);
+    stereoNode.connect(widthGainL, 0);
+    stereoNode.connect(widthGainR, 1);
+    widthGainL.connect(stereoMerge, 0, 0);
+    widthGainR.connect(stereoMerge, 0, 1);
+    stereoMerge.connect(normalizeNode);
+
+    normalizeNode.connect(outNode);
+
+    // параллельная ветка реверберации
+    normalizeNode.connect(reverbNode);
+    reverbNode.connect(reverbGain);
+    reverbGain.connect(outNode);
+
     outNode.connect(audioCtx.destination);
 
     // анализатор спектра для визуализатора «под бит»: подключаем параллельно,
@@ -163,19 +243,137 @@ function ensureGraph() {
   }
 }
 
+/**
+ * Короткий импульс для реверберации: затухающий шум.
+ * Строится один раз при создании графа.
+ */
+function buildReverbImpulse(ctx, seconds) {
+  const rate = ctx.sampleRate;
+  const length = Math.floor(rate * seconds);
+  const impulse = ctx.createBuffer(2, length, rate);
+  for (let channel = 0; channel < 2; channel += 1) {
+    const data = impulse.getChannelData(channel);
+    for (let i = 0; i < length; i += 1) {
+      // экспоненциальное затухание, чтобы хвост был коротким и естественным
+      data[i] = (Math.random() * 2 - 1) * (1 - i / length) ** 2.6;
+    }
+  }
+  return impulse;
+}
+
 function applyEq() {
   if (!preampNode || !eqNodes.length) return;
   preampNode.gain.value = theme.eq.on ? dbToGain(theme.eq.preamp) : 1;
   eqNodes.forEach((node, i) => {
     node.gain.value = theme.eq.on ? Number(theme.eq.bands[i] || 0) : 0;
   });
+
+  // расширенная обработка (Spide: Audio Lab)
+  const on = theme.eq.on;
+  const lab = theme.lab || {};
+  if (bassNode) bassNode.gain.value = on ? Number(lab.bass || 0) : 0;
+  if (warmthNode) warmthNode.gain.value = on ? -Number(lab.warmth || 0) * 1.5 : 0;
+  if (depthNode) depthNode.gain.value = on ? Number(lab.depth || 0) : 0;
+  // Ширина стерео: 100 % — исходное поле. Больше — каналы расходятся
+  // (разность громкая), меньше — стягиваются к моно.
+  const width = clamp(Number(lab.width ?? 100) / 100, 0, 2);
+  if (widthGainL && widthGainR) {
+    widthGainL.gain.value = clamp(1 + (width - 1) * 0.8, 0, 2);
+    widthGainR.gain.value = clamp(1 - (width - 1) * 0.2, 0, 2);
+  }
+  if (reverbGain) reverbGain.gain.value = on ? clamp(Number(lab.reverb || 0) / 200, 0, 0.35) : 0;
+
+  // нормализация громкости: включается отдельно, чтобы не «жевать» динамику
+  if (normalizeNode) {
+    normalizeNode.ratio.value = theme.normalize ? 3 : 1;
+    normalizeNode.threshold.value = theme.normalize ? -24 : 0;
+  }
 }
 
 function resumeCtx() {
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
 }
 
-onThemeChange(() => applyEq());
+onThemeChange(() => {
+  applyEq();
+  applySoundMode();
+});
+
+/**
+ * Готовые звуковые режимы (идея из Spide): Studio, Lo-Fi, Nightcore,
+ * Slowed, Vaporwave. Каждый — набор полос эквалайзера, скорости и
+ * дополнительной обработки; применяется к текущему треку сразу.
+ */
+const SOUND_MODES = {
+  studio: {
+    label: 'Студия',
+    bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    lab: { bass: 0, warmth: 0, depth: 0, reverb: 0, speed: 100, pitch: 0 },
+  },
+  lofi: {
+    label: 'Lo-Fi',
+    // мягкие верха, тёплая середина, немного реверба
+    bands: [2, 3, 2, 0, -1, -3, -5, -7, -8, -9],
+    lab: { bass: 3, warmth: 4, depth: 2, reverb: 22, speed: 96, pitch: 0 },
+  },
+  nightcore: {
+    label: 'Nightcore',
+    // быстрее и выше, подчёркнутые верха
+    bands: [-2, -1, 0, 1, 2, 3, 4, 5, 5, 4],
+    lab: { bass: 0, warmth: 0, depth: 0, reverb: 0, speed: 125, pitch: 3 },
+  },
+  slowed: {
+    label: 'Slowed',
+    // медленнее и ниже, больше низа и хвоста
+    bands: [4, 5, 4, 2, 0, -1, -2, -3, -3, -2],
+    lab: { bass: 5, warmth: 2, depth: 4, reverb: 15, speed: 85, pitch: -2 },
+  },
+  vaporwave: {
+    label: 'Vaporwave',
+    bands: [3, 4, 3, 0, -2, -4, -5, -6, -6, -5],
+    lab: { bass: 4, warmth: 5, depth: 3, reverb: 34, speed: 80, pitch: -3 },
+  },
+};
+
+/** Применить выбранный режим к графу и плееру. */
+function applySoundMode() {
+  const mode = SOUND_MODES[theme.soundMode] || SOUND_MODES.studio;
+
+  // Скорость воспроизведения (rate) — элемент, а не узел графа.
+  try {
+    const rate = clamp((Number(theme.lab?.speed) || 100) / 100, 0.5, 1.5);
+    if (audio.playbackRate !== rate) audio.playbackRate = rate;
+  } catch { /* ignore */ }
+
+  // Высота тона: доступна там, где браузер поддерживает preservesPitch.
+  try {
+    const semitones = Number(theme.lab?.pitch) || 0;
+    if ('preservesPitch' in audio) audio.preservesPitch = semitones === 0;
+  } catch { /* ignore */ }
+
+  // Полосы эквалайзера из режима — только если пресет не «своя настройка».
+  if (theme.eq.preset !== 'custom' && mode.bands) {
+    eqNodes.forEach((node, i) => {
+      node.gain.value = theme.eq.on ? Number(mode.bands[i] || 0) : 0;
+    });
+  }
+}
+
+/** Список режимов для интерфейса. */
+export function soundModes() {
+  return Object.entries(SOUND_MODES).map(([id, mode]) => ({ id, label: mode.label }));
+}
+
+/** Применить режим звука по идентификатору. */
+export function setSoundMode(id) {
+  if (!SOUND_MODES[id]) return;
+  theme.soundMode = id;
+  const mode = SOUND_MODES[id];
+  theme.eq.bands = [...mode.bands];
+  theme.lab = { ...theme.lab, ...mode.lab };
+  applyEq();
+  applySoundMode();
+}
 
 /**
  * Страховка: если Web Audio почему-то не отдал звук (кросс-доменный поток,

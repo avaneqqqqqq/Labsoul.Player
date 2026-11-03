@@ -29,6 +29,32 @@ contextBridge.exposeInMainWorld('playerDesktop', {
     return ipcRenderer.invoke('auth:soundcloud');
   },
 
+  /* ---------------- Discord Rich Presence и оверлей ---------------- */
+
+  /** Состояние подключения к Discord. */
+  discordStatus() {
+    return ipcRenderer.invoke('discord:status');
+  },
+
+  /** Отправить активность в Discord: {title, artist, cover, startedAt}. */
+  discordActivity(payload) {
+    return ipcRenderer.invoke('discord:activity', payload);
+  },
+
+  /** Открыть/закрыть оверлей-плеер поверх всех окон. */
+  toggleOverlay() {
+    return ipcRenderer.invoke('overlay:toggle');
+  },
+
+  closeOverlay() {
+    return ipcRenderer.invoke('overlay:close');
+  },
+
+  /** Передать оверлею текущее состояние трека. */
+  sendOverlayState(payload) {
+    return ipcRenderer.invoke('overlay:state', payload);
+  },
+
   /**
    * Путь файла, перетащенного в окно. В Electron 32 свойство File.path убрано,
    * поэтому путь берём через webUtils (документированный способ).

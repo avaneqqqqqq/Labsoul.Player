@@ -15,6 +15,8 @@ const fs = require('node:fs');
 const net = require('node:net');
 const { spawn } = require('node:child_process');
 const oauth = require('./oauth.cjs');
+const discord = require('./discord.cjs');
+const overlay = require('./overlay.cjs');
 
 // Если файл запустили обычным node (или с ELECTRON_RUN_AS_NODE=1), electron-модули
 // приходят пустыми — подсказываем правильный способ запуска вместо стектрейса.
@@ -700,6 +702,33 @@ function signInSoundCloud() {
 
 ipcMain.handle('auth:soundcloud', () => signInSoundCloud());
 
+/* ------------------- Discord и оверлей-плеер (идеи из Liner) ------------- */
+
+ipcMain.handle('discord:status', () => discord.status());
+
+ipcMain.handle('discord:activity', (_event, payload) => {
+  if (!payload) {
+    discord.clearActivity();
+    return false;
+  }
+  return discord.setActivity(payload);
+});
+
+ipcMain.handle('overlay:toggle', () => overlay.toggle({
+  html: `http://127.0.0.1:${currentPort || 5270}/`,
+  port: currentPort || 5270,
+}));
+
+ipcMain.handle('overlay:close', () => {
+  overlay.close();
+  return false;
+});
+
+ipcMain.handle('overlay:state', (_event, payload) => {
+  overlay.send(payload);
+  return overlay.isOpen();
+});
+
 /* --------------------------- своя музыка --------------------------------- */
 
 ipcMain.handle('local:pick', async () => {
@@ -1241,6 +1270,13 @@ if (!app.requestSingleInstanceLock()) {
 
     // проверка обновлений: не сразу, чтобы не мешать старту
     setTimeout(() => checkUpdates(), 4000);
+
+    // Discord Rich Presence: подключаемся в фоне, ошибка не критична
+    setTimeout(() => {
+      discord.start().then((ok) => {
+        log(`discord presence: ${ok ? 'подключён' : 'недоступен'}`);
+      }).catch(() => {});
+    }, 2500);
 
     // проверка внешнего вида уведомления без реального релиза: labsoul.exe --fake-update
     if (process.argv.includes('--fake-update')) {

@@ -104,6 +104,20 @@ export const DEFAULTS = {
     preamp: 0,
     bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   },
+  // Audio Lab (идея из Spide): обработка звука поверх эквалайзера
+  lab: {
+    bass: 0,      // усиление баса, дБ (0–12)
+    warmth: 0,    // теплота: срез верхов (−6…0)
+    depth: 0,     // глубина/саб, дБ (0–12)
+    reverb: 0,    // реверберация, 0–100
+    width: 100,   // ширина стерео, % (0–200)
+    speed: 100,   // скорость воспроизведения, % (50–150)
+    pitch: 0,     // высота тона, полутона (−12…12)
+  },
+  // нормализация громкости между треками
+  normalize: false,
+  // готовый звуковой режим: studio | lofi | nightcore | slowed | vaporwave
+  soundMode: 'studio',
 };
 
 const VARIANTS = new Set(['glass', 'vinyl', 'neon', 'paper']);
@@ -132,6 +146,20 @@ function mergeEq(base, raw) {
   if (Array.isArray(raw.bands) && raw.bands.length === 10) {
     out.bands = raw.bands.map((v) => clamp(Math.round(Number(v) || 0), -12, 12));
   }
+  return out;
+}
+
+/** Сохранить настройки Audio Lab при загрузке из localStorage. */
+function mergeLab(base, raw) {
+  const out = { ...base };
+  if (!raw || typeof raw !== 'object') return out;
+  out.bass = clamp(Math.round(Number(raw.bass) || 0), 0, 12);
+  out.warmth = clamp(Math.round(Number(raw.warmth) || 0), 0, 6);
+  out.depth = clamp(Math.round(Number(raw.depth) || 0), 0, 12);
+  out.reverb = clamp(Math.round(Number(raw.reverb) || 0), 0, 100);
+  out.width = clamp(Math.round(Number(raw.width) || 100), 0, 200);
+  out.speed = clamp(Math.round(Number(raw.speed) || 100), 50, 150);
+  out.pitch = clamp(Math.round(Number(raw.pitch) || 0), -12, 12);
   return out;
 }
 
@@ -186,6 +214,11 @@ function normalizeTheme(raw) {
     out.blockOrder = order;
   }
   out.eq = mergeEq(out.eq, raw.eq);
+  out.lab = mergeLab(out.lab, raw.lab);
+  if (typeof raw.normalize === 'boolean') out.normalize = raw.normalize;
+  if (['studio', 'lofi', 'nightcore', 'slowed', 'vaporwave'].includes(raw.soundMode)) {
+    out.soundMode = raw.soundMode;
+  }
 
   if (typeof raw.customWall === 'string' && raw.customWall.startsWith('data:image/')) {
     out.customWall = raw.customWall;
@@ -349,6 +382,8 @@ export function applyTheme({ emitEvent = false } = {}) {
   body.dataset.coverPulse = theme.coverPulse ? 'on' : 'off';
 
   body.style.setProperty('--radius', `${theme.radius}px`);
+  // реактивность фона под музыку: значение 0…1 обновляет плеер
+  body.style.setProperty('--beat', '0');
   body.style.setProperty('--cover-radius', `${theme.coverRadius}px`);
   body.style.setProperty('--np-lyrics-scale', String((theme.lyricsSize || 100) / 100));
   body.style.setProperty('--ui-scale', String((theme.uiScale || 100) / 100));

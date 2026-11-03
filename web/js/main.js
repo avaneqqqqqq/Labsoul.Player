@@ -43,7 +43,38 @@ function syncPlayerVisualizer() {
 
     playerVisualizer = new BeatVisualizer(node);
     playerVisualizer.attach(getAnalyser());
+
+    // Фон окна реагирует на музыку: уровень низа попадает в CSS-переменную
+    // --beat, от которой пульсирует подсветка обложки.
+    startBeatPulse();
   } catch { /* визуализатор не критичен */ }
+}
+
+/** Мягкая пульсация фона под текущий трек. */
+let beatFrame = 0;
+
+function startBeatPulse() {
+  if (beatFrame) cancelAnimationFrame(beatFrame);
+  beatFrame = 0;
+  const analyser = getAnalyser();
+  if (!analyser || theme.anim === false || theme.beat === false) return;
+
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  let smooth = 0;
+
+  const tick = () => {
+    analyser.getByteFrequencyData(data);
+    // берём только низа: по ним и чувствуется бит
+    let sum = 0;
+    const bins = Math.max(1, Math.floor(data.length * 0.25));
+    for (let i = 0; i < bins; i += 1) sum += data[i];
+    const level = sum / bins / 255;
+    smooth = level > smooth ? level : smooth * 0.82 + level * 0.18;
+    document.body.style.setProperty('--beat', smooth.toFixed(3));
+    beatFrame = requestAnimationFrame(tick);
+  };
+
+  beatFrame = requestAnimationFrame(tick);
 }
 
 const SCREENS = {

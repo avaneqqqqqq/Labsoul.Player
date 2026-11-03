@@ -4,7 +4,7 @@
    ========================================================================= */
 
 import { getLyrics, getUpdate, isDemo, net, ping } from './api.js';
-import { player, EQ_HZ, EQ_LABELS, EQ_PRESETS } from './audio.js';
+import { player, EQ_HZ, EQ_LABELS, EQ_PRESETS, soundModes, setSoundMode } from './audio.js';
 import {
   coverImg,
   icon,
@@ -287,6 +287,9 @@ function playerTemplate(snap) {
       <button class="pl-btn pl-queue" type="button" data-pl="queue" title="Очередь" aria-label="Очередь">
         ${icon('queue')}<i class="pl-queue__count" data-pl-queue-count>${snap.queue.length}</i>
       </button>
+      <button class="pl-btn pl-overlay" type="button" data-pl="overlay" title="Мини-плеер поверх окон" aria-label="Мини-плеер поверх окон">
+        ${icon('fullscreen')}
+      </button>
     </div>`;
 }
 
@@ -369,10 +372,59 @@ function syncPlayer(snap) {
   if (eq) eq.classList.toggle('on', theme.eq.on);
 }
 
+/**
+ * Отправить текущий трек в Discord и оверлей-плеер.
+ *
+ * Работает только в настольной версии: в браузере окна playerDesktop нет,
+ * поэтому вызовы просто пропускаются.
+ */
+let presenceTrackId = null;
+
+function syncPresence(snap) {
+  const bridge = window.playerDesktop;
+  if (!bridge) return;
+
+  const track = snap?.current;
+  if (!track) {
+    try { bridge.discordActivity(null); } catch { /* ignore */ }
+    return;
+  }
+
+  // не спамим Discord: обновляем при смене трека или паузе, не каждый тик
+  const key = `${track.id}:${snap.playing ? 'play' : 'pause'}`;
+  if (key === presenceTrackId) return;
+  presenceTrackId = key;
+
+  const payload = {
+    title: track.title || '',
+    artist: (track.artists || []).join(', '),
+    cover: track.cover || null,
+    startedAt: snap.playing ? Date.now() - (Number(snap.time) || 0) * 1000 : null,
+  };
+
+  try {
+    if (snap.playing) bridge.discordActivity(payload);
+    else bridge.discordActivity(null);
+  } catch { /* Discord не запущен — не мешаем музыке */ }
+
+  try {
+    bridge.sendOverlayState({
+      ...payload,
+      playing: Boolean(snap.playing),
+      time: Number(snap.time) || 0,
+      duration: Number(snap.duration) || 0,
+    });
+  } catch { /* оверлей закрыт */ }
+}
+
 function onPlayerEvent(snap, event) {
   if (event === 'time') {
     syncPlayer(snap);
     return;
+  }
+  // Discord Rich Presence и оверлей: обновляем при смене трека и паузе
+  if (event === 'track' || event === 'init' || event === 'state') {
+    syncPresence(snap);
   }
   if (event === 'init' || event === 'track' || snap.current?.id !== ui.currentTrackId) {
     renderPlayer(snap);
@@ -434,6 +486,18 @@ function onPlayerClick(event) {
       break;
     }
     case 'queue': toggleQueue(); break;
+    case 'overlay': {
+      // мини-плеер поверх всех окон (только в настольной версии)
+      const bridge = window.playerDesktop;
+      if (bridge?.toggleOverlay) {
+        bridge.toggleOverlay().then((open) => {
+          toast(open ? 'Мини-плеер открыт поверх окон' : 'Мини-плеер скрыт', { icon: 'check' });
+        }).catch(() => {});
+      } else {
+        toast('Мини-плеер доступен только в настольном приложении', { type: 'warn' });
+      }
+      break;
+    }
     case 'eq': toggleEqPopover(target); break;
     default: break;
   }
@@ -467,8 +531,17 @@ function toggleEqPopover(button) {
       <input type="checkbox" id="eq-pop-on" ${theme.eq.on ? 'checked' : ''}>
       <span>Включить</span>
     </label>
+    <div class="eq-pop__section">Пресеты</div>
     <div class="eq-pop__presets" data-eq-presets></div>
     <div class="eq-pop__gains" data-eq-gains></div>
+    <div class="eq-pop__section">Режимы звука</div>
+    <div class="eq-pop__presets" data-eq-modes></div>
+    <div class="eq-pop__section">Тонкая настройка</div>
+    <div class="eq-pop__lab" data-eq-lab></div>
+    <label class="switch-row">
+      <input type="checkbox" id="eq-pop-normalize" ${theme.normalize ? 'checked' : ''}>
+      <span>Выравнивать громкость</span>
+    </label>
     <p class="eq-pop__hint">Настройка сохраняется и не сбрасывается при обновлении.</p>
   `;
   document.body.appendChild(pop);
@@ -559,6 +632,76 @@ function buildEqControls(pop) {
     const chip = document.querySelector('[data-pl="eq"]');
     if (chip) chip.classList.toggle('on', event.target.checked);
   });
+
+  // ---- режимы звука (Spide: Studio / Lo-Fi / Nightcore / Slowed / Vaporwave)
+  const modesBox = pop.querySelector('[data-eq-modes]');
+  if (modesBox) {
+    modesBox.innerHTML = soundModes().map((mode) => (
+      `<button class="eq-pop__preset${theme.soundMode === mode.id ? ' on' : ''}" type="button" data-mode="${mode.id}">${mode.label}</button>`
+    )).join('');
+
+    modesBox.addEventListener('click', (event) => {
+      const btn = event.target.closest('[data-mode]');
+      if (!btn) return;
+      setSoundMode(btn.dataset.mode);
+      update('soundMode', btn.dataset.mode, { save: true, apply: true });
+      for (const item of modesBox.querySelectorAll('.eq-pop__preset')) {
+        item.classList.toggle('on', item === btn);
+      }
+      refreshEqBands(pop);
+      refreshLab(pop);
+    });
+  }
+
+  // ---- Audio Lab: бас, теплота, глубина, ширина, скорость
+  const labBox = pop.querySelector('[data-eq-lab]');
+  if (labBox) {
+    const labControls = [
+      { key: 'bass', label: 'Бас', min: 0, max: 12, unit: ' дБ' },
+      { key: 'depth', label: 'Глубина', min: 0, max: 12, unit: ' дБ' },
+      { key: 'warmth', label: 'Теплота', min: 0, max: 6, unit: '' },
+      { key: 'width', label: 'Стерео', min: 0, max: 200, unit: '%' },
+      { key: 'reverb', label: 'Реверб', min: 0, max: 100, unit: '%' },
+      { key: 'speed', label: 'Скорость', min: 50, max: 150, unit: '%' },
+    ];
+    labBox.innerHTML = labControls.map((ctl) => {
+      const value = Number(theme.lab?.[ctl.key] ?? 0);
+      return `<label class="eq-pop__lab-row">
+        <span>${ctl.label}</span>
+        <input class="rng" type="range" min="${ctl.min}" max="${ctl.max}" step="1"
+          value="${value}" data-lab="${ctl.key}" aria-label="${ctl.label}">
+        <b>${value}${ctl.unit}</b>
+      </label>`;
+    }).join('');
+
+    labBox.addEventListener('input', (event) => {
+      const input = event.target.closest('[data-lab]');
+      if (!input) return;
+      const key = input.dataset.lab;
+      const value = Number(input.value);
+      const ctl = labControls.find((item) => item.key === key);
+      const label = input.parentElement?.querySelector('b');
+      if (label) label.textContent = `${value}${ctl?.unit || ''}`;
+      update(`lab.${key}`, value, { save: true, apply: true });
+    });
+  }
+
+  // ---- нормализация громкости
+  pop.querySelector('#eq-pop-normalize')?.addEventListener('change', (event) => {
+    update('normalize', event.target.checked, { save: true, apply: true });
+  });
+}
+
+/** Обновить подписи ползунков Audio Lab после смены режима. */
+function refreshLab(pop) {
+  for (const input of pop.querySelectorAll('[data-lab]')) {
+    const key = input.dataset.lab;
+    const value = Number(theme.lab?.[key] ?? 0);
+    input.value = String(value);
+    const unit = { bass: ' дБ', depth: ' дБ', width: '%', reverb: '%', speed: '%' }[key] || '';
+    const label = input.parentElement?.querySelector('b');
+    if (label) label.textContent = `${value}${unit}`;
+  }
 }
 
 /** Перерисовать ползунки после выбора пресета. */
