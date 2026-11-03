@@ -90,6 +90,26 @@ for (const file of files) {
 
 check('импорты найдены', importCount > 20, `всего ${importCount}`);
 
+/*
+ * Модули Electron тоже должны попадать в сборку.
+ *
+ * electron-builder берёт только файлы, перечисленные в `build.files`
+ * в app/package.json. Новый require('./discord.cjs') без этой записи
+ * молча выпадает из установщика, и приложение падает при запуске.
+ */
+try {
+  const appPackage = JSON.parse(fs.readFileSync(path.resolve(HERE, '..', 'app', 'package.json'), 'utf8'));
+  const packaged = new Set(appPackage.build?.files || []);
+  const mainSource = fs.readFileSync(path.resolve(HERE, '..', 'app', 'main.cjs'), 'utf8');
+
+  for (const match of mainSource.matchAll(/require\('\.\/([\w.-]+\.cjs)'\)/g)) {
+    const name = match[1];
+    check(`app/package.json включает ${name} в сборку`, packaged.has(name));
+  }
+} catch (error) {
+  check('проверка списка файлов сборки', false, error.message);
+}
+
 if (failures.length) {
   console.error('Провалено проверок:', failures.length);
   for (const failure of failures) console.error('  ✗', failure);
