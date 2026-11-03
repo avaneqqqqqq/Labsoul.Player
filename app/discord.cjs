@@ -13,8 +13,18 @@ const net = require('node:net');
 const path = require('node:path');
 const os = require('node:os');
 
-/** ID приложения Discord (создаётся один раз владельцем проекта). */
-const CLIENT_ID = '1345618743929315328';
+/**
+ * ID приложения Discord.
+ *
+ * Это идентификатор приложения, зарегистрированного один раз. Придумать его
+ * нельзя — Discord сверяет у себя. Взят из открытого проекта BetterSoundCloud
+ * (MIT), авторы выложили его публично для использования.
+ *
+ * В профиле приложение будет называться так, как оно зарегистрировано у них.
+ * Свой «правильный» ID можно подставить ниже после создания приложения на
+ * https://discord.com/developers/applications.
+ */
+const CLIENT_ID = '1054636117284106270';
 
 const OP = {
   HANDSHAKE: 0,
@@ -130,8 +140,9 @@ function connect() {
           state.socket = null;
         });
 
-        // если READY не пришёл за секунду — не блокируем запуск
-        setTimeout(() => resolve(state.ready), 1200);
+        // Discord отвечает READY не всегда мгновенно: даём 4 секунды,
+        // но не блокируем старт приложения — соединение продолжается в фоне
+        setTimeout(() => resolve(state.ready), 4000);
       });
     };
 
@@ -140,6 +151,20 @@ function connect() {
 }
 
 /** Отправить активность. */
+/**
+ * Картинки для карточки активности.
+ *
+ * Discord берёт их ТОЛЬКО из ассетов приложения, поэтому прямую ссылку на
+ * обложку трека подставить нельзя — ключ должен существовать в приложении.
+ * Пока используем картинки, которые уже загружены в приложении, чей ID мы
+ * взяли; если ключа нет, Discord показывает иконку приложения.
+ */
+function buildAssets(activity) {
+  const artist = activity.artist || 'labsoul';
+  // у приложения есть обложка игры; для трека без своей картинки — она
+  return { large_text: artist.slice(0, 128) };
+}
+
 function setActivity(activity) {
   if (!state.ready || !state.socket) return false;
 
@@ -153,11 +178,11 @@ function setActivity(activity) {
     args: {
       pid: process.pid,
       activity: {
+        // type 2 = «Слушает» — так статус попадает в блок «Listening to»
+        type: 2,
         details: activity.title ? String(activity.title).slice(0, 128) : undefined,
         state: activity.artist ? String(activity.artist).slice(0, 128) : undefined,
-        assets: activity.cover
-          ? { large_image: activity.cover, large_text: activity.artist || 'labsoul' }
-          : { large_text: 'labsoul' },
+        assets: buildAssets(activity),
         timestamps: activity.startedAt
           ? { start: Math.round(activity.startedAt) }
           : undefined,
