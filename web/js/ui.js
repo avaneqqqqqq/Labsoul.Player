@@ -597,6 +597,28 @@ const nowPlaying = { el: null, unsub: null, onKey: null, lyrics: null };
 /* Текст песни в полноэкранном плеере                                   */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Разметка строки текста.
+ *
+ * Если пришли послоговые тайминги (провайдер lrcmux), каждое слово
+ * оборачиваем в отдельный span с временем начала/конца — тогда подсветка
+ * идёт по слову, как в караоке, а не по всей строке сразу.
+ */
+function lyricWordsHtml(line) {
+  const words = Array.isArray(line?.words) ? line.words : null;
+  if (!words || words.length < 2) return esc(line?.text ?? '');
+
+  return words
+    .map((word) => {
+      const start = Number(word.start);
+      const end = Number(word.end);
+      const startAttr = Number.isFinite(start) ? start : '';
+      const endAttr = Number.isFinite(end) ? end : '';
+      return `<span class="np__lyric-word" data-word-start="${startAttr}" data-word-end="${endAttr}">${esc(word.text)}</span>`;
+    })
+    .join('');
+}
+
 function lyricsState() {
   if (!nowPlaying.lyrics) {
     nowPlaying.lyrics = { key: null, status: 'idle', synced: [], plain: '', provider: null, instrumental: false, open: false, index: -1 };
@@ -654,11 +676,12 @@ function renderLyrics() {
       .map((line, index) => ({ line, index }))
       .filter(({ line }) => !isPlaceholder(line.text))
       .map(({ line, index }) => `<div class="np__lyric" data-lyric="${index}" data-lyric-time="${line.time}" title="Перейти к строке">
-        <span class="np__lyric-text">${esc(line.text)}</span>
+        <span class="np__lyric-text">${lyricWordsHtml(line)}</span>
         <button class="np__lyric-share" type="button" data-np-share="${index}" title="Поделиться строкой" aria-label="Поделиться строкой">${icon('external')}</button>
       </div>`)
       .join('');
     state.index = -1;
+    state.hasWords = state.synced.some((line) => line.words?.length > 1);
     syncLyrics(player.getState().time, true);
     return;
   }
@@ -688,6 +711,34 @@ function renderLyrics() {
 }
 
 /** Подсвечивает текущую строку и плавно подводит её к центру. */
+/**
+ * Караоке-подсветка: слово получает класс, когда до него дошло время.
+ *
+ * Классы ставятся только при изменении состояния — иначе на каждом
+ * тике браузер пересчитывал бы стили у десятков элементов.
+ */
+function highlightWords(trackBox, synced, at) {
+  const activeLine = synced.find((line, i) => {
+    const next = synced[i + 1];
+    return line.time <= at && (!next || next.time > at);
+  });
+  if (!activeLine?.words?.length) return;
+
+  const node = [...trackBox.children].find(
+    (child) => child instanceof HTMLElement && Number(child.dataset.lyricTime) === Number(activeLine.time),
+  );
+  if (!node) return;
+
+  for (const word of node.querySelectorAll('.np__lyric-word')) {
+    const start = Number(word.dataset.wordStart);
+    const end = Number(word.dataset.wordEnd);
+    const started = Number.isFinite(start) && at >= start;
+    const passed = Number.isFinite(end) && at >= end;
+    word.classList.toggle('is-sung', passed);
+    word.classList.toggle('is-singing', started && !passed);
+  }
+}
+
 function syncLyrics(time, force = false) {
   const state = lyricsState();
   if (!state.open || state.status !== 'ready' || !state.synced.length) return;
@@ -704,6 +755,10 @@ function syncLyrics(time, force = false) {
     if (state.synced[i].time <= at + 0.25) index = i;
     else break;
   }
+
+  // Послоговая подсветка идёт внутри строки, поэтому её надо обновлять
+  // на каждом тике, а не только при смене строки.
+  if (state.hasWords) highlightWords(trackBox, state.synced, at);
 
   if (!force && index === state.index) return;
   state.index = index;

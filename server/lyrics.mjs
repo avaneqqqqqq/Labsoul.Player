@@ -19,6 +19,15 @@ import { fileURLToPath } from 'node:url';
 
 const LRCLIB = 'https://lrclib.net/api';
 const NETEASE = 'https://music.163.com/api';
+/**
+ * Lrcmux — публичный прокси к караоке-текстам KuGou.
+ *
+ * Единственный бесплатный источник, отдающий ПОСЛОГОВЫЕ тайминги
+ * (`level=word`): внутри каждой строки приходит массив `words` со
+ * временем начала и конца. Ключ не нужен.
+ */
+const LRCMUX = 'https://api.lrcmux.dev';
+const LRCMUX_TIMEOUT_MS = 9000;
 const LRCLIB_TIMEOUT_MS = 4500;
 const NETEASE_TIMEOUT_MS = 7000;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
@@ -393,6 +402,104 @@ export function cleanSynced(lines) {
   });
 }
 
+/* -------------------------------- Lrcmux -------------------------------- */
+
+/**
+ * Достать караоке-текст (послоговые тайминги) из KuGou через lrcmux.dev.
+ *
+ * Это основной источник для «подсветки по слову»: отдаёт массив `lines`,
+ * где у каждой строки есть `start`/`end` в миллисекундах и, если повезёт,
+ * массив `words` — по одному элементу на слово с собственным временем.
+ *
+ * @returns {Promise<object|null>} результат в общем формате текстов
+ */
+async function lrcmuxLyrics(meta) {
+  const params = new URLSearchParams({
+    // prepare() отдаёт artist строкой, а не массивом
+    artist: String(meta.artist || '').trim() || meta.title,
+    title: meta.title,
+    level: 'word',
+  });
+  const url = `${LRCMUX}/get?${params}`;
+
+  // Сервис иногда отвечает 404 на первый запрос, который у него ещё не
+  // прогрелся в кэше: вторая попытка обычно успешна.
+  let data = null;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), LRCMUX_TIMEOUT_MS);
+    try {
+      const response = await fetch(url, {
+        headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+        signal: controller.signal,
+      });
+      if (response.ok) {
+        data = await response.json();
+        break;
+      }
+      if (attempt === 2) log(`lrcmux: HTTP ${response.status}`);
+    } catch (error) {
+      if (attempt === 2) log(`lrcmux: ${error.message}`);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (!data) return null;
+
+  const lines = Array.isArray(data?.lines) ? data.lines : [];
+  if (!lines.length) return null;
+
+  // Проверяем, что это тот же трек: длительность не должна расходиться сильно
+  const duration = Number(data?.track?.duration) || 0;
+  if (meta.duration && duration && Math.abs(duration - meta.duration) > 20) {
+    log(`lrcmux: другая длительность (${duration} против ${meta.duration})`);
+    return null;
+  }
+
+  const synced = [];
+  let wordLevel = false;
+
+  for (const line of lines) {
+    const text = String(line?.text || '').trim();
+    if (!text) continue;
+
+    const startMs = Number(line.start) || 0;
+    const endMs = Number(line.end) || startMs;
+
+    // послоговые данные приходят отдельным массивом
+    const words = Array.isArray(line.words)
+      ? line.words
+        .map((word) => ({
+          text: String(word?.text || ''),
+          start: (Number(word?.start) || startMs) / 1000,
+          end: (Number(word?.end) || endMs) / 1000,
+        }))
+        .filter((word) => word.text.trim())
+      : [];
+
+    if (words.length > 1) wordLevel = true;
+
+    synced.push({
+      time: startMs / 1000,
+      end: endMs > startMs ? endMs / 1000 : undefined,
+      text,
+      words: words.length > 1 ? words : undefined,
+    });
+  }
+
+  if (!synced.length) return null;
+
+  return {
+    available: true,
+    instrumental: false,
+    synced,
+    plain: synced.map((line) => line.text).join('\n'),
+    provider: wordLevel ? 'lrcmux-word' : 'lrcmux',
+    wordLevel,
+  };
+}
+
 /* -------------------------------- Genius -------------------------------- */
 
 const GENIUS_HEADERS = {
@@ -533,18 +640,25 @@ function prepare({ title, artist, album, duration }) {
 export async function lookup(rawMeta) {
   const meta = prepare(rawMeta);
 
-  // LRCLIB и NetEase опрашиваем одновременно: ждать по очереди слишком долго
-  const [lrclibResult, neteaseResult] = await Promise.allSettled([
+  // LRCLIB, NetEase и Lrcmux опрашиваем одновременно: ждать по очереди слишком долго
+  const [lrclibResult, neteaseResult, lrcmuxResult] = await Promise.allSettled([
     lrclibExact(meta),
     neteaseLyrics(meta),
+    lrcmuxLyrics(meta),
   ]);
 
   const lrclib = lrclibResult.status === 'fulfilled' ? lrclibResult.value : null;
   const netease = neteaseResult.status === 'fulfilled' ? neteaseResult.value : null;
+  const lrcmux = lrcmuxResult.status === 'fulfilled' ? lrcmuxResult.value : null;
   if (lrclibResult.status === 'rejected') log(`lrclib get: ${lrclibResult.reason?.message}`);
   if (neteaseResult.status === 'rejected') log(`netease: ${neteaseResult.reason?.message}`);
+  if (lrcmuxResult.status === 'rejected') log(`lrcmux: ${lrcmuxResult.reason?.message}`);
 
-  const withSync = [lrclib, netease].filter((item) => item?.synced?.length).map(postProcess);
+  // Приоритет: у кого есть послоговые тайминги — тот и отдаём первым,
+  // иначе подсветка по слову не появится, хотя данные пришли.
+  if (lrcmux?.wordLevel && lrcmux.synced?.length) return postProcess(lrcmux);
+
+  const withSync = [lrclib, netease, lrcmux].filter((item) => item?.synced?.length).map(postProcess);
   if (withSync.length) return withSync[0];
 
   let search = null;
@@ -552,7 +666,7 @@ export async function lookup(rawMeta) {
   const searchSync = search?.synced?.length ? postProcess(search) : null;
   if (searchSync) return searchSync;
 
-  const anyText = [lrclib, netease, search].find((item) => item?.available && item.plain);
+  const anyText = [lrclib, netease, lrcmux, search].find((item) => item?.available && item.plain);
   if (anyText) return postProcess(anyText);
 
   // своих источников не хватило — идём в Genius
