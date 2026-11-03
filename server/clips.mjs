@@ -97,11 +97,71 @@ export async function searchClips({ title, artist }) {
     if (items.length >= 8) break;
   }
 
-  cache.set(key, { items, at: Date.now() });
+  // Сопоставление: ставим в начало то видео, которое действительно
+  // соответствует треку. Первый результат поиска часто оказывается
+  // кавером, slowed-версией или посторонним роликом — пользователю
+  // не нужно выбирать вручную.
+  const ranked = rankVideos(items, { title, artist });
+
+  cache.set(key, { items: ranked, at: Date.now() });
   if (cache.size > 200) {
     const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
     if (oldest) cache.delete(oldest[0]);
   }
 
-  return items;
+  return ranked;
+}
+
+/* ------------------------ сопоставление видео с треком ------------------- */
+
+/** Привести строку к сравнимому виду: без регистра, знаков и лишних слов. */
+function squash(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/\((?:feat|ft)[^)]*\)/g, ' ')
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Насколько похожи две строки: 0…1 по общим словам. */
+function overlap(a, b) {
+  const left = new Set(squash(a).split(' ').filter((w) => w.length > 1));
+  const right = new Set(squash(b).split(' ').filter((w) => w.length > 1));
+  if (!left.size || !right.size) return 0;
+  let common = 0;
+  for (const word of left) if (right.has(word)) common += 1;
+  return common / Math.max(left.size, right.size);
+}
+
+const BAD_WORDS = /slowed|reverb|nightcore|speed\s*up|8d\s*audio|instrumental|караоке|karaoke|минус|cover|кавер|reaction|реакция|tutorial|разбор/;
+const GOOD_WORDS = /клип|official|официальн|премьера|premiere|mv|music\s*video|video|клип\b/;
+
+/**
+ * Оценить видео и расставить по убыванию соответствия треку.
+ *
+ * Учитывается: совпадение названия, наличие исполнителя в названии или
+ * канале, «официальность» ролика и минусы за каверы, slowed и реакции.
+ */
+function rankVideos(items, { title, artist }) {
+  const wantedTitle = squash(title);
+  const wantedArtist = squash(artist);
+
+  const scored = items.map((video, index) => {
+    const haystack = `${video.title} ${video.author || ''}`;
+    const nameScore = overlap(wantedTitle, video.title);
+    const artistScore = wantedArtist ? overlap(wantedArtist, haystack) : 0;
+
+    let score = nameScore * 3 + artistScore * 2;
+    if (GOOD_WORDS.test(haystack)) score += 0.8;
+    if (BAD_WORDS.test(haystack)) score -= 1.6;
+    // порядок в поиске ещё что-то значит, но слабее текстового совпадения
+    score -= index * 0.08;
+
+    return { video, score, nameScore };
+  });
+
+  // без совпадения названия видео всё равно оставляем, но ниже
+  scored.sort((a, b) => b.score - a.score);
+  return scored.map((entry) => entry.video);
 }

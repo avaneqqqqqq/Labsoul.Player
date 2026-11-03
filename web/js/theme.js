@@ -86,6 +86,8 @@ export const DEFAULTS = {
   barSeek: true,
   // кнопка «Клип» в полноэкранном плеере: видео ищется на YouTube
   clips: true,
+  // держать видео вровень с треком (иначе клип живёт своей жизнью)
+  clipSync: true,
   // плавное появление и затухание звука при смене трека
   crossfade: true,
   // полный кроссфейд: два трека звучат одновременно
@@ -210,6 +212,7 @@ function normalizeTheme(raw) {
   }
   if (typeof raw.barSeek === 'boolean') out.barSeek = raw.barSeek;
   if (typeof raw.clips === 'boolean') out.clips = raw.clips;
+  if (typeof raw.clipSync === 'boolean') out.clipSync = raw.clipSync;
   if (WALLPAPERS.has(raw.wallpaper)) out.wallpaper = raw.wallpaper;
   if (DENSITIES.has(raw.density)) out.density = raw.density;
   if (Number.isFinite(raw.radius)) out.radius = clamp(Math.round(raw.radius), 0, 34);

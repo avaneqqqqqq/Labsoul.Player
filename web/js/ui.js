@@ -469,6 +469,9 @@ function onPlayerEvent(snap, event) {
   if (event === 'tick') {
     syncLyricsClock(snap.time);
     syncProgressClock(snap);
+    // раз в несколько кадров подтягиваем видео: каждый кадр дёргать
+    // YouTube-плеер дорого и он не успевает отвечать
+    if (clipsState.open && (ui.clipTick = (ui.clipTick || 0) + 1) % 15 === 0) syncClip();
     return;
   }
   // Discord Rich Presence и оверлей: обновляем при смене трека и паузе
@@ -1162,37 +1165,149 @@ function renderClips() {
       <span>Для этого трека видео нет в поиске</span>
     </div>`;
   } else {
+    // Выбора нет: сервер уже сопоставил видео с треком и поставил
+    // подходящее первым — пользователю остаётся только смотреть.
     box.innerHTML = `
-      <div class="np__clips-frame">
-        <iframe
-          src="https://www.youtube.com/embed/${esc(clipsState.current)}?rel=0&modestbranding=1&playsinline=1&autoplay=0&controls=1"
-          title="Клип"
-          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-          allowfullscreen
-        ></iframe>
+      <div class="np__clips-frame" data-clip-frame></div>
+      <div class="np__clips-sync">
+        <label class="np__clips-synctoggle" title="Держать видео вровень с треком">
+          <input type="checkbox" data-clip-sync ${theme.clipSync !== false ? 'checked' : ''}>
+          <span>Синхронизировать с треком</span>
+        </label>
+        <button class="np__clips-offset" type="button" data-clip-offset title="Сдвиг начала клипа относительно трека">${clipsState.offset ? `+${clipsState.offset} с` : 'без сдвига'}</button>
       </div>
-      <div class="np__clips-list">
-        ${clipsState.items.map((video) => `
-          <button class="np__clips-item${video.id === clipsState.current ? ' on' : ''}" type="button" data-clip-id="${esc(video.id)}">
-            <span class="np__clips-title">${esc(video.title)}</span>
-            <span class="np__clips-author">${esc(video.author || '')}</span>
-          </button>`).join('')}
-      </div>`;
+      <div class="np__clips-meta" title="${esc(clipsState.items[0]?.title || '')}">${esc(clipsState.items[0]?.title || '')}</div>`;
 
     box.addEventListener('click', (event) => {
-      const item = event.target.closest('[data-clip-id]');
-      if (!item) return;
-      clipsState.current = item.dataset.clipId;
-      renderClips();
+      // сдвиг: клип часто начинается с интро, которого нет в треке
+      if (event.target.closest('[data-clip-offset]')) {
+        clipsState.offset = ((Number(clipsState.offset) || 0) + 5) % 30;
+        renderClips();
+      }
+    });
+
+    box.addEventListener('change', (event) => {
+      const toggle = event.target.closest('[data-clip-sync]');
+      if (toggle) update('clipSync', toggle.checked);
     });
   }
 
   el.querySelector('.np__inner')?.appendChild(box);
+
+  // после вставки в DOM поднимаем плеер YouTube и привязываем к треку
+  if (!clipsState.loading && clipsState.items.length && clipsState.current) {
+    mountClipPlayer(el.querySelector('[data-clip-frame]'));
+  }
+}
+
+/* --------------------- синхронизация видео с треком ---------------------- */
+
+const CLIP_DRIFT_LIMIT = 1.2; // больше секунды расхождения — подтягиваем
+
+/**
+ * Поднять плеер YouTube и держать его вровень с треком.
+ *
+ * Обычный <iframe> не даёт управлять воспроизведением, поэтому
+ * подключается IFrame API: он позволяет запускать, ставить на паузу
+ * и перематывать видео вслед за плеером.
+ */
+function mountClipPlayer(host) {
+  if (!host || !clipsState.current) return;
+
+  const videoId = clipsState.current;
+  // уже смонтирован этот же ролик — ничего не пересоздаём
+  if (clipsState.yt && clipsState.ytVideoId === videoId && host.contains(clipsState.yt.getIframe?.())) {
+    syncClip(true);
+    return;
+  }
+
+  destroyClipPlayer();
+  clipsState.ytVideoId = videoId;
+
+  const create = () => {
+    if (!host.isConnected) return;
+    clipsState.yt = new window.YT.Player(host, {
+      videoId,
+      playerVars: {
+        rel: 0,
+        modestbranding: 1,
+        playsinline: 1,
+        controls: 1,
+        origin: location.origin,
+      },
+      events: {
+        onReady: () => syncClip(true),
+      },
+    });
+  };
+
+  if (window.YT?.Player) { create(); return; }
+
+  // грузим API один раз и ждём колбэка
+  if (!clipsState.ytPending) {
+    clipsState.ytPending = [];
+    const previous = window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady = () => {
+      if (typeof previous === 'function') previous();
+      for (const fn of clipsState.ytPending || []) fn();
+      clipsState.ytPending = null;
+    };
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.async = true;
+    document.head.appendChild(script);
+  }
+  (clipsState.ytPending || []).push(create);
+}
+
+/** Остановить и убрать видео, чтобы не играло в фоне. */
+function destroyClipPlayer() {
+  const yt = clipsState.yt;
+  clipsState.yt = null;
+  clipsState.ytVideoId = null;
+  if (!yt) return;
+  try { yt.stopVideo?.(); } catch { /* уже удалён */ }
+  try { yt.destroy?.(); } catch { /* уже удалён */ }
+}
+
+/**
+ * Подтянуть видео к текущей секунде трека.
+ * @param {boolean} force — перемотка даже при малом расхождении
+ */
+function syncClip(force = false) {
+  if (!clipsState.open || theme.clipSync === false) return;
+  const yt = clipsState.yt;
+  if (!yt || typeof yt.getCurrentTime !== 'function') return;
+
+  const snap = player.getState();
+  const target = Math.max(0, (Number(snap.time) || 0) + (Number(clipsState.offset) || 0));
+
+  try {
+    const current = yt.getCurrentTime() || 0;
+    // расхождение считаем без сдвига: сдвиг — это намеренное смещение
+    const drift = Math.abs(current - target);
+
+    if (force || drift > CLIP_DRIFT_LIMIT) {
+      yt.seekTo(target, true);
+    }
+
+    // Видео идёт вместе с треком: если трек играет — клип тоже, без
+    // отдельного нажатия «плей». Браузер разрешает это, только когда
+    // пользователь уже взаимодействовал со страницей — а открытие
+    // полноэкранного плеера как раз и есть такое действие.
+    if (snap.playing) {
+      if (yt.getPlayerState?.() !== 1) yt.playVideo();
+    } else if (yt.getPlayerState?.() === 1) {
+      yt.pauseVideo();
+    }
+  } catch { /* плеер ещё не готов */ }
 }
 
 function closeClips() {
   if (!clipsState.open) return;
   clipsState.open = false;
+  // видео не должно играть в фоне, когда панель закрыта
+  destroyClipPlayer();
   renderClips();
 }
 
