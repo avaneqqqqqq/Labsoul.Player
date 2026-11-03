@@ -1007,7 +1007,16 @@ async function loadLyrics(track) {
     return;
   }
 
-  if (state.key === key && (state.status === 'ready' || state.status === 'none')) {
+  // Готовый текст показываем без повторного запроса. «Не найден» —
+  // НЕ повод отказываться навсегда: раньше единственный сбой (или ещё не
+  // прогретый источник) блокировал поиск до перезапуска приложения.
+  if (state.key === key && state.status === 'ready') {
+    renderLyrics();
+    return;
+  }
+  // для «не найден» пробуем снова, но не чаще раза в минуту
+  if (state.key === key && state.status === 'none' && state.notFoundAt
+      && Date.now() - state.notFoundAt < 60_000) {
     renderLyrics();
     return;
   }
@@ -1017,6 +1026,7 @@ async function loadLyrics(track) {
   state.synced = [];
   state.plain = '';
   state.instrumental = false;
+  state.notFoundAt = 0;
 
   // Текст, который уже загружали в этой сессии, показываем сразу — без
   // мигания «Ищем текст…» и без повторного запроса к серверу.
@@ -1031,10 +1041,15 @@ async function loadLyrics(track) {
   try {
     const data = await getLyrics(track.source, track.sourceId);
     if (state.key !== key) return; // трек успел смениться
-    lyricsMemo.set(key, data);
-    // держим не больше сотни текстов, чтобы не копить память
-    if (lyricsMemo.size > 100) {
-      lyricsMemo.delete(lyricsMemo.keys().next().value);
+    // В кэш кладём ТОЛЬКО успешный ответ: пустой результат кэшировался
+    // навсегда, и «Текст не найден» больше не исправлялся до перезапуска.
+    const hasText = Boolean(data?.available && ((data.synced || []).length || data.plain));
+    if (hasText) {
+      lyricsMemo.set(key, data);
+      // держим не больше сотни текстов, чтобы не копить память
+      if (lyricsMemo.size > 100) {
+        lyricsMemo.delete(lyricsMemo.keys().next().value);
+      }
     }
 
     applyLyricsResult(data);
@@ -1054,14 +1069,18 @@ function applyLyricsResult(data) {
     state.synced = data.synced;
     state.plain = data.plain || '';
     state.provider = data.provider || null;
+    state.notFoundAt = 0;
   } else if (data?.available && data.plain) {
     state.status = 'ready';
     state.synced = [];
     state.plain = data.plain;
     state.provider = data.provider || null;
+    state.notFoundAt = 0;
   } else {
     state.status = 'none';
     state.instrumental = Boolean(data?.instrumental);
+    // запоминаем время отказа: через минуту попробуем снова, а не навсегда
+    state.notFoundAt = Date.now();
   }
   renderLyrics();
 }
