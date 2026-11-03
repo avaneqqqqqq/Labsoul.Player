@@ -36,6 +36,9 @@ const screen = {
   unsubs: [],
   autoFills: 0,
   aheadAt: 0,
+  // что сейчас показано в шапке: состояние + трек. Пока не меняется —
+  // шапку не перерисовываем, иначе кнопка исчезает прямо под курсором.
+  heroKey: '',
 };
 
 function currentState() {
@@ -592,11 +595,18 @@ export const waveScreen = {
         }
       }
     }));
-    screen.unsubs.push(player.subscribe((_snap, event) => {
+    screen.unsubs.push(player.subscribe((snap, event) => {
       if (event === 'time') return;
       extendQueue();
       ensureAhead();
-      paintHero();
+      // paintHero() пересоздаёт шапку целиком, и если это происходит в момент
+      // клика по «Слушать», кнопка под курсором исчезает и обработчик её не
+      // видит. Перерисовываем только когда меняется то, что видно в шапке.
+      const heroKey = `${snap.playing ? 1 : 0}:${snap.current?.id || ''}`;
+      if (heroKey !== screen.heroKey) {
+        screen.heroKey = heroKey;
+        paintHero();
+      }
       syncCurrentRows();
     }));
     screen.unsubs.push(() => container.removeEventListener('click', onScreenClick));
