@@ -100,6 +100,44 @@ body[data-scheme="amoled"] {
   color-scheme: dark;
 }
 
+/* Тёплая бумажная схема: мягкий фон, приглушённый текст. */
+body[data-scheme="sepia"] {
+  --bg: #ece3d4;
+  --bg-2: #e2d8c6;
+  --text: #2e2721;
+  --dim: #6d6459;
+  --mute: #9b9285;
+  --panel: rgba(252, 247, 238, .82);
+  --panel-strong: rgba(252, 248, 240, .95);
+  --panel-solid: #f7f1e6;
+  --border: rgba(80, 66, 46, .16);
+  --border-strong: rgba(80, 66, 46, .3);
+  --hover: rgba(80, 66, 46, .08);
+  --shadow: 0 22px 60px -30px rgba(80, 62, 40, .45);
+  --shadow-sm: 0 8px 22px -16px rgba(80, 62, 40, .4);
+  --veil: linear-gradient(rgba(240, 232, 218, .55), rgba(232, 222, 205, .8));
+  color-scheme: light;
+}
+
+/* Полуночная схема: глубокий синий вместо чёрного. */
+body[data-scheme="midnight"] {
+  --bg: #080b18;
+  --bg-2: #0c1120;
+  --text: #eef1fb;
+  --dim: #8f97b4;
+  --mute: #616a88;
+  --panel: rgba(16, 22, 40, .74);
+  --panel-strong: rgba(20, 27, 48, .93);
+  --panel-solid: #101628;
+  --border: rgba(140, 165, 255, .15);
+  --border-strong: rgba(140, 165, 255, .3);
+  --hover: rgba(140, 165, 255, .1);
+  --shadow: 0 26px 74px -30px rgba(0, 0, 20, .95);
+  --shadow-sm: 0 10px 26px -16px rgba(0, 0, 20, .8);
+  --veil: linear-gradient(rgba(6, 9, 20, .5), rgba(8, 12, 26, .78));
+  color-scheme: dark;
+}
+
 /* ---- характер вариантов ---- */
 body[data-variant="glass"] {
   --radius: 22px; --radius-sm: 14px; --blur: 24px; --grain: .05;
@@ -117,6 +155,25 @@ body[data-variant="neon"] {
 body[data-variant="paper"] {
   --radius: 26px; --radius-sm: 16px; --radius-xs: 10px; --blur: 8px; --grain: .07;
 }
+/* Минимализм: меньше скруглений, никакого размытия, тонкие линии. */
+body[data-variant="minimal"] {
+  --radius: 8px; --radius-sm: 6px; --radius-xs: 4px; --blur: 0px; --grain: 0;
+  --border: rgba(255, 255, 255, .08);
+  --shadow: 0 14px 40px -30px rgba(0, 0, 0, .8);
+  --shadow-sm: 0 6px 16px -14px rgba(0, 0, 0, .7);
+}
+/* Ретро: скруглённые углы, тёплые тени, выраженная зернистость. */
+body[data-variant="retro"] {
+  --radius: 18px; --radius-sm: 12px; --radius-xs: 8px; --blur: 4px; --grain: .18;
+  --font-display: "Trebuchet MS", "Segoe UI", sans-serif;
+  --shadow: 0 22px 60px -26px rgba(60, 30, 0, .7);
+}
+/* Мягкий: сильные скругления и плавные тени. */
+body[data-variant="soft"] {
+  --radius: 32px; --radius-sm: 20px; --radius-xs: 12px; --blur: 30px; --grain: .04;
+  --shadow: 0 40px 100px -36px rgba(0, 0, 0, .9);
+  --shadow-sm: 0 14px 36px -20px rgba(0, 0, 0, .8);
+}
 
 /* ---- плотность ---- */
 body[data-density="compact"] { --pad: 22px; --gap: 12px; --row-h: 46px; --card-min: 152px; }
@@ -127,6 +184,17 @@ body[data-density="roomy"]   { --pad: 44px; --gap: 22px; --row-h: 68px; --card-m
 body[data-font="ui"]    { --font-ui: "Segoe UI Variable Text", "Segoe UI", Inter, system-ui, sans-serif; }
 body[data-font="serif"] { --font-ui: Georgia, "Times New Roman", serif; --font-display: Georgia, "Times New Roman", serif; }
 body[data-font="mono"]  { --font-ui: "Cascadia Mono", "Consolas", ui-monospace, monospace; --font-display: "Cascadia Mono", "Consolas", ui-monospace, monospace; }
+/* Округлый: дружелюбный, хорошо читается в заголовках. */
+body[data-font="rounded"] {
+  --font-ui: "Segoe UI Variable Display", "Nunito", "Segoe UI", system-ui, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Nunito", "Segoe UI", sans-serif;
+}
+/* Узкий: плотный текст, влезает больше в строку. */
+body[data-font="condensed"] {
+  --font-ui: "Segoe UI Variable Text", "Roboto Condensed", "Arial Narrow", sans-serif;
+  --font-display: "Segoe UI Variable Display", "Roboto Condensed", "Arial Narrow", sans-serif;
+  letter-spacing: -.01em;
+}
 
 /* ---- выключенные анимации ---- */
 body[data-anim="off"] *,

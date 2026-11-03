@@ -236,6 +236,10 @@ function mapTrack(raw) {
     id: `spotify:${raw.id}`,
     source: 'spotify',
     sourceId: String(raw.id),
+    // идентификатор первого исполнителя — для его страницы
+    artistId: Array.isArray(raw?.artists) && raw.artists[0]?.id
+      ? String(raw.artists[0].id)
+      : null,
     title: String(raw.name || '').trim() || 'Без названия',
     artists: (Array.isArray(raw?.artists) ? raw.artists : [])
       .map((artist) => String(artist?.name || '').trim())
@@ -308,6 +312,45 @@ export async function search(query, limit) {
  */
 export async function track(sourceId) {
   return mapTrack(await fetchTrackRaw(sourceId));
+}
+
+/**
+ * Топ-треки исполнителя в Spotify.
+ *
+ * Web API отдаёт их через `/artists/{id}/top-tracks` — отдельного id
+ * трека не нужно, достаточно идентификатора исполнителя.
+ *
+ * @param {string} artistId
+ * @param {number} limit
+ */
+export async function artistTracks(artistId, limit = 50) {
+  const id = String(artistId || '').trim();
+  if (!id) throw fail('BAD_REQUEST', 'Не указан исполнитель');
+
+  const size = Math.min(Math.max(Number(limit) || 50, 1), 50);
+  const data = await apiJson(`/artists/${encodeURIComponent(id)}/top-tracks`, {
+    market: 'US',
+  });
+  const list = Array.isArray(data?.tracks) ? data.tracks.slice(0, size) : [];
+  return { artistId: id, tracks: list.map(mapTrack).filter(Boolean) };
+}
+
+/** Имя и аватар исполнителя для заголовка страницы. */
+export async function artistInfo(artistId) {
+  const id = String(artistId || '').trim();
+  if (!id) return null;
+  try {
+    const artist = await apiJson(`/artists/${encodeURIComponent(id)}`);
+    if (!artist) return null;
+    const images = Array.isArray(artist.images) ? artist.images : [];
+    return {
+      artistId: id,
+      name: artist.name || '',
+      cover: images[0]?.url || null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /**

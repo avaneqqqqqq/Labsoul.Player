@@ -247,11 +247,11 @@ function shellHtml() {
           <div class="panel__head">${icon('palette')}<h3>Внешний вид</h3><span class="hint">схема, стиль, акцент</span></div>
           <div class="ctl">
             <div class="ctl__label">Схема<small>тёмная, светлая или AMOLED</small></div>
-            <div class="seg" id="seg-scheme">${segButtons('scheme', [['dark', 'Тёмная'], ['light', 'Светлая'], ['amoled', 'AMOLED']])}</div>
+            <div class="seg" id="seg-scheme">${segButtons('scheme', [['dark', 'Тёмная'], ['light', 'Светлая'], ['amoled', 'AMOLED'], ['sepia', 'Сепия'], ['midnight', 'Полночь']])}</div>
           </div>
           <div class="ctl">
             <div class="ctl__label">Стиль<small>характер интерфейса</small></div>
-            <div class="seg" id="seg-variant">${segButtons('variant', [['glass', 'Стекло'], ['vinyl', 'Пластинка'], ['neon', 'Неон'], ['paper', 'Бумага']])}</div>
+            <div class="seg" id="seg-variant">${segButtons('variant', [['glass', 'Стекло'], ['vinyl', 'Пластинка'], ['neon', 'Неон'], ['paper', 'Бумага'], ['minimal', 'Минимал'], ['retro', 'Ретро'], ['soft', 'Мягкий']])}</div>
           </div>
           <div class="ctl">
             <div class="ctl__label">Акцент<small id="accent-hint">${theme.accentAuto ? 'автоматически из обложки' : 'свой цвет'}</small></div>
@@ -301,7 +301,7 @@ function shellHtml() {
           </div>
           <div class="ctl">
             <div class="ctl__label">Шрифт<small>системный, с засечками, моно</small></div>
-            <div class="seg" id="seg-font">${segButtons('font', [['ui', 'Обычный'], ['serif', 'Сериф'], ['mono', 'Моно']])}</div>
+            <div class="seg" id="seg-font">${segButtons('font', [['ui', 'Обычный'], ['serif', 'Сериф'], ['mono', 'Моно'], ['rounded', 'Округлый'], ['condensed', 'Узкий']])}</div>
           </div>
           <div class="ctl">
             <div class="ctl__label">Обложки<small>размер карточек</small></div>

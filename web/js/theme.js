@@ -120,10 +120,10 @@ export const DEFAULTS = {
   soundMode: 'studio',
 };
 
-const VARIANTS = new Set(['glass', 'vinyl', 'neon', 'paper']);
-const SCHEMES = new Set(['dark', 'light', 'amoled']);
+const VARIANTS = new Set(['glass', 'vinyl', 'neon', 'paper', 'minimal', 'retro', 'soft']);
+const SCHEMES = new Set(['dark', 'light', 'amoled', 'sepia', 'midnight']);
 const DENSITIES = new Set(['compact', 'normal', 'roomy']);
-const FONTS = new Set(['ui', 'serif', 'mono']);
+const FONTS = new Set(['ui', 'serif', 'mono', 'rounded', 'condensed']);
 const CARD_SIZES = new Set(['s', 'm', 'l']);
 const WALLPAPERS = new Set(['cover', 'aurora', 'sunset', 'ocean', 'solid', 'none', 'custom']);
 

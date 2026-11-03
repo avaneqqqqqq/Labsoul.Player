@@ -256,7 +256,9 @@ function playerTemplate(snap) {
       </div>
       <div class="pl-now__meta">
         <span class="pl-now__t" title="${esc(track?.title || 'Ничего не играет')}">${esc(track?.title || 'Ничего не играет')}</span>
-        <span class="pl-now__a">${track ? esc(artistsLine(track)) : 'Выберите трек в Волне или поиске'}</span>
+        ${track && track.artistId
+          ? `<button class="pl-now__a pl-now__a--link" type="button" data-pl="artist" title="Открыть страницу исполнителя">${esc(artistsLine(track))}</button>`
+          : `<span class="pl-now__a">${track ? esc(artistsLine(track)) : 'Выберите трек в Волне или поиске'}</span>`}
       </div>
       ${track ? `<button class="row__btn pl-now__like${liked ? ' on' : ''}" type="button" data-pl="like" title="${liked ? 'Убрать из избранного' : 'В избранное'}" aria-label="${liked ? 'Убрать из избранного' : 'В избранное'}">${icon('heart')}</button>` : ''}
       ${track ? `<button class="row__btn pl-now__close" type="button" data-pl="close" title="Закрыть плеер" aria-label="Закрыть плеер">${icon('x')}</button>` : ''}
@@ -475,6 +477,7 @@ function onPlayerClick(event) {
       break;
     }
     case 'mute': player.toggleMute(); break;
+    case 'artist': openArtistPage(); break;
     case 'close': {
       player.closeTrack();
       toast('Плеер закрыт', { icon: 'x', duration: 1600 });

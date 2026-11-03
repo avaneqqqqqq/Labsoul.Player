@@ -652,6 +652,8 @@ function mapTrack(raw) {
     id: `soundcloud:${raw.id}`,
     source: 'soundcloud',
     sourceId: String(raw.id),
+    // id пользователя-исполнителя: нужен для страницы исполнителя
+    artistId: raw?.user?.id != null ? String(raw.user.id) : null,
     title: String(raw.title || '').trim() || 'Без названия',
     artists: artistsOf(raw),
     album: raw?.publisher_metadata?.album_title ? String(raw.publisher_metadata.album_title) : null,
@@ -866,6 +868,46 @@ export async function search(query, limit) {
  */
 export async function track(sourceId) {
   return mapTrack(await fetchTrackRaw(sourceId));
+}
+
+/**
+ * Треки исполнителя в SoundCloud.
+ *
+ * API звукооблака отдаёт пользователя по его id, а его треки — отдельным
+ * запросом. По одному имени трек не найти, поэтому id приходит вместе
+ * с треком (поле user.id).
+ *
+ * @param {string|number} artistId
+ * @param {number} limit
+ */
+export async function artistTracks(artistId, limit = 50) {
+  const id = String(artistId || '').trim();
+  if (!id) throw fail('BAD_REQUEST', 'Не указан исполнитель');
+
+  const size = Math.min(Math.max(Number(limit) || 50, 1), 200);
+  const data = await apiJson(`/users/${encodeURIComponent(id)}/tracks`, {
+    limit: size,
+    linked_partitioning: 1,
+  });
+  const list = Array.isArray(data?.collection) ? data.collection : [];
+  return { artistId: id, tracks: list.map(mapTrack).filter(Boolean) };
+}
+
+/** Имя и аватар исполнителя для заголовка страницы. */
+export async function artistInfo(artistId) {
+  const id = String(artistId || '').trim();
+  if (!id) return null;
+  try {
+    const user = await apiJson(`/users/${encodeURIComponent(id)}`);
+    if (!user) return null;
+    return {
+      artistId: id,
+      name: user.username || user.permalink || '',
+      cover: user.avatar_url || null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function transcodingRank(transcoding) {
