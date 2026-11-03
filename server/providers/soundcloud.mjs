@@ -699,6 +699,30 @@ export function clientIdInfo() {
   };
 }
 
+/**
+ * Запрос с повтором при сетевом сбое.
+ *
+ * api-v2.soundcloud.com периодически обрывает соединение (ECONNRESET,
+ * «fetch failed») — особенно при параллельных запросах. Один повтор через
+ * короткую паузу почти всегда проходит, и пользователь больше не видит
+ * «сетевая ошибка» на странице исполнителя.
+ */
+async function withRetry(run, attempts = 3) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await run(attempt);
+    } catch (error) {
+      lastError = error;
+      const code = String(error?.code || error?.cause?.code || '');
+      const retryable = /UPSTREAM|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|fetch failed|network/i.test(`${code} ${error?.message || ''}`);
+      if (!retryable || attempt === attempts) break;
+      await new Promise((resolve) => setTimeout(resolve, 220 * attempt));
+    }
+  }
+  throw lastError;
+}
+
 export async function status() {
   try {
     await getClientId();
@@ -889,22 +913,16 @@ export async function artistTracks(artistId, limit = 50) {
 
   const size = Math.min(Math.max(Number(limit) || 50, 1), 200);
 
-  // client_id, добытый скрейпингом, иногда мёртв с первого раза —
-  // повторяем один раз со свежим ключом, иначе страница падает
-  // с сетевой ошибкой при холодном старте
-  let data;
-  try {
-    data = await apiJson(`/users/${encodeURIComponent(id)}/tracks`, {
+  // Повтор при сетевом обрыве и при протухшем client_id: публичный ключ,
+  // добытый со страницы, иногда мёртв с первого раза, а api-v2 к тому же
+  // рвёт соединение при параллельных запросах.
+  const data = await withRetry(async (attempt) => {
+    if (attempt > 1) await getClientId(true).catch(() => {});
+    return apiJson(`/users/${encodeURIComponent(id)}/tracks`, {
       limit: size,
       linked_partitioning: 1,
     });
-  } catch (first) {
-    await getClientId(true).catch(() => {});
-    data = await apiJson(`/users/${encodeURIComponent(id)}/tracks`, {
-      limit: size,
-      linked_partitioning: 1,
-    });
-  }
+  });
 
   const list = Array.isArray(data?.collection) ? data.collection : [];
   return { artistId: id, tracks: list.map(mapTrack).filter(Boolean) };
@@ -915,7 +933,7 @@ export async function artistInfo(artistId) {
   const id = String(artistId || '').trim();
   if (!id) return null;
   try {
-    const user = await apiJson(`/users/${encodeURIComponent(id)}`);
+    const user = await withRetry(() => apiJson(`/users/${encodeURIComponent(id)}`));
     if (!user) return null;
     return {
       artistId: id,

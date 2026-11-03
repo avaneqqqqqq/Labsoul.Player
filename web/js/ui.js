@@ -3,7 +3,7 @@
    Экраны живут в js/screens/* и сами рисуют только #content.
    ========================================================================= */
 
-import { getLyrics, getUpdate, getArtist, isDemo, net, ping } from './api.js';
+import { getLyrics, getUpdate, getArtist, getClips, isDemo, net, ping } from './api.js';
 import { bindTrackActions } from './actions.js';
 import { player, EQ_HZ, EQ_LABELS, EQ_PRESETS, soundModes, setSoundMode } from './audio.js';
 import {
@@ -401,9 +401,12 @@ function syncPresence(snap) {
   if (!force && key === presenceTrackId) return;
   presenceTrackId = key;
 
+  // убираем повторы: «WHITENER, plato...» встречается в списке дважды
+  const artistNames = [...new Set((track.artists || []).map((a) => String(a).trim()).filter(Boolean))];
+
   const payload = {
     title: track.title || '',
-    artist: (track.artists || []).join(', '),
+    artist: artistNames.join(', '),
     cover: track.cover || null,
     startedAt: snap.playing ? Date.now() - (Number(snap.time) || 0) * 1000 : null,
   };
@@ -1112,7 +1115,8 @@ async function loadClips(track) {
   renderClips();
   try {
     const artist = (track.artists || [])[0] || '';
-    const data = await net(`/api/clips?title=${encodeURIComponent(track.title)}&artist=${encodeURIComponent(artist)}`);
+    // getClips — отдельная функция: net это объект состояния, а не запрос
+    const data = await getClips(track.title, artist);
     // трек мог смениться, пока грузили
     if (clipsState.key !== track.id) return;
     clipsState.items = Array.isArray(data?.items) ? data.items : [];

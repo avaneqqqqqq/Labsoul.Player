@@ -94,6 +94,21 @@ function persistUi() {
     muted: state.muted,
     shuffle: state.shuffle,
     repeat: state.repeat,
+    // Позиция и текущий трек: после обновления приложения плеер
+    // продолжал с нуля, и счётчик времени сбивался.
+    track: state.current ? {
+      id: state.current.id,
+      source: state.current.source,
+      sourceId: state.current.sourceId,
+      title: state.current.title,
+      artists: state.current.artists,
+      cover: state.current.cover,
+      duration: state.current.duration,
+      artistId: state.current.artistId || null,
+      artistList: state.current.artistList || [],
+    } : null,
+    time: Number(state.time) || 0,
+    savedAt: Date.now(),
   });
 }
 
@@ -1231,8 +1246,7 @@ export function getAnalyser() {
   return analyserNode;
 }
 
-export const player = {
-  preloadTrack,
+export const player = {  preloadTrack,
   clearPreload,
   playTracks,
   playAt,

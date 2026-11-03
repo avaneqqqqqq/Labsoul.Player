@@ -1620,3 +1620,42 @@ body[data-anim="off"] .np__cover img {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+
+/* иконка-подсказка на плитке обоев */
+.wp__glyph {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .42);
+  color: #fff;
+  backdrop-filter: blur(3px);
+  pointer-events: none;
+}
+.wp__glyph svg { width: 14px; height: 14px; }
+
+/* плитки без фона: пунктир и приглушённый вид */
+.wp--none {
+  background:
+    repeating-linear-gradient(45deg,
+      rgba(255, 255, 255, .05) 0 6px,
+      transparent 6px 12px),
+    rgba(255, 255, 255, .02);
+  border-style: dashed;
+  border-color: var(--border-strong);
+}
+.wp--none .wp__glyph { background: rgba(255, 255, 255, .1); }
+
+/* «Цвет темы» — сплошной акцентный квадрат с лёгким свечением */
+.wp--solid {
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, .22), transparent 65%),
+    var(--accent);
+}
+.wp--solid .wp__glyph { background: rgba(0, 0, 0, .3); }

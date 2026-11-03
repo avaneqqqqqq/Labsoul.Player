@@ -147,9 +147,12 @@ export function normalizeTrack(raw) {
   const sourceId = raw.sourceId != null
     ? String(raw.sourceId)
     : String(raw.id || '').split(':').slice(1).join(':');
-  const artists = Array.isArray(raw.artists)
-    ? raw.artists.filter((x) => typeof x === 'string' && x.trim())
-    : (raw.artist ? [String(raw.artist)] : []);
+  // без повторов: один и тот же исполнитель приходит из разных полей
+  const artists = [...new Set(
+    Array.isArray(raw.artists)
+      ? raw.artists.filter((x) => typeof x === 'string' && x.trim()).map((x) => x.trim())
+      : (raw.artist ? [String(raw.artist).trim()] : []),
+  )];
   const duration = Math.max(0, Math.round(Number(raw.duration) || 0));
   const playable = raw.playable !== false;
   const reason = playable ? null : (
@@ -321,6 +324,12 @@ export async function getArtist(source, artistId, limit = 50) {
   return request(`/api/artist/${encodeURIComponent(source)}/${encodeURIComponent(artistId)}?${params}`, { timeout: 25000 });
 }
 
+/** Клипы к треку: поиск видео на YouTube по названию и исполнителю. */
+export async function getClips(title, artist) {
+  const params = new URLSearchParams({ title: String(title || ''), artist: String(artist || '') });
+  return request(`/api/clips?${params}`, { timeout: 20000 });
+}
+
 /** Состояние обхода блокировки SoundCloud (zapret). */
 export async function getDpi() {
   try {
@@ -396,12 +405,15 @@ export async function saveSettings(payload) {
   }
 }
 
-export async function search(query, sources = [], limit = 20) {  const q = String(query || '').trim();
+export async function search(query, sources = [], limit = 20) {
+  const q = String(query || '').trim();
   const sourceParam = (sources && sources.length ? sources : SOURCE_KEYS).join(',');
   if (isDemo()) return normalizeGroups(demoSearch(q, sources, limit));
   try {
     const params = new URLSearchParams({ q, sources: sourceParam, limit: String(limit) });
-    return normalizeGroups(await request(`/api/search?${params.toString()}`));
+    // поиск опрашивает три сервиса разом: стандартных 7 секунд мало,
+    // из-за этого «быстрый» первый ответ обрывался и уходил в демо-режим
+    return normalizeGroups(await request(`/api/search?${params.toString()}`, { timeout: 20000 }));
   } catch (err) {
     if (isNetworkError(err)) { degrade(err); return normalizeGroups(demoSearch(q, sources, limit)); }
     throw err;

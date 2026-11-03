@@ -66,9 +66,20 @@ function swatches() {
 }
 
 function wallpaperTiles() {
+  // у каждого варианта своя иконка-подсказка: раньше у «Без фона» и
+  // «Цвет темы» были одинаковые пустые плитки и было непонятно, что к чему
+  const glyph = {
+    cover: 'music',
+    aurora: 'spark',
+    sunset: 'spark',
+    ocean: 'wave',
+    solid: 'palette',
+    none: 'x',
+  };
   return `
     ${WALLS.map((wall) => `
       <button class="wp ${wall.cls}${theme.wallpaper === wall.id ? ' on' : ''}" type="button" data-wall="${wall.id}" title="${esc(wall.name)}">
+        <i class="wp__glyph">${icon(glyph[wall.id] || 'spark')}</i>
         <span>${esc(wall.name)}</span>
       </button>`).join('')}
     <button class="wp wp--upload${theme.wallpaper === 'custom' ? ' on' : ''}" type="button" data-wall="upload" title="Своя картинка">

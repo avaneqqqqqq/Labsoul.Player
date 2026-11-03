@@ -262,7 +262,10 @@ function normalizeTheme(raw) {
 
 function persisted(themeValue) {
   const copy = deepClone(themeValue);
-  if (copy.customWall && copy.customWall.length > 1_400_000) delete copy.customWall;
+  // Раньше обои тяжелее 1.4 МБ просто стирались при сохранении — казалось,
+  // что они «не сохраняются». Лимит поднят до 8 МБ: столько примет и
+  // localStorage, и settings.json на сервере.
+  if (copy.customWall && copy.customWall.length > 8_000_000) delete copy.customWall;
   return copy;
 }
 
@@ -299,11 +302,13 @@ function scheduleSave() {
     saveTimer = 0;
     const data = persisted(theme);
     if (!writeJSON(STORAGE_KEY, data)) {
-      // квота localStorage: обои могут не влезть — сохраняем тему без них
+      // В localStorage обои не влезли (квота ~5 МБ). Это не повод их терять:
+      // локально храним тему без картинки, а НА СЕРВЕР отправляем полную
+      // версию — оттуда они и восстановятся после обновления.
       const withoutWall = { ...data };
       delete withoutWall.customWall;
       writeJSON(STORAGE_KEY, withoutWall);
-      scheduleServerSave(withoutWall);
+      scheduleServerSave(data);
       return;
     }
     scheduleServerSave(data);

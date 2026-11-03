@@ -55,20 +55,24 @@ function rememberTab(next) {
 }
 
 /**
- * Пока пользователь сам не выбрал вкладку, показываем то, где есть содержимое:
- * на первом запуске истории ещё нет, а избранное из подключённого сервиса — есть.
+ * Вкладка по умолчанию.
+ *
+ * Библиотека должна открываться на избранном — это главный раздел.
+ * Раньше при наличии истории показывалась она, и пользователь каждый раз
+ * попадал не туда.
  */
 function autoTab() {
   if (tabExplicit) return;
-  if (app.history.items.length) {
-    tab = 'history';
-    return;
-  }
   if (libraryTracks().length) {
     tab = 'likes';
     return;
   }
-  tab = (app.local.items || []).length ? 'local' : 'history';
+  if (app.local.items?.length) {
+    tab = 'local';
+    return;
+  }
+  // избранное пустое — показываем историю, если что-то есть
+  tab = app.history.items.length ? 'history' : 'likes';
 }
 
 function allHistoryTracks() {

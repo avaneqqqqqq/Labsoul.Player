@@ -492,39 +492,8 @@ body.np-open { overflow: hidden; }
   color: var(--text);
 }
 
-.np__clips {
-  grid-area: lyrics;
-  align-self: center;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: min(var(--np-lyr-width, 100%), 100%);
-  max-height: min(var(--np-lyr-height, 72vh), 900px);
-  padding: var(--np-lyr-pad, 18px);
-  border: 1px solid var(--np-lyr-border, var(--border));
-  border-radius: var(--np-lyr-radius, 22px);
-  box-shadow: var(--np-lyr-shadow, 0 18px 50px -24px rgba(0, 0, 0, .7));
-  background: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .015));
-  animation: fade-in 200ms ease;
-}
 
-.np__clips-frame {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  border-radius: calc(var(--np-lyr-radius, 22px) - 6px);
-  overflow: hidden;
-  background: #000;
-  flex: none;
-}
 
-.np__clips-frame iframe {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
 
 .np__clips-list {
   display: grid;
@@ -586,3 +555,81 @@ body.np-open { overflow: hidden; }
 
 .np__clips-note b { color: var(--text); font-weight: 600; }
 .np__clips-note span { font-size: 12px; opacity: .75; }
+
+
+/* ----------------- клип: слева видео, справа текст --------------------- */
+.np.is-clips .np__inner {
+  grid-template-columns: minmax(300px, 52%) minmax(0, 1fr);
+  grid-template-areas: "clips side" "clips transport";
+  width: min(1400px, 96vw);
+  align-items: start;
+  gap: clamp(16px, 2vw, 32px);
+}
+
+.np.is-clips .np__left { display: none; }
+.np.is-clips .np__side { grid-area: side; align-self: end; }
+.np.is-clips .np__transport { grid-area: transport; align-self: start; margin-top: 4px; }
+
+.np.is-clips .np__clips {
+  grid-area: clips;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: none;
+  align-self: start;
+  animation: fade-in 220ms ease;
+}
+
+.np.is-clips .np__clips-frame {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 18px;
+  overflow: hidden;
+  background: #000;
+  box-shadow: 0 24px 70px -28px rgba(0, 0, 0, .85);
+}
+
+.np.is-clips .np__clips-list {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.np.is-clips .np__clips-list::-webkit-scrollbar { display: none; }
+
+.np.is-clips .np__clips-item {
+  flex: 0 0 auto;
+  max-width: 220px;
+  padding: 8px 12px;
+}
+
+.np.is-clips .np__clips-list .np__clips-item {
+  white-space: nowrap;
+}
+
+.np.is-clips .np__clips-title { max-width: 190px; }
+
+/* текст рядом с клипом: занимает правую колонку целиком */
+.np.is-clips.has-clip-text .np__lyrics {
+  grid-area: side;
+  align-self: stretch;
+  width: 100%;
+  max-width: none;
+}
+
+/* на узком окне клип уезжает наверх, текст под ним */
+@media (max-width: 900px) {
+  .np.is-clips .np__inner {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "clips" "side" "transport";
+  }
+}
