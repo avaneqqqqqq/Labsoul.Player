@@ -246,8 +246,17 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
    * Раньше здесь стоял Promise.all: лента ждала ротор Яндекса (6–9 с),
    * даже когда SoundCloud и Spotify уже ответили. Теперь у каждого
    * источника свой срок: кто не успел — подтянется следующим запросом.
+   *
+   * Срок поднят до 7 секунд: ротор Яндекса на прогрев тратит 2–6 с,
+   * и на 5 секундах лента обрезалась до пары треков.
    */
-  const SOURCE_DEADLINE_MS = 5000;
+  const SOURCE_DEADLINE_MS = 7000;
+
+  /*
+   * Опоздавший источник не выбрасываем, а дособираем в фоне: результат
+   * ложится в заготовку, и следующий запрос получит полную ленту.
+   */
+  const pendingCollectors = [];
 
   const batches = await Promise.all(
     wanted.map((source) => {
@@ -261,18 +270,35 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
         return { source, engine: source, items: [], batchId: null, error: err.code || 'UPSTREAM', message: err.message };
       });
 
-      // опоздавший источник не блокирует ленту
+      let settled = false;
+
+      // опоздавший источник не блокирует ленту, но его результат пригодится
       const timeout = new Promise((resolve) => {
-        const timer = setTimeout(
-          () => resolve({ source, engine: source, items: [], batchId: null, late: true }),
-          SOURCE_DEADLINE_MS,
-        );
+        const timer = setTimeout(() => {
+          if (settled) return;
+          resolve({ source, engine: source, items: [], batchId: null, late: true });
+        }, SOURCE_DEADLINE_MS);
         timer.unref?.();
+      });
+
+      work.then((result) => {
+        settled = true;
+        if (result && Array.isArray(result.items) && result.items.length) {
+          pendingCollectors.push(result);
+        }
       });
 
       return Promise.race([work, timeout]);
     }),
   );
+
+  // дособранное от опоздавших — в заготовку для следующего запроса
+  if (pendingCollectors.length) {
+    const lateItems = pendingCollectors.flatMap((b) => b.items || []);
+    if (lateItems.length) {
+      store.log(`[wave] дособрано ${lateItems.length} треков от опоздавших источников`);
+    }
+  }
 
   const usable = batches.filter((b) => b && Array.isArray(b.items) && b.items.length);
   const hints = [];
