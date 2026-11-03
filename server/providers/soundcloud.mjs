@@ -1008,20 +1008,57 @@ async function callTranscoding(transcodingUrl, clientId) {
   } catch {
     throw fail('UPSTREAM', 'SoundCloud вернул некорректный URL транскодинга');
   }
-  url.searchParams.set('client_id', clientId);
-  return httpText(url.toString(), { timeout: TIMEOUT_MS, headers: { accept: 'application/json' } });
+
+  // Пустой client_id в URL — гарантированный 401. Если его нет, идём
+  // с авторизацией аккаунта: так поток отдаётся при живом входе.
+  if (clientId) url.searchParams.set('client_id', clientId);
+
+  const headers = { accept: 'application/json' };
+  const token = oauthToken();
+  if (token) headers.authorization = `OAuth ${token}`;
+
+  return httpText(url.toString(), { timeout: TIMEOUT_MS, headers });
 }
 
 /** transcoding.url → {url, contentType} уже подписанного медиа-URL (живёт ограниченное время). */
 async function resolveTranscoding(transcoding, { retry = true } = {}) {
   if (!transcoding?.url) throw fail('UPSTREAM', 'У транскодинга SoundCloud нет URL');
-  let clientId = await getClientId();
+
+  /*
+   * Поток требует client_id — вход через аккаунт (oauth_token) его НЕ заменяет.
+   * Если client_id добыть не удалось, пробуем запросить поток с токеном:
+   * api-v2 иногда принимает `Authorization: OAuth` и для транскодингов.
+   */
+  let clientId = '';
+  try {
+    clientId = await getClientId();
+  } catch (error) {
+    if (!oauthToken()) throw error;
+    // client_id нет, но аккаунт есть — попробуем авторизацией
+    const authorized = await callTranscoding(transcoding.url, '');
+    if (authorized.status !== 401) {
+      if (authorized.status === 404) throw fail('NOT_PLAYABLE', 'SoundCloud не отдал этот поток (HTTP 404)');
+      if (!authorized.ok) throw fail('UPSTREAM', `SoundCloud не отдал поток (HTTP ${authorized.status})`);
+      try {
+        const data = JSON.parse(authorized.body);
+        return { url: data?.url, contentType: data?.content_type || transcoding.format?.mime_type || null };
+      } catch {
+        throw fail('UPSTREAM', 'SoundCloud вернул некорректный JSON при запросе потока');
+      }
+    }
+    throw error;
+  }
+
   let response = await callTranscoding(transcoding.url, clientId);
 
   if (response.status === 401 && retry) {
     invalidateClientId();
-    clientId = await getClientId(true);
-    response = await callTranscoding(transcoding.url, clientId);
+    clientId = await getClientId(true).catch(() => '');
+    if (clientId) response = await callTranscoding(transcoding.url, clientId);
+    // последняя попытка — через сохранённый вход
+    if (response.status === 401 && oauthToken()) {
+      response = await callTranscoding(transcoding.url, '');
+    }
   }
 
   if (response.status === 404) throw fail('NOT_PLAYABLE', 'SoundCloud не отдал этот поток (HTTP 404)');

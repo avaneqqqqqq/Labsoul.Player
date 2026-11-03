@@ -69,8 +69,23 @@ export async function resolveHost(probe, { force = false } = {}) {
     return chosen;
   }
 
+  /*
+   * Ни один хост не ответил.
+   *
+   * Раньше в этом месте ставился null И время проверки — на пять минут.
+   * Один неудачный прогрев (сразу после запуска, когда соединения ещё
+   * холодные) запирал Яндекс в «недоступен», пока не истечёт срок.
+   * Теперь кэшируем отказ на короткое время и пробуем сами.
+   */
   activeHost = null;
-  checkedAt = Date.now();
+  checkedAt = Date.now() - CHECK_TTL_MS + FAIL_TTL_MS;
+
+  if (!force) {
+    // короткая пауза и один повтор: после запуска это обычно помогает
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return resolveHost(probe, { force: true });
+  }
+
   return null;
 }
 
