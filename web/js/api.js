@@ -73,22 +73,41 @@ function degrade(err) {
 }
 
 let healthCheckTimer = 0;
+let healthAttempts = 0;
 
-/** Проверяем сервер после мягкого сбоя: жив — остаёмся онлайн. */
+/**
+ * Проверяем сервер после мягкого сбоя.
+ *
+ * Сервер поднимается не мгновенно: при старте приложения интерфейс иногда
+ * успевает раньше него, и одна неудачная проверка раньше переводила всё
+ * приложение в демо-режим навсегда — отсюда «не удалось подключиться»,
+ * которое появлялось то сразу, то через время. Теперь до пяти попыток
+ * с нарастающей паузой.
+ */
 function scheduleHealthCheck() {
   if (healthCheckTimer) return;
+  const delay = Math.min(800 * (healthAttempts + 1), 4000);
+
   healthCheckTimer = setTimeout(async () => {
     healthCheckTimer = 0;
     try {
       const res = await fetch('/api/health', { cache: 'no-store', signal: AbortSignal.timeout(4000) });
       if (res.ok) {
         const data = await res.json().catch(() => null);
+        healthAttempts = 0;
         setMode('online', data?.version || net.version, null);
         return;
       }
-    } catch { /* сервер правда недоступен */ }
+    } catch { /* сервер пока не отвечает */ }
+
+    healthAttempts += 1;
+    if (healthAttempts < 5) {
+      scheduleHealthCheck();
+      return;
+    }
+    healthAttempts = 0;
     setMode('demo', net.version, 'сервер не отвечает');
-  }, 1200);
+  }, delay);
 }
 
 export const isOnline = () => net.mode === 'online';
@@ -264,22 +283,32 @@ export async function ping(timeout = 6000) {
     degrade(new Error('страница открыта как файл'));
     return false;
   }
-  try {
-    // 1.8 секунды было мало: при первом запуске сервер ещё поднимает
-    // провайдеров, ping не успевал и интерфейс переходил в «нет соединения»
-    // на всех трёх сервисах. Кнопка «Проверить» потом проходила, потому
-    // что сервер к тому моменту уже готов.
-    const data = await request('/api/health', { timeout });
-    if (data && data.ok) {
-      setMode('online', data.version || null);
-      return true;
+
+  /*
+   * Несколько попыток при старте.
+   *
+   * Сервер поднимается 1–3 секунды (грузит провайдеров, открывает порт).
+   * Интерфейс иногда успевает раньше — отсюда «не удалось подключиться»,
+   * появлявшееся то сразу, то через время. Три попытки с паузой закрывают
+   * эту гонку, не мешая работе.
+   */
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const data = await request('/api/health', { timeout });
+      if (data && data.ok) {
+        setMode('online', data.version || null);
+        return true;
+      }
+      lastError = new Error('сервер не подтвердил готовность');
+    } catch (err) {
+      lastError = err;
     }
-    degrade(new Error('сервер не подтвердил готовность'));
-    return false;
-  } catch (err) {
-    degrade(err);
-    return false;
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
   }
+
+  degrade(lastError || new Error('сервер не отвечает'));
+  return false;
 }
 
 /* ------------------------------------------------------------------ */
