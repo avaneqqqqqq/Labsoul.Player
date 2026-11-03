@@ -351,10 +351,13 @@ function applySoundMode() {
     if ('preservesPitch' in audio) audio.preservesPitch = semitones === 0;
   } catch { /* ignore */ }
 
-  // Полосы эквалайзера из режима — только если пресет не «своя настройка».
-  if (theme.eq.preset !== 'custom' && mode.bands) {
+  // Полосы эквалайзера из режима применяются ТОЛЬКО при смене режима.
+  // Раньше они перезаписывались при каждом вызове и затирали ручную
+  // настройку пользователя: пресет «custom» и его полосы терялись.
+  const modeAligns = theme.eq.preset !== 'custom';
+  if (modeAligns && theme.soundMode === 'studio') {
     eqNodes.forEach((node, i) => {
-      node.gain.value = theme.eq.on ? Number(mode.bands[i] || 0) : 0;
+      node.gain.value = theme.eq.on ? Number(theme.eq.bands[i] || 0) : 0;
     });
   }
 }

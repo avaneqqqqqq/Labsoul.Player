@@ -98,8 +98,22 @@ function connect() {
           pending = rest;
           for (const frame of frames) {
             if (frame.op === OP.PING) socket.write(encode(OP.PONG, frame.data));
+
+            // Discord закрывает рукопожатие с кодом 4000, если Application ID
+            // не существует. Без этой ветки мы бы просто молчали.
+            if (frame.op === OP.CLOSE) {
+              const code = frame.data?.code;
+              state.error = code === 4000
+                ? 'Неверный Application ID приложения Discord'
+                : `Discord закрыл соединение (код ${code || '?'})`;
+              state.ready = false;
+              state.connected = false;
+              resolve(false);
+            }
+
             if (frame.op === OP.FRAME && frame.data?.evt === 'READY') {
               state.ready = true;
+              state.error = null;
               resolve(true);
             }
           }

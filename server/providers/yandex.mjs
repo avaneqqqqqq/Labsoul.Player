@@ -122,12 +122,16 @@ export function mapTrack(t) {
   const albums = Array.isArray(t.albums) ? t.albums : [];
   const album = albums[0] || null;
   const artists = (Array.isArray(t.artists) ? t.artists : []).map((a) => a && a.name).filter(Boolean);
+  // ID исполнителя нужен для перехода на его страницу: по одному имени
+  // страницу не открыть, а API отдаёт артистов объектами с id
+  const firstArtist = (Array.isArray(t.artists) ? t.artists : []).find((a) => a && a.id);
   const available = t.available !== false && !(album && album.available === false);
 
   return {
     id: `ym:${t.id}`,
     source: 'yandex',
     sourceId: String(t.id),
+    artistId: firstArtist ? String(firstArtist.id) : null,
     title: t.title || 'Без названия',
     artists: artists.length ? artists : ['Неизвестный исполнитель'],
     album: album ? album.title || null : null,
@@ -189,6 +193,45 @@ export async function track(sourceId) {
   const mapped = mapTrack(raw);
   if (!mapped) throw fail('NOT_FOUND', 'Трек не найден');
   return mapped;
+}
+
+/**
+ * Популярные треки исполнителя — для страницы исполнителя.
+ *
+ * Клик по имени в плеере открывает эту страницу: имя уже есть у любого
+ * трека, а ID приходит вместе с ним из API.
+ *
+ * @param {string} artistId — идентификатор исполнителя в Яндексе
+ * @param {number} limit — сколько треков вернуть
+ */
+export async function artistTracks(artistId, limit = 50) {
+  const id = String(artistId || '').trim();
+  if (!id) throw fail('BAD_REQUEST', 'Не указан исполнитель');
+
+  // одним запросом получаем имя исполнителя и его популярные треки
+  const data = await request(`/artists/${encodeURIComponent(id)}/tracks?page=0&page_size=${Math.min(Math.max(limit, 1), 100)}`);
+  const list = data?.result?.tracks || data?.result || [];
+
+  const tracks = (Array.isArray(list) ? list : []).map(mapTrack).filter(Boolean);
+  return { artistId: id, tracks };
+}
+
+/** Название и обложка исполнителя для заголовка страницы. */
+export async function artistInfo(artistId) {
+  const id = String(artistId || '').trim();
+  if (!id) return null;
+  try {
+    const data = await request(`/artists/${encodeURIComponent(id)}/brief-info`);
+    const info = data?.result || data;
+    if (!info) return null;
+    return {
+      artistId: id,
+      name: info.artist?.name || info.name || '',
+      cover: coverUrl(info.artist?.cover?.uri) || coverUrl(info.cover?.uri) || null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 /* ---------------------------- получение потока --------------------------- */

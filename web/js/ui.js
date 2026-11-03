@@ -3,11 +3,13 @@
    Экраны живут в js/screens/* и сами рисуют только #content.
    ========================================================================= */
 
-import { getLyrics, getUpdate, isDemo, net, ping } from './api.js';
+import { getLyrics, getUpdate, getArtist, isDemo, net, ping } from './api.js';
+import { bindTrackActions } from './actions.js';
 import { player, EQ_HZ, EQ_LABELS, EQ_PRESETS, soundModes, setSoundMode } from './audio.js';
 import {
   coverImg,
   icon,
+  rowsHtml,
   SOURCE_NAMES,
   SOURCE_SHORT,
   trackStyle,
@@ -288,7 +290,7 @@ function playerTemplate(snap) {
         ${icon('queue')}<i class="pl-queue__count" data-pl-queue-count>${snap.queue.length}</i>
       </button>
       <button class="pl-btn pl-overlay" type="button" data-pl="overlay" title="Мини-плеер поверх окон" aria-label="Мини-плеер поверх окон">
-        ${icon('fullscreen')}
+        ${icon('pip')}
       </button>
     </div>`;
 }
@@ -1041,8 +1043,7 @@ function npTemplate() {
         <span class="np__eyebrow" data-np-eyebrow>Сейчас играет</span>
         <span class="np__src" data-np-src></span>
         <h2 class="np__title" data-np-title>Ничего не играет</h2>
-        <div class="np__artist" data-np-artist></div>
-        <div class="np__album" data-np-album></div>
+        <div class="np__artist" data-np-artist></div>        <div class="np__album" data-np-album></div>
         <div class="np__context" data-np-context></div>
         <div class="np__extra">
           <button class="np__chip" type="button" data-np="like">${icon('heart')}<span>В избранное</span></button>
@@ -1062,6 +1063,13 @@ function npTemplate() {
           <button class="pl-btn pl-btn--main np__play" type="button" data-np="toggle" title="Играть" aria-label="Играть">${icon('play')}</button>
           <button class="pl-btn" type="button" data-np="next" title="Следующий" aria-label="Следующий">${icon('next')}</button>
           <button class="pl-btn" type="button" data-np="repeat" title="Повтор" aria-label="Повтор">${icon('repeat')}</button>
+
+          <div class="np__vol" title="Громкость">
+            <button class="pl-btn" type="button" data-np="vol-mute" aria-label="Выключить звук">${icon('volume')}</button>
+            <input class="rng np__vol-range" type="range" min="0" max="100" step="1"
+              value="${Math.round((player.getState().muted ? 0 : player.getState().volume) * 100)}"
+              aria-label="Громкость">
+          </div>
         </div>
       </div>
       <div class="np__lyrics" data-np-lyrics hidden>
@@ -1103,7 +1111,19 @@ function syncNowPlaying() {
   }
 
   setText('[data-np-title]', track.title || 'Без названия');
-  setText('[data-np-artist]', artistsLine(track));
+
+  // Имя исполнителя — кнопка: клик открывает страницу с его треками
+  // (работает для источников, у которых есть artistId, сейчас это Яндекс)
+  const artistBox = el.querySelector('[data-np-artist]');
+  if (artistBox) {
+    const name = artistsLine(track);
+    if (track.artistId) {
+      artistBox.innerHTML = `<button class="np__artist-btn" type="button" data-np="artist" title="Открыть страницу исполнителя">${esc(name)}</button>`;
+    } else {
+      artistBox.textContent = name;
+    }
+  }
+
   setText('[data-np-album]', track.album || '');
   setText('[data-np-src]', SOURCE_NAMES[track.source] || track.source);
   setText('[data-np-eyebrow]', snap.playing ? 'Сейчас играет' : 'Пауза');
@@ -1217,6 +1237,8 @@ function openNowPlaying() {
     if (action === 'repeat') { player.cycleRepeat(); syncNowPlaying(); return; }
     if (action === 'queue') { closeNowPlaying(); if (!app.ui.queueOpen) toggleQueue(); return; }
     if (action === 'lyrics') { toggleLyrics(); return; }
+    if (action === 'vol-mute') { player.toggleMute(); syncNowPlaying(); return; }
+    if (action === 'artist') { openArtistPage(); return; }
     if (action === 'like') {
       const track = player.currentTrack();
       if (!track) return;
@@ -1228,7 +1250,15 @@ function openNowPlaying() {
 
   el.addEventListener('input', (event) => {
     const target = event.target;
-    if (!(target instanceof HTMLInputElement) || !target.classList.contains('np__seek')) return;
+    if (!(target instanceof HTMLInputElement)) return;
+
+    // ползунок громкости в полноэкранном плеере
+    if (target.classList.contains('np__vol-range')) {
+      player.setVolume(Number(target.value) / 100);
+      return;
+    }
+
+    if (!target.classList.contains('np__seek')) return;
     const snap = player.getState();
     const duration = snap.duration || snap.current?.duration || 0;
     player.seek((Number(target.value) / 1000) * duration);
@@ -1259,6 +1289,65 @@ function openNowPlaying() {
     }
     syncNowPlaying();
   });
+}
+
+/**
+ * Открыть страницу исполнителя с его треками.
+ *
+ * Вызывается кликом по имени в полноэкранном плеере. Работает для
+ * источников, отдающих artistId (сейчас Яндекс): по одному имени
+ * страницу не построить.
+ */
+async function openArtistPage() {
+  const track = player.currentTrack();
+  if (!track?.artistId) {
+    toast('У этого трека нет страницы исполнителя', { type: 'warn' });
+    return;
+  }
+
+  closeNowPlaying();
+
+  // показываем экран поиска с индикатором загрузки, затем подставляем треки
+  go('search');
+  const host = document.getElementById('content');
+  if (!host) return;
+
+  host.innerHTML = '<div class="empty" style="margin-top:40px"><b>Загружаем исполнителя…</b></div>';
+
+  try {
+    const data = await getArtist(track.source, track.artistId, 50);
+    const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
+
+    if (!tracks.length) {
+      host.innerHTML = '<div class="empty"><b>Треков не найдено</b></div>';
+      return;
+    }
+
+    host.innerHTML = `<div class="artist-page">
+      <header class="artist-page__head">
+        ${data.cover ? `<img class="artist-page__cover" src="${esc(data.cover)}" alt="">` : ''}
+        <div>
+          <span class="artist-page__label">Исполнитель</span>
+          <h1 class="artist-page__name">${esc(data.name || track.artists[0] || '')}</h1>
+          <span class="artist-page__count">${tracks.length} треков</span>
+        </div>
+      </header>
+      <div class="artist-page__list"></div>
+    </div>`;
+
+    // треки рисуем общим списком и подключаем те же действия, что и везде
+    const list = host.querySelector('.artist-page__list');
+    if (list) {
+      list.innerHTML = rowsHtml(tracks, { index: true });
+      bindTrackActions(host, {
+        getList: () => tracks,
+        getContext: () => ({ type: 'artist', artistId: track.artistId }),
+        feedback: false,
+      });
+    }
+  } catch (err) {
+    host.innerHTML = `<div class="empty"><b>Не удалось открыть исполнителя</b><span>${esc(err?.message || '')}</span></div>`;
+  }
 }
 
 function closeNowPlaying() {

@@ -816,6 +816,33 @@ function reasonMessage(reason) {
   };
   return texts[reason] || null;
 }
+  if (route[0] === 'artist') {
+    // Страница исполнителя: клик по имени в плеере открывает его треки.
+    // Яндекс отдаёт и исполнителя, и его популярные треки по одному id.
+    const source = String(route[1] || 'yandex');
+    const artistId = decodeURIComponent(String(route[2] || ''));
+    const provider = providers[source];
+    if (!provider || typeof provider.artistTracks !== 'function') {
+      throw badRequest('Для этого источника нет страниц исполнителей');
+    }
+    if (!artistId) throw badRequest('Не указан исполнитель');
+
+    const limit = Math.min(Math.max(Number(url.searchParams.get('limit')) || 50, 1), 100);
+    const result = await provider.artistTracks(artistId, limit);
+    let info = null;
+    if (typeof provider.artistInfo === 'function') {
+      try { info = await provider.artistInfo(artistId); } catch { /* имя не критично */ }
+    }
+    sendJson(res, 200, {
+      source,
+      artistId,
+      name: info?.name || (result.tracks[0]?.artists || [])[0] || 'Исполнитель',
+      cover: info?.cover || result.tracks.find((t) => t.cover)?.cover || null,
+      tracks: result.tracks,
+    });
+    return;
+  }
+
   if (route[0] === 'playlists') {
     // плейлисты сервисов: свои и чужие (по логину), список и треки
     const settings = store.loadSettings();

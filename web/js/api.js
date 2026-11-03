@@ -307,6 +307,12 @@ export async function checkSoundcloudKey() {
   }
 }
 
+/** Страница исполнителя: имя, обложка и его треки. */
+export async function getArtist(source, artistId, limit = 50) {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return request(`/api/artist/${encodeURIComponent(source)}/${encodeURIComponent(artistId)}?${params}`, { timeout: 25000 });
+}
+
 /** Состояние обхода блокировки SoundCloud (zapret). */
 export async function getDpi() {
   try {
