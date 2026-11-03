@@ -137,6 +137,8 @@ export const DEFAULTS = {
   },
   // нормализация громкости между треками
   normalize: false,
+  // ручная настройка звука, которую вернуть при выходе из режима
+  savedEq: null,
   // готовый звуковой режим: studio | lofi | nightcore | slowed | vaporwave
   soundMode: 'studio',
 };
@@ -255,6 +257,18 @@ function normalizeTheme(raw) {
   if (typeof raw.normalize === 'boolean') out.normalize = raw.normalize;
   if (['studio', 'lofi', 'nightcore', 'slowed', 'vaporwave'].includes(raw.soundMode)) {
     out.soundMode = raw.soundMode;
+  }
+  // ручная настройка звука, которую возвращаем при выходе из режима
+  if (raw.savedEq && typeof raw.savedEq === 'object') {
+    const saved = raw.savedEq;
+    out.savedEq = {
+      bands: Array.isArray(saved.bands) && saved.bands.length === 10
+        ? saved.bands.map((v) => clamp(Math.round(Number(v) || 0), -12, 12))
+        : null,
+      lab: (saved.lab && typeof saved.lab === 'object') ? { ...DEFAULTS.lab, ...saved.lab } : { ...DEFAULTS.lab },
+      preset: typeof saved.preset === 'string' ? saved.preset : 'custom',
+      preamp: Number.isFinite(saved.preamp) ? clamp(Math.round(saved.preamp), -12, 12) : 0,
+    };
   }
 
   if (typeof raw.customWall === 'string' && raw.customWall.startsWith('data:image/')) {

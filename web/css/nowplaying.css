@@ -767,20 +767,29 @@ body.np-open { overflow: hidden; }
   position: absolute !important;
   top: 50% !important;
   left: 50% !important;
-  width: 118% !important;
-  height: 118% !important;
+  width: 124% !important;
+  height: 124% !important;
   transform: translate(-50%, -50%) !important;
   border: 0;
-  pointer-events: none;
+  z-index: 1;
 }
 
 .np__clips-shade {
   position: absolute;
   inset: 0;
-  z-index: 2;
+  z-index: 9;
   pointer-events: none;
+  /* Полосы режем по факту: 13% сверху (заголовок и канал) и 20% снизу
+     (перемотка, «Другие видео», логотип YouTube). */
   background:
-    linear-gradient(180deg, rgba(0, 0, 0, .96) 0, rgba(0, 0, 0, .85) 7%, transparent 15%),
-    linear-gradient(0deg, rgba(0, 0, 0, .96) 0, rgba(0, 0, 0, .85) 9%, transparent 19%),
-    radial-gradient(120% 100% at 50% 50%, transparent 62%, rgba(0, 0, 0, .55) 100%);
+    linear-gradient(180deg,
+      rgba(9, 9, 12, 1) 0,
+      rgba(9, 9, 12, .97) 9%,
+      rgba(9, 9, 12, .6) 12%,
+      transparent 15%),
+    linear-gradient(0deg,
+      rgba(9, 9, 12, 1) 0,
+      rgba(9, 9, 12, .97) 12%,
+      rgba(9, 9, 12, .6) 17%,
+      transparent 21%);
 }

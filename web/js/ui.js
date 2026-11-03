@@ -1304,23 +1304,24 @@ function syncClip(force = false) {
 
   try {
     const state = yt.getPlayerState?.();
-    // -1 и 3 (buffering) — видео ещё грузится: seekTo сейчас не сработает,
-    // и клип стартует с нуля, отставая от трека на пару секунд.
+    // -1 (не инициализирован) и 3 (buffering) — видео ещё грузится.
+    // Здесь seekTo бесполезен, а главное — он САМ ЗАПУСКАЕТ ролик,
+    // из-за чего пауза «не срабатывала». Пока буферизуется, ждём.
     const notReady = state === -1 || state === 3;
 
-    const current = yt.getCurrentTime() || 0;
-    const drift = Math.abs(current - target);
-
-    if (notReady || force || drift > CLIP_DRIFT_LIMIT) {
-      yt.seekTo(target, true);
+    if (!notReady) {
+      const current = yt.getCurrentTime() || 0;
+      const drift = Math.abs(current - target);
+      if (force || drift > CLIP_DRIFT_LIMIT) yt.seekTo(target, true);
     }
 
-    if (snap.playing) {
-      // играем только когда трек играет — иначе клип «отвязывается»
-      if (state !== 1) yt.playVideo();
-    } else if (state === 1) {
-      yt.pauseVideo();
+    // Пауза — самое приоритетное: видео не должно играть, если трек стоит.
+    if (!snap.playing) {
+      if (state === 1) yt.pauseVideo();
+      return;
     }
+    // играем только когда трек играет и видео уже готово
+    if (!notReady && state !== 1) yt.playVideo();
   } catch { /* плеер ещё не готов */ }
 }
 

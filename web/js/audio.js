@@ -383,12 +383,42 @@ export function soundModes() {
 }
 
 /** Применить режим звука по идентификатору. */
+/**
+ * Применить режим звука по идентификатору.
+ *
+ * Перед сменой режима запоминаем текущую ручную настройку полос и Audio Lab,
+ * чтобы её можно было вернуть при выборе «Студии». Раньше режим затирал
+ * эквалайзер безвозвратно — после Nightcore своя кривая терялась.
+ */
 export function setSoundMode(id) {
   if (!SOUND_MODES[id]) return;
+
+  const previous = theme.soundMode;
+  // Уходим с «Студии» — сохраняем то, что настроено руками.
+  if (previous === 'studio' || !previous) {
+    theme.savedEq = {
+      bands: Array.isArray(theme.eq.bands) ? [...theme.eq.bands] : null,
+      lab: { ...theme.lab },
+      preset: theme.eq.preset || 'custom',
+      preamp: theme.eq.preamp,
+    };
+  }
+
   theme.soundMode = id;
   const mode = SOUND_MODES[id];
-  theme.eq.bands = [...mode.bands];
-  theme.lab = { ...theme.lab, ...mode.lab };
+
+  if (id === 'studio' && theme.savedEq?.bands) {
+    // назад в студию — возвращаем прежнюю ручную кривую
+    theme.eq.bands = [...theme.savedEq.bands];
+    theme.lab = { ...theme.savedEq.lab };
+    theme.eq.preset = theme.savedEq.preset || 'custom';
+    theme.eq.preamp = theme.savedEq.preamp ?? theme.eq.preamp;
+  } else {
+    theme.eq.bands = [...mode.bands];
+    theme.lab = { ...theme.lab, ...mode.lab };
+    theme.eq.preset = id === 'studio' ? theme.eq.preset : 'custom';
+  }
+
   applyEq();
   applySoundMode();
 }

@@ -75,13 +75,44 @@ export async function searchClips({ title, artist }) {
   // не нужно выбирать вручную.
   const ranked = rankVideos(items, { title, artist });
 
-  cache.set(key, { items: ranked, at: Date.now() });
+  // Часть авторов запрещает встраивание — YouTube показывает внутри
+  // «Видео недоступно». Проверяем три лучших кандидата через oembed
+  // и оставляем первый, который действительно можно показать.
+  const playable = await pickEmbeddable(ranked.slice(0, 4));
+  const final = playable ? [playable, ...ranked.filter((v) => v.id !== playable.id)] : ranked;
+
+  cache.set(key, { items: final, at: Date.now() });
   if (cache.size > 200) {
     const oldest = [...cache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
     if (oldest) cache.delete(oldest[0]);
   }
 
-  return ranked;
+  return final;
+}
+
+/**
+ * Найти первое видео, которое разрешено встраивать.
+ *
+ * oembed отвечает 200 для обычного ролика и 401/403/404, когда автор
+ * запретил встраивание или видео удалено.
+ */
+async function pickEmbeddable(candidates) {
+  if (!candidates.length) return null;
+
+  const checks = await Promise.all(candidates.map(async (video) => {
+    try {
+      const response = await fetch(
+        `https://www.youtube.com/oembed?url=${encodeURIComponent(`https://www.youtube.com/watch?v=${video.id}`)}&format=json`,
+        { signal: AbortSignal.timeout(6000) },
+      );
+      return { video, ok: response.ok };
+    } catch {
+      // сеть подвела — не наказываем видео за это
+      return { video, ok: true };
+    }
+  }));
+
+  return checks.find((entry) => entry.ok)?.video || null;
 }
 
 /** Запросить результаты поиска по одной строке. */
