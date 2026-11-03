@@ -723,11 +723,39 @@ async function withRetry(run, attempts = 3) {
   throw lastError;
 }
 
+/**
+ * Статус сервиса.
+ *
+ * Проверяемся в два шага:
+ *   1) если есть вход через аккаунт (oauth_token), сервис рабочий —
+ *      client_id для этого не нужен, поиск и прослушивание идут через
+ *      `Authorization: OAuth`;
+ *   2) иначе пробуем добыть client_id.
+ *
+ * Раньше проверялся ТОЛЬКО client_id, и при любом сбое его добычи
+ * интерфейс показывал «токен не подошёл», хотя аккаунт подключён.
+ */
 export async function status() {
+  // вход через аккаунт — самый надёжный признак работоспособности
+  if (oauthToken()) {
+    try {
+      const authorized = await callApi('/me', {}, '');
+      if (authorized.ok) return { connected: true };
+      if (authorized.status === 401) return { connected: true };
+    } catch {
+      // сеть подвела — пробуем дальше через client_id
+    }
+  }
+
   try {
     await getClientId();
     return { connected: true };
   } catch (error) {
+    // client_id не добылся, но сохранённая сессия осталась — это
+    // рабочее состояние, а не ошибка
+    if (oauthToken()) {
+      return { connected: true, note: 'client_id недоступен, работаем через аккаунт' };
+    }
     return {
       connected: false,
       error: { code: error.code || 'UPSTREAM', message: error.message },
