@@ -469,9 +469,13 @@ function onPlayerEvent(snap, event) {
   if (event === 'tick') {
     syncLyricsClock(snap.time);
     syncProgressClock(snap);
-    // раз в несколько кадров подтягиваем видео: каждый кадр дёргать
-    // YouTube-плеер дорого и он не успевает отвечать
-    if (clipsState.open && (ui.clipTick = (ui.clipTick || 0) + 1) % 15 === 0) syncClip();
+    // Раз в секунду подтягиваем видео. Каждый кадр дёргать нельзя: YouTube
+    // не успевает отвечать, а seek во время паузы снова запускал ролик и
+    // ломал кнопку паузы.
+    if (clipsState.open && (ui.clipTick = (ui.clipTick || 0) + 1) % 60 === 0) {
+      // на паузе ничего не подтягиваем: видео уже остановлено
+      if (snap.playing) syncClip();
+    }
     return;
   }
   // Discord Rich Presence и оверлей: обновляем при смене трека и паузе
@@ -1229,14 +1233,24 @@ function mountClipPlayer(host) {
     clipsState.yt = new window.YT.Player(host, {
       videoId,
       playerVars: {
+        // Интерфейс YouTube скрыт: это иллюстрация к треку, а не отдельный
+        // плеер. Управление — кнопками labsoul, они всегда под рукой.
         rel: 0,
         modestbranding: 1,
         playsinline: 1,
-        controls: 1,
+        controls: 0,
+        disablekb: 1,
+        fs: 0,
+        iv_load_policy: 3,
         origin: location.origin,
       },
       events: {
-        onReady: () => syncClip(true),
+        onReady: () => {
+          // Звук видео выключаем: трек уже играет, иначе получается два
+          // источника звука одновременно. Картинка идёт, музыку даёт плеер.
+          try { clipsState.yt?.mute?.(); } catch { /* не готов */ }
+          syncClip(true);
+        },
       },
     });
   };
@@ -1274,6 +1288,10 @@ function destroyClipPlayer() {
  * Подтянуть видео к текущей секунде трека.
  * @param {boolean} force — перемотка даже при малом расхождении
  */
+/**
+ * Подтянуть видео к текущей секунде трека.
+ * @param {boolean} force — перемотка даже при малом расхождении
+ */
 function syncClip(force = false) {
   if (!clipsState.open || theme.clipSync === false) return;
   const yt = clipsState.yt;
@@ -1283,21 +1301,22 @@ function syncClip(force = false) {
   const target = Math.max(0, (Number(snap.time) || 0) + (Number(clipsState.offset) || 0));
 
   try {
+    const state = yt.getPlayerState?.();
+    // -1 и 3 (buffering) — видео ещё грузится: seekTo сейчас не сработает,
+    // и клип стартует с нуля, отставая от трека на пару секунд.
+    const notReady = state === -1 || state === 3;
+
     const current = yt.getCurrentTime() || 0;
-    // расхождение считаем без сдвига: сдвиг — это намеренное смещение
     const drift = Math.abs(current - target);
 
-    if (force || drift > CLIP_DRIFT_LIMIT) {
+    if (notReady || force || drift > CLIP_DRIFT_LIMIT) {
       yt.seekTo(target, true);
     }
 
-    // Видео идёт вместе с треком: если трек играет — клип тоже, без
-    // отдельного нажатия «плей». Браузер разрешает это, только когда
-    // пользователь уже взаимодействовал со страницей — а открытие
-    // полноэкранного плеера как раз и есть такое действие.
     if (snap.playing) {
-      if (yt.getPlayerState?.() !== 1) yt.playVideo();
-    } else if (yt.getPlayerState?.() === 1) {
+      // играем только когда трек играет — иначе клип «отвязывается»
+      if (state !== 1) yt.playVideo();
+    } else if (state === 1) {
       yt.pauseVideo();
     }
   } catch { /* плеер ещё не готов */ }
@@ -1410,6 +1429,20 @@ function syncNowPlaying() {
   const track = snap.current;
   const el = nowPlaying.el;
   const duration = snap.duration || track?.duration || 0;
+
+  // Трек сменился, а клип открыт — ищем видео заново. Раньше старый клип
+  // продолжал играть поверх нового трека.
+  if (clipsState.open && track && clipsState.key !== track.id) {
+    clipsState.key = track.id;
+    clipsState.items = [];
+    clipsState.current = null;
+    destroyClipPlayer();
+    loadClips(track);
+  }
+  // трек закончился — видео должно остановиться
+  if (clipsState.open && !track) {
+    destroyClipPlayer();
+  }
 
   const setText = (selector, value) => {
     const node = el.querySelector(selector);

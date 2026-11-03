@@ -730,3 +730,36 @@ body.np-open { overflow: hidden; }
   text-overflow: ellipsis;
   padding: 0 2px;
 }
+
+
+/* --- чистый кадр без интерфейса YouTube ------------------------------- */
+/*
+ * У плеера YouTube свои полоса, название и кнопки. Внутрь iframe из CSS
+ * не пробраться, поэтому оставляем только картинку: контейнер обрезает
+ * верхнюю полосу с заголовком, элементы управления отключены параметрами
+ * (controls: 0, modestbranding: 1, iv_load_policy: 3).
+ */
+.np__clips-frame {
+  position: relative;
+  overflow: hidden;
+  background: #000;
+}
+
+/* сам плеер чуть крупнее контейнера: верхняя служебная полоса уходит за край */
+.np__clips-frame > div,
+.np__clips-frame iframe {
+  position: absolute;
+  inset: -52px 0 0 0 !important;
+  width: 100% !important;
+  height: calc(100% + 52px) !important;
+  border: 0;
+}
+
+/* и мягкая маска сверху и снизу, если полоса всё же видна */
+.np__clips-frame::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 40px 12px rgba(0, 0, 0, .35);
+}
