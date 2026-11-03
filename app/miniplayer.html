@@ -191,7 +191,11 @@
 
   /* Мост к приложению: получаем трек, отправляем команды */
   const bridge = window.desktopOverlay;
-  if (bridge) bridge.onState(render);
+  if (bridge) {
+    bridge.onState(render);
+    // окно открывается позже первого пакета — сразу просим состояние
+    bridge.requestState();
+  }
 
   function send(action) {
     if (bridge) bridge.send(action);

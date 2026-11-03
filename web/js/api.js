@@ -163,6 +163,12 @@ export function normalizeTrack(raw) {
     sourceId,
     // идентификатор исполнителя: без него не открыть его страницу
     artistId: raw.artistId != null ? String(raw.artistId) : null,
+    // все исполнители трека со своими id — чтобы можно было выбрать любого
+    artistList: Array.isArray(raw.artistList)
+      ? raw.artistList
+        .filter((a) => a && a.id && a.name)
+        .map((a) => ({ id: String(a.id), name: String(a.name) }))
+      : [],
     title: typeof raw.title === 'string' && raw.title.trim() ? raw.title : 'Без названия',
     artists: artists.length ? artists : ['Неизвестный исполнитель'],
     album: raw.album || null,

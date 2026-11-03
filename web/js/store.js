@@ -303,6 +303,8 @@ export async function loadWaveMore({ force = false, quick = false } = {}) {
     if (batch.station) app.wave.station = batch.station;
     if (batch.batchId) app.wave.batchId = batch.batchId;
     const items = safeTracks(batch.items);
+    // запоминаем готовую ленту: при возврате к этому источнику покажем сразу
+    if (items.length) waveCacheSet(app.wave.items.length ? app.wave.items : items);
     // быстрый режим: отдали готовую ленту — следом просим свежую партию
     if (quick && items.length) {
       setTimeout(() => loadWaveMore({ force: true, quick: true }), 300);
@@ -345,6 +347,37 @@ function stateAppendWave(items, batchId) {
   }
 }
 
+/**
+ * Готовые ленты по набору источников.
+ *
+ * Переключение источника раньше ждало полный ответ сервера, а он собирает
+ * партию заново — это и выглядело как «долгая загрузка». Держим последние
+ * готовые ленты в памяти и показываем их сразу, обновляя в фоне.
+ */
+const waveCache = new Map();
+const WAVE_CACHE_LIMIT = 8;
+
+function waveCacheKey() {
+  return `${app.wave.station}|${app.wave.sources.slice().sort().join(',')}`;
+}
+
+function waveCacheGet() {
+  const hit = waveCache.get(waveCacheKey());
+  if (!hit) return null;
+  // старше двух минут — показываем, но сразу обновляем
+  return { items: hit.items, stale: Date.now() - hit.at > 120_000 };
+}
+
+function waveCacheSet(items) {
+  if (!Array.isArray(items) || !items.length) return;
+  waveCache.set(waveCacheKey(), { items: items.slice(), at: Date.now() });
+  // держим кэш маленьким: удаляем самые старые записи
+  if (waveCache.size > WAVE_CACHE_LIMIT) {
+    const oldest = [...waveCache.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+    if (oldest) waveCache.delete(oldest[0]);
+  }
+}
+
 export function resetWave() {
   app.wave.items = [];
   app.wave.done = false;
@@ -353,12 +386,31 @@ export function resetWave() {
   emit('wave');
 }
 
-/** Выбор источников «Волны»: сразу сохраняем, пересобираем ленту и оповещаем экран. */
+/**
+ * Выбор источников «Волны».
+ *
+ * Лента из кэша показывается мгновенно, а свежая партия подгружается в фоне —
+ * переключение сервисов больше не висит в ожидании сервера.
+ */
 export function setWaveSources(sources) {
   const list = (Array.isArray(sources) ? sources : []).filter((s) => WAVE_SOURCE_KEYS.includes(s));
   const next = list.length ? list : [...DEFAULT_WAVE_SOURCES];
   app.wave.sources = next;
   try { localStorage.setItem(WAVE_SOURCES_KEY, JSON.stringify(next)); } catch { /* приватный режим */ }
+
+  const cached = waveCacheGet();
+  if (cached) {
+    // кэш есть — показываем его сразу, без скелетонов
+    app.wave.items = cached.items.slice();
+    app.wave.done = false;
+    app.wave.batchId = null;
+    app.wave.batches = 0;
+    emit('wave');
+    emit('wave-sources');
+    loadWaveMore({ force: true, quick: true });
+    return next;
+  }
+
   resetWave();
   emit('wave-sources');
   loadWaveMore({ force: true });

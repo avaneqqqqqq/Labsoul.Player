@@ -240,6 +240,12 @@ function mapTrack(raw) {
     artistId: Array.isArray(raw?.artists) && raw.artists[0]?.id
       ? String(raw.artists[0].id)
       : null,
+    // все исполнители с id: у трека их может быть несколько
+    artistList: Array.isArray(raw?.artists)
+      ? raw.artists
+        .filter((a) => a && a.id && a.name)
+        .map((a) => ({ id: String(a.id), name: String(a.name) }))
+      : [],
     title: String(raw.name || '').trim() || 'Без названия',
     artists: (Array.isArray(raw?.artists) ? raw.artists : [])
       .map((artist) => String(artist?.name || '').trim())

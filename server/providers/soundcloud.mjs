@@ -654,6 +654,9 @@ function mapTrack(raw) {
     sourceId: String(raw.id),
     // id пользователя-исполнителя: нужен для страницы исполнителя
     artistId: raw?.user?.id != null ? String(raw.user.id) : null,
+    artistList: raw?.user?.id
+      ? [{ id: String(raw.user.id), name: String(raw.user.username || '') }]
+      : [],
     title: String(raw.title || '').trim() || 'Без названия',
     artists: artistsOf(raw),
     album: raw?.publisher_metadata?.album_title ? String(raw.publisher_metadata.album_title) : null,

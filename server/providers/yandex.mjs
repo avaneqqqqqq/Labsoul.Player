@@ -122,16 +122,21 @@ export function mapTrack(t) {
   const albums = Array.isArray(t.albums) ? t.albums : [];
   const album = albums[0] || null;
   const artists = (Array.isArray(t.artists) ? t.artists : []).map((a) => a && a.name).filter(Boolean);
-  // ID исполнителя нужен для перехода на его страницу: по одному имени
-  // страницу не открыть, а API отдаёт артистов объектами с id
-  const firstArtist = (Array.isArray(t.artists) ? t.artists : []).find((a) => a && a.id);
+  // ID исполнителей нужны для перехода на их страницы: по имени страницу
+  // не открыть. У трека их может быть несколько — собираем все, иначе
+  // соавтор открывался бы как основной исполнитель.
+  const artistList = (Array.isArray(t.artists) ? t.artists : [])
+    .filter((a) => a && a.id && a.name)
+    .map((a) => ({ id: String(a.id), name: String(a.name) }));
+  const firstArtist = artistList[0] || null;
   const available = t.available !== false && !(album && album.available === false);
 
   return {
     id: `ym:${t.id}`,
     source: 'yandex',
     sourceId: String(t.id),
-    artistId: firstArtist ? String(firstArtist.id) : null,
+    artistId: firstArtist ? firstArtist.id : null,
+    artistList,
     title: t.title || 'Без названия',
     artists: artists.length ? artists : ['Неизвестный исполнитель'],
     album: album ? album.title || null : null,

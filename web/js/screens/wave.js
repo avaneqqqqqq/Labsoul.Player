@@ -117,10 +117,10 @@ function heroHtml() {
   const focus = focusTrack();
   const items = app.wave.items;
   const played = st.playing && !!st.current;
-  const bars = Array.from({ length: 40 }, (_, i) => {
-    const h = Math.min(100, Math.round(16 + 62 * Math.abs(Math.sin(i * 0.62)) + ((i * 17) % 16)));
-    return `<i style="height:${h}%;animation-delay:${-i * 48}ms"></i>`;
-  }).join('');
+  // 40 столбиков отрисовываются от реального спектра — см. bindWaveBars().
+  // Раньше высота зашивалась в разметку через sin(), а CSS крутил одинаковую
+  // анимацию: полоса всегда выглядела одинаково и бит не чувствовался.
+  const bars = Array.from({ length: 40 }, () => '<i></i>').join('');
 
   return `
     <section class="wave-hero">
@@ -288,6 +288,10 @@ function paintHero() {
 
 /** Подключить анализатор к полоскам в шапке волны. */
 function bindHeroVisualizer() {
+  // Полоса из 40 столбиков под заголовком — рисуем её от спектра
+  const barsNode = screen.root?.querySelector('.wave-bars');
+  if (barsNode) bindWaveBars(barsNode);
+
   const node = screen.root?.querySelector('[data-hero-visualizer]');
   if (!node) return;
   try {
@@ -299,6 +303,61 @@ function bindHeroVisualizer() {
     screen.heroViz = new BeatVisualizer(node);
     screen.heroViz.attach(getAnalyser());
   } catch { /* визуализатор не критичен */ }
+}
+
+/**
+ * Полоса из 40 столбиков, повторяющая спектр трека.
+ *
+ * Высота берётся из анализатора на каждом кадре: удар барабана даёт всплеск
+ * слева, вокал — в середине. При выключенных анимациях остаётся статичной.
+ */
+function bindWaveBars(container) {
+  if (screen.waveBars) screen.waveBars.stop();
+  const bars = [...container.querySelectorAll('i')];
+  if (!bars.length) return;
+
+  const idle = () => {
+    bars.forEach((bar, i) => bar.style.setProperty('--lvl', (0.18 + 0.12 * Math.abs(Math.sin(i * 0.5))).toFixed(3)));
+  };
+
+  if (theme.beat === false || theme.anim === false) { idle(); return; }
+
+  const analyser = getAnalyser();
+  if (!analyser) { idle(); return; }
+
+  const data = new Uint8Array(analyser.frequencyBinCount);
+  const smooth = new Array(bars.length).fill(0);
+  let frame = 0;
+
+  const tick = () => {
+    const snap = currentState();
+    if (!snap.playing) { idle(); frame = requestAnimationFrame(tick); return; }
+
+    analyser.getByteFrequencyData(data);
+    const bins = data.length;
+
+    for (let i = 0; i < bars.length; i += 1) {
+      // низкие частоты слева, высокие справа; крайние сжимаем, чтобы
+      // нагляднее читался ритм, а не постоянный шум верха
+      const from = Math.floor((i / bars.length) ** 1.3 * bins * 0.72);
+      const to = Math.max(from + 1, Math.floor(((i + 1) / bars.length) ** 1.3 * bins * 0.72));
+
+      let peak = 0;
+      for (let j = from; j < to; j += 1) if (data[j] > peak) peak = data[j];
+
+      const raw = peak / 255;
+      const prev = smooth[i];
+      smooth[i] = raw > prev ? raw : prev * 0.6 + raw * 0.4;
+
+      const boost = 1.4 - (i / bars.length) * 0.4;
+      bars[i].style.setProperty('--lvl', Math.max(0.1, Math.min(1, smooth[i] * boost * 1.8)).toFixed(3));
+    }
+
+    frame = requestAnimationFrame(tick);
+  };
+
+  frame = requestAnimationFrame(tick);
+  screen.waveBars = { stop() { if (frame) cancelAnimationFrame(frame); frame = 0; } };
 }
 
 function syncCurrentRows() {

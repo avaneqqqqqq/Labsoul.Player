@@ -91,8 +91,12 @@ function close() {
   overlay = null;
 }
 
+/** Последнее отправленное состояние — чтобы отдать его новому окну. */
+let lastState = null;
+
 /** Отправить состояние трека в мини-плеер. */
 function send(state) {
+  lastState = state;
   if (!overlay || overlay.isDestroyed()) return false;
   try {
     overlay.webContents.send('mini:state', state);
@@ -100,6 +104,11 @@ function send(state) {
   } catch {
     return false;
   }
+}
+
+/** Текущее состояние (для запроса из окна при загрузке). */
+function getState() {
+  return lastState;
 }
 
 function isOpen() {
@@ -120,6 +129,16 @@ function handleActions() {
       mainWindowRef.webContents.send('mini:command', action);
     }
   });
+
+  // мини-плеер просит состояние сразу после открытия
+  ipcMain.on('mini:request-state', () => {
+    if (lastState && overlay && !overlay.isDestroyed()) {
+      send(lastState);
+    } else if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+      // состояние ещё не приходило — просим приложение прислать свежее
+      mainWindowRef.webContents.send('mini:command', 'refresh');
+    }
+  });
 }
 
-module.exports = { create, toggle, close, send, isOpen, attachMain, handleActions };
+module.exports = { create, toggle, close, send, getState, isOpen, attachMain, handleActions };

@@ -59,19 +59,23 @@ export class BeatVisualizer {
       const bins = this.data.length;
 
       for (let i = 0; i < count; i += 1) {
-        // распределяем частоты по столбикам: слева низа, справа верха
-        const from = Math.floor((i / count) ** 1.6 * bins);
-        const to = Math.max(from + 1, Math.floor(((i + 1) / count) ** 1.6 * bins));
+        // Распределяем частоты по столбикам: слева низа, справа верха.
+        // Кривая 1.6 растягивала низ — на музыке верх почти не двигался.
+        const from = Math.floor((i / count) ** 1.25 * bins);
+        const to = Math.max(from + 1, Math.floor(((i + 1) / count) ** 1.25 * bins));
 
-        let sum = 0;
-        for (let j = from; j < to; j += 1) sum += this.data[j];
-        const raw = sum / (to - from) / 255;
+        let peak = 0;
+        for (let j = from; j < to; j += 1) if (this.data[j] > peak) peak = this.data[j];
+        const raw = peak / 255;
 
-        // сглаживание: вверх резко, вниз мягко — так похоже на живой эквалайзер
+        // Падение медленнее подъёма, но заметно быстрее прежнего: столбики
+        // успевают отыгрывать удар, а не тянутся плавной волной.
         const prev = this.smooth[i] || 0;
-        this.smooth[i] = raw > prev ? raw : prev * 0.72 + raw * 0.28;
+        this.smooth[i] = raw > prev ? raw : prev * 0.55 + raw * 0.45;
 
-        const height = Math.max(0.14, Math.min(1, this.smooth[i] * 1.55));
+        // Нижние полосы усиливаем сильнее — они дают ощущение бита
+        const boost = 1.35 - (i / count) * 0.35;
+        const height = Math.max(0.12, Math.min(1, this.smooth[i] * boost * 1.9));
         this.bars[i].style.setProperty('--lvl', height.toFixed(3));
       }
     }

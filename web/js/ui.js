@@ -394,9 +394,11 @@ function syncPresence(snap) {
     return;
   }
 
-  // не спамим Discord: обновляем при смене трека или паузе, не каждый тик
+  // не спамим Discord: обновляем при смене трека или паузе, не каждый тик.
+  // force — мини-плеер только открылся и просит состояние заново.
   const key = `${track.id}:${snap.playing ? 'play' : 'pause'}`;
-  if (key === presenceTrackId) return;
+  const force = arguments.length > 1 && arguments[1] === true;
+  if (!force && key === presenceTrackId) return;
   presenceTrackId = key;
 
   const payload = {
@@ -1303,7 +1305,8 @@ function openNowPlaying() {
  */
 async function openArtistPage() {
   const track = player.currentTrack();
-  if (!track?.artistId) {
+  const artists = Array.isArray(track?.artistList) ? track.artistList : [];
+  if (!track || (!artists.length && !track.artistId)) {
     toast('У этого трека нет страницы исполнителя', { type: 'warn' });
     return;
   }
@@ -1320,10 +1323,103 @@ async function openArtistPage() {
   const host = document.getElementById('content');
   if (!host) return;
 
+  // Выбор: исполнитель (если их несколько) и сервис, где искать его треки
+  const list = artists.length ? artists : [{ id: track.artistId, name: artistsLine(track) }];
+  const sources = ARTIST_SOURCES.filter((s) => s.id !== 'local');
+  const choice = await pickArtist(list, sources, track.source);
+  if (!choice) return;
+
+  await renderArtistPage(host, choice.source, choice.artist, track, sources.slice(0, 3));
+}
+
+/** Сервисы, у которых есть страницы исполнителей. */
+const ARTIST_SOURCES = [
+  { id: 'yandex', name: 'Яндекс' },
+  { id: 'soundcloud', name: 'SoundCloud' },
+  { id: 'spotify', name: 'Spotify' },
+];
+
+/**
+ * Спросить, чью страницу и в каком сервисе открыть.
+ *
+ * У трека бывает несколько исполнителей, а искать его треки можно в любом
+ * из подключённых сервисов — поэтому спрашиваем оба выбора сразу.
+ * Возвращает { artist, source } или null, если пользователь закрыл окно.
+ */
+function pickArtist(list, sources, defaultSource) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'artist-pick__scrim';
+
+    const onlyOne = list.length === 1;
+    overlay.innerHTML = `<div class="artist-pick">
+      <div class="artist-pick__head">${onlyOne ? 'Где искать треки' : 'Выберите исполнителя и сервис'}</div>
+
+      ${onlyOne ? '' : `<div class="artist-pick__label">Исполнитель</div>
+      <div class="artist-pick__list">
+        ${list.map((a, i) => `<button class="artist-pick__item${i === 0 ? ' on' : ''}" type="button" data-artist-index="${i}">${esc(a.name)}</button>`).join('')}
+      </div>`}
+
+      <div class="artist-pick__label">Сервис</div>
+      <div class="artist-pick__sources">
+        ${sources.map((s) => `<button class="artist-pick__src${s.id === defaultSource ? ' on' : ''}" type="button" data-source="${s.id}">${esc(s.name)}</button>`).join('')}
+      </div>
+
+      <button class="artist-pick__go" type="button">Открыть</button>
+      <button class="artist-pick__cancel" type="button">Отмена</button>
+    </div>`;
+
+    let artistIndex = 0;
+    let source = sources.some((s) => s.id === defaultSource) ? defaultSource : sources[0].id;
+
+    const close = (value) => {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(value);
+    };
+    const onKey = (event) => { if (event.key === 'Escape') close(null); };
+
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) { close(null); return; }
+
+      const artistBtn = event.target.closest('[data-artist-index]');
+      if (artistBtn) {
+        artistIndex = Number(artistBtn.dataset.artistIndex);
+        overlay.querySelectorAll('[data-artist-index]').forEach((b) => b.classList.toggle('on', b === artistBtn));
+        return;
+      }
+
+      const srcBtn = event.target.closest('[data-source]');
+      if (srcBtn) {
+        source = srcBtn.dataset.source;
+        overlay.querySelectorAll('[data-source]').forEach((b) => b.classList.toggle('on', b === srcBtn));
+        return;
+      }
+
+      if (event.target.closest('.artist-pick__go')) {
+        close({ artist: list[artistIndex], source });
+        return;
+      }
+      if (event.target.closest('.artist-pick__cancel')) close(null);
+    });
+
+    // двойной клик по исполнителю открывает сразу, не трогая кнопку
+    overlay.addEventListener('dblclick', (event) => {
+      const artistBtn = event.target.closest('[data-artist-index]');
+      if (artistBtn) close({ artist: list[Number(artistBtn.dataset.artistIndex)], source });
+    });
+
+    document.addEventListener('keydown', onKey);
+    document.body.appendChild(overlay);
+  });
+}
+
+/** Загрузить и нарисовать страницу выбранного исполнителя. */
+async function renderArtistPage(host, source, artist, track) {
   host.innerHTML = '<div class="empty" style="margin-top:40px"><b>Загружаем исполнителя…</b></div>';
 
   try {
-    const data = await getArtist(track.source, track.artistId, 50);
+    const data = await getArtist(source, artist.id, 50);
     const tracks = Array.isArray(data?.tracks) ? data.tracks : [];
 
     if (!tracks.length) {
@@ -1336,7 +1432,7 @@ async function openArtistPage() {
         ${data.cover ? `<img class="artist-page__cover" src="${esc(data.cover)}" alt="">` : ''}
         <div>
           <span class="artist-page__label">Исполнитель</span>
-          <h1 class="artist-page__name">${esc(data.name || track.artists[0] || '')}</h1>
+          <h1 class="artist-page__name">${esc(data.name || artist.name || '')}</h1>
           <span class="artist-page__count">${tracks.length} треков</span>
         </div>
       </header>
@@ -1344,12 +1440,12 @@ async function openArtistPage() {
     </div>`;
 
     // треки рисуем общим списком и подключаем те же действия, что и везде
-    const list = host.querySelector('.artist-page__list');
-    if (list) {
-      list.innerHTML = rowsHtml(tracks, { index: true });
+    const listBox = host.querySelector('.artist-page__list');
+    if (listBox) {
+      listBox.innerHTML = rowsHtml(tracks, { index: true });
       bindTrackActions(host, {
         getList: () => tracks,
-        getContext: () => ({ type: 'artist', artistId: track.artistId }),
+        getContext: () => ({ type: 'artist', artistId: artist.id }),
         feedback: false,
       });
     }
@@ -1725,6 +1821,9 @@ export function initShell() {
     else if (action === 'prev') player.prev();
     if (action === 'toggle' || action === 'next' || action === 'prev') {
       syncPresence(player.getState());
+    } else if (action === 'refresh') {
+      // мини-плеер открылся и просит актуальное состояние — шлём принудительно
+      syncPresence(player.getState(), true);
     }
   });
 

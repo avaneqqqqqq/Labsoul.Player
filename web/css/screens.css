@@ -105,7 +105,8 @@ body[data-variant="vinyl"] .wave-hero h2 { font-weight: 500; font-style: italic;
   flex: 1 1 0; min-width: 3px; max-width: 11px; min-height: 3px;
   border-radius: 2px 2px 1px 1px;
   background: color-mix(in srgb, var(--accent) 64%, transparent);
-  animation: grow 1.5s ease-in-out infinite alternate;
+  height: calc(var(--lvl, .22) * 100%);
+  transition: height 80ms linear;
   transform-origin: bottom;
 }
 body[data-playing="false"] .wave-bars i { animation: none; }
@@ -1150,3 +1151,129 @@ mark.hit {
   display: grid;
   gap: 2px;
 }
+
+
+/* ------------------ выбор исполнителя в треке --------------------------- */
+.artist-pick__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, .55);
+  backdrop-filter: blur(4px);
+  animation: fade-in 140ms ease;
+}
+
+.artist-pick {
+  width: min(360px, calc(100vw - 48px));
+  padding: 18px;
+  border-radius: 16px;
+  background: var(--panel-solid);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.artist-pick__head {
+  font-size: 13px;
+  color: var(--dim);
+  margin-bottom: 12px;
+}
+
+.artist-pick__list {
+  display: grid;
+  gap: 6px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.artist-pick__item {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--hover);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.artist-pick__item:hover {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.artist-pick__cancel {
+  width: 100%;
+  margin-top: 12px;
+  padding: 9px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.artist-pick__cancel:hover { color: var(--text); }
+
+
+.artist-pick__label {
+  margin: 12px 0 6px;
+  font-size: 11px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.artist-pick__item.on {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--text);
+}
+
+.artist-pick__sources {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.artist-pick__src {
+  flex: 1;
+  min-width: 88px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 140ms ease;
+}
+
+.artist-pick__src:hover { color: var(--text); border-color: var(--border-strong); }
+
+.artist-pick__src.on {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.artist-pick__go {
+  width: 100%;
+  margin-top: 14px;
+  padding: 11px;
+  border-radius: 10px;
+  border: 0;
+  background: var(--accent);
+  color: #14140f;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+  transition: filter 140ms ease;
+}
+
+.artist-pick__go:hover { filter: brightness(1.1); }
