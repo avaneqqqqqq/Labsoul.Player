@@ -240,17 +240,37 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
   const want = clampWant(limit);
   const wanted = normalizeSources(sources);
 
+  /*
+   * Источники опрашиваются параллельно, но НЕ ждём самый медленный.
+   *
+   * Раньше здесь стоял Promise.all: лента ждала ротор Яндекса (6–9 с),
+   * даже когда SoundCloud и Spotify уже ответили. Теперь у каждого
+   * источника свой срок: кто не успел — подтянется следующим запросом.
+   */
+  const SOURCE_DEADLINE_MS = 5000;
+
   const batches = await Promise.all(
-    wanted.map(async (source) => {
-      try {
+    wanted.map((source) => {
+      const work = (async () => {
         if (source === 'yandex') return await yandexBatch(want, station);
         if (source === 'soundcloud') return await soundcloudBatch(want);
         if (source === 'spotify') return await spotifyBatch(want);
         return null;
-      } catch (err) {
+      })().catch((err) => {
         store.log(`[wave] источник ${source} не дал ленту:`, err.message);
         return { source, engine: source, items: [], batchId: null, error: err.code || 'UPSTREAM', message: err.message };
-      }
+      });
+
+      // опоздавший источник не блокирует ленту
+      const timeout = new Promise((resolve) => {
+        const timer = setTimeout(
+          () => resolve({ source, engine: source, items: [], batchId: null, late: true }),
+          SOURCE_DEADLINE_MS,
+        );
+        timer.unref?.();
+      });
+
+      return Promise.race([work, timeout]);
     }),
   );
 

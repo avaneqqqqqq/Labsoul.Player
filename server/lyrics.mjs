@@ -28,8 +28,11 @@ const NETEASE = 'https://music.163.com/api';
  */
 const LRCMUX = 'https://api.lrcmux.dev';
 const LRCMUX_TIMEOUT_MS = 9000;
-const LRCLIB_TIMEOUT_MS = 4500;
-const NETEASE_TIMEOUT_MS = 7000;
+// На каждую попытку ждём меньше: сервис либо отвечает быстро, либо лежит.
+// Две попытки по 3.5 с дают максимум 7 с вместо прежних 18.
+const LRCMUX_ATTEMPT_MS = 3500;
+const LRCLIB_TIMEOUT_MS = 3500;
+const NETEASE_TIMEOUT_MS = 4000;
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const USER_AGENT = 'labsoul/1.0 (https://github.com/avaneqqqqqq/Labsoul.Player)';
 const NETEASE_HEADERS = {
@@ -423,11 +426,13 @@ async function lrcmuxLyrics(meta) {
   const url = `${LRCMUX}/get?${params}`;
 
   // Сервис иногда отвечает 404 на первый запрос, который у него ещё не
-  // прогрелся в кэше: вторая попытка обычно успешна.
+  // прогрелся в кэше: вторая попытка обычно успешна. Таймаут короткий —
+  // при недоступном сервисе ждать 9 секунд на каждой из двух попыток
+  // значило держать пользователя у пустого экрана почти полминуты.
   let data = null;
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), LRCMUX_TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), LRCMUX_ATTEMPT_MS);
     try {
       const response = await fetch(url, {
         headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' },
@@ -443,7 +448,7 @@ async function lrcmuxLyrics(meta) {
     } finally {
       clearTimeout(timer);
     }
-    if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, 250));
+    if (attempt === 1) await new Promise((resolve) => setTimeout(resolve, 200));
   }
   if (!data) return null;
 

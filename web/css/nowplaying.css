@@ -241,12 +241,19 @@ body.np-open { overflow: hidden; }
   display: none;
   flex-direction: column;
   align-self: center;
+  justify-self: center;
   min-height: 0;
+  width: var(--np-lyr-width, 100%);
+  max-width: var(--np-lyr-width, 100%);
   max-height: min(72vh, 580px);
-  padding: 18px 20px 12px;
-  border: 1px solid var(--border);
-  border-radius: 22px;
+  padding: var(--np-lyr-pad, 18px) calc(var(--np-lyr-pad, 18px) + 2px) 12px;
+  border: 1px solid var(--np-lyr-border, var(--border));
+  border-radius: var(--np-lyr-radius, 22px);
+  box-shadow: var(--np-lyr-shadow, 0 18px 50px -24px rgba(0, 0, 0, .7));
+  backdrop-filter: blur(var(--np-lyr-blur, 0px));
+  -webkit-backdrop-filter: blur(var(--np-lyr-blur, 0px));
   background: linear-gradient(180deg, rgba(255, 255, 255, .05), rgba(255, 255, 255, .015));
+  transition: width 200ms ease, border-radius 200ms ease, padding 200ms ease;
 }
 
 .np.is-lyrics .np__lyrics { display: flex; }

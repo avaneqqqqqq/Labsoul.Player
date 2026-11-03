@@ -440,8 +440,14 @@ function dpiCard() {
     </form>`;
 }
 
+/** Карточки сервисов: вход и ключи. */
 function cardsHtml() {
-  return yandexCard() + soundcloudCard() + spotifyCard() + dpiCard() + networkCard();
+  return yandexCard() + soundcloudCard() + spotifyCard();
+}
+
+/** Карточки сети: обход блокировки и прокси — отдельным блоком ниже. */
+function networkCardsHtml() {
+  return dpiCard() + networkCard();
 }
 
 function paintOverview() {
@@ -831,7 +837,16 @@ const screenModule = {
       </div>
 
       <div class="sources-overview" id="sources-overview">${overviewHtml()}</div>
-      <div class="source-grid">${cardsHtml()}</div>
+
+      <div class="sources-section">
+        <div class="panel__head">${icon('music')}<h3>Сервисы</h3><span class="hint">вход и ключи</span></div>
+        <div class="source-grid">${cardsHtml()}</div>
+      </div>
+
+      <div class="sources-section">
+        <div class="panel__head">${icon('shield')}<h3>Сеть</h3><span class="hint">блокировки и прокси</span></div>
+        <div class="source-grid source-grid--net">${networkCardsHtml()}</div>
+      </div>
 
       <div class="sources-note">
         <div class="notice">

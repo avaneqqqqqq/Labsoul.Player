@@ -423,9 +423,49 @@ function syncPresence(snap) {
   } catch { /* оверлей закрыт */ }
 }
 
+/**
+ * Покадровое обновление текста — без перерисовки всего плеера.
+ * Время берётся из audio.currentTime, поэтому подсветка совпадает со звуком.
+ */
+function syncLyricsClock(time) {
+  // syncLyrics сам обновляет и полноэкранную панель, и подсветку по словам
+  syncLyrics(time);
+}
+
+/** Покадровое движение полосы прогресса. */
+function syncProgressClock(snap) {
+  const host = ui.playerHost;
+  if (!host) return;
+  const duration = snap.duration || snap.current?.duration || 0;
+  if (!duration) return;
+
+  const seek = host.querySelector('.pl-seek');
+  if (seek && !ui.seeking) {
+    seek.value = String(Math.round((snap.time / duration) * 1000));
+    const percent = Math.min(100, Math.max(0, (snap.time / duration) * 100));
+    seek.style.setProperty('--p', `${percent}%`);
+  }
+
+  const time = host.querySelector('[data-pl-time]');
+  if (time) time.textContent = fmtClock(snap.time);
+
+  const np = nowPlaying.el;
+  if (np) {
+    const npSeek = np.querySelector('.np__seek');
+    if (npSeek) npSeek.value = String(Math.round((snap.time / duration) * 1000));
+    setText('[data-np-time]', fmtClock(snap.time));
+  }
+}
+
 function onPlayerEvent(snap, event) {
   if (event === 'time') {
     syncPlayer(snap);
+    return;
+  }
+  // Покадровое время: двигаем только текст и полосу, не перерисовывая плеер
+  if (event === 'tick') {
+    syncLyricsClock(snap.time);
+    syncProgressClock(snap);
     return;
   }
   // Discord Rich Presence и оверлей: обновляем при смене трека и паузе
@@ -902,7 +942,9 @@ function syncLyrics(time, force = false) {
   const at = Number(time) || 0;
   let index = -1;
   for (let i = 0; i < state.synced.length; i += 1) {
-    if (state.synced[i].time <= at + 0.25) index = i;
+    // Строка подсвечивается ровно в свою секунду. Раньше здесь было
+    // смещение +0.25 — текст уходил вперёд музыки на четверть секунды.
+    if (state.synced[i].time <= at) index = i;
     else break;
   }
 

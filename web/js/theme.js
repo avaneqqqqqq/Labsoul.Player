@@ -66,6 +66,19 @@ export const DEFAULTS = {
   uiScale: 100,
   coverRadius: 22,
   lyricsAuto: false,
+  /**
+   * Оформление области текста в полноэкранном плеере.
+   * Позволяет подогнать её под себя: размер окна, размытие подложки,
+   * рамку и внутренние отступы.
+   */
+  lyricsBox: {
+    width: 100,     // ширина блока, %
+    blur: 0,        // размытие подложки, px
+    radius: 22,     // скругление, px
+    pad: 18,        // внутренние отступы, px
+    border: true,   // показывать рамку
+    shadow: true,   // тень под блоком
+  },
   barSeek: true,
   // плавное появление и затухание звука при смене трека
   crossfade: true,
@@ -175,6 +188,16 @@ function normalizeTheme(raw) {
   if (Number.isFinite(raw.uiScale)) out.uiScale = clamp(Math.round(raw.uiScale), 85, 120);
   if (Number.isFinite(raw.coverRadius)) out.coverRadius = clamp(Math.round(raw.coverRadius), 0, 34);
   if (typeof raw.lyricsAuto === 'boolean') out.lyricsAuto = raw.lyricsAuto;
+  if (raw.lyricsBox && typeof raw.lyricsBox === 'object') {
+    const box = raw.lyricsBox;
+    const base = out.lyricsBox;
+    if (Number.isFinite(box.width)) base.width = clamp(Math.round(box.width), 40, 100);
+    if (Number.isFinite(box.blur)) base.blur = clamp(Math.round(box.blur), 0, 40);
+    if (Number.isFinite(box.radius)) base.radius = clamp(Math.round(box.radius), 0, 40);
+    if (Number.isFinite(box.pad)) base.pad = clamp(Math.round(box.pad), 0, 48);
+    if (typeof box.border === 'boolean') base.border = box.border;
+    if (typeof box.shadow === 'boolean') base.shadow = box.shadow;
+  }
   if (typeof raw.barSeek === 'boolean') out.barSeek = raw.barSeek;
   if (WALLPAPERS.has(raw.wallpaper)) out.wallpaper = raw.wallpaper;
   if (DENSITIES.has(raw.density)) out.density = raw.density;
@@ -380,6 +403,15 @@ export function applyTheme({ emitEvent = false } = {}) {
   body.dataset.coverAnim = theme.anim ? (theme.coverAnim || 'fade') : 'none';
   body.dataset.beat = theme.beat !== false ? 'on' : 'off';
   body.dataset.coverPulse = theme.coverPulse ? 'on' : 'off';
+
+  // Оформление блока текста в полноэкранном плеере
+  const lb = theme.lyricsBox || {};
+  body.style.setProperty('--np-lyr-width', `${Number(lb.width) || 100}%`);
+  body.style.setProperty('--np-lyr-blur', `${Number(lb.blur) || 0}px`);
+  body.style.setProperty('--np-lyr-radius', `${Number(lb.radius) ?? 22}px`);
+  body.style.setProperty('--np-lyr-pad', `${Number(lb.pad) ?? 18}px`);
+  body.style.setProperty('--np-lyr-border', lb.border === false ? 'transparent' : 'var(--border)');
+  body.style.setProperty('--np-lyr-shadow', lb.shadow === false ? 'none' : '0 18px 50px -24px rgba(0, 0, 0, .7)');
 
   body.style.setProperty('--radius', `${theme.radius}px`);
   // реактивность фона под музыку: значение 0…1 обновляет плеер

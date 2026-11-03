@@ -988,6 +988,32 @@ audio.addEventListener('timeupdate', () => {
   state.time = audio.currentTime || 0;
   emit('time');
 });
+
+/*
+ * Плавное время для текста.
+ *
+ * Событие timeupdate приходит всего 4 раза в секунду, а текст с послоговой
+ * подсветкой должен двигаться без рывков. Здесь время берётся напрямую из
+ * audio.currentTime каждый кадр — оно точнее и совпадает со звуком.
+ * Отдельное событие 'tick', чтобы не перерисовывать весь плеер 60 раз в секунду.
+ */
+let clockFrame = 0;
+function startClock() {
+  if (clockFrame) return;
+  const step = () => {
+    if (!state.simulated && !audio.paused) {
+      state.time = audio.currentTime || 0;
+      emit('tick');
+    }
+    clockFrame = requestAnimationFrame(step);
+  };
+  clockFrame = requestAnimationFrame(step);
+}
+function stopClock() {
+  if (clockFrame) cancelAnimationFrame(clockFrame);
+  clockFrame = 0;
+}
+startClock();
 audio.addEventListener('play', () => {
   if (state.simulated) return;
   state.playing = true;

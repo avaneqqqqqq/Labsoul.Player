@@ -336,6 +336,42 @@ function shellHtml() {
             <div class="ctl__label">Текст сразу<small>открывать текст при входе в полноэкранный</small></div>
             <label class="toggle"><input type="checkbox" data-toggle="lyricsAuto" ${theme.lyricsAuto ? 'checked' : ''}><span class="toggle__track"></span></label>
           </div>
+          <div class="ctl">
+            <div class="ctl__label">Ширина блока текста<small>сколько места занимает панель</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="40" max="100" step="5" value="${theme.lyricsBox?.width ?? 100}" data-lyrbox="width" aria-label="Ширина блока текста">
+              <span class="rng-val" data-val-for="lyrbox-width">${theme.lyricsBox?.width ?? 100}%</span>
+            </div>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Скругление<small>форма панели текста</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="0" max="40" step="2" value="${theme.lyricsBox?.radius ?? 22}" data-lyrbox="radius" aria-label="Скругление панели текста">
+              <span class="rng-val" data-val-for="lyrbox-radius">${theme.lyricsBox?.radius ?? 22}px</span>
+            </div>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Размытие подложки<small>стекло за текстом</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="0" max="40" step="2" value="${theme.lyricsBox?.blur ?? 0}" data-lyrbox="blur" aria-label="Размытие подложки текста">
+              <span class="rng-val" data-val-for="lyrbox-blur">${theme.lyricsBox?.blur ?? 0}px</span>
+            </div>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Внутренние отступы<small>плотность текста внутри</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="0" max="48" step="2" value="${theme.lyricsBox?.pad ?? 18}" data-lyrbox="pad" aria-label="Отступы панели текста">
+              <span class="rng-val" data-val-for="lyrbox-pad">${theme.lyricsBox?.pad ?? 18}px</span>
+            </div>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Рамка<small>тонкая обводка вокруг панели</small></div>
+            <label class="toggle"><input type="checkbox" data-lyrbox-toggle="border" ${theme.lyricsBox?.border !== false ? 'checked' : ''}><span class="toggle__track"></span></label>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Тень<small>мягкая тень под панелью</small></div>
+            <label class="toggle"><input type="checkbox" data-lyrbox-toggle="shadow" ${theme.lyricsBox?.shadow !== false ? 'checked' : ''}><span class="toggle__track"></span></label>
+          </div>
         </div>
 
         <div class="panel" data-section="motion">
@@ -816,6 +852,19 @@ function onChange(event) {
   }
   if (input.dataset.toggle) {
     update(input.dataset.toggle, input.checked);
+    return;
+  }
+  // оформление панели текста: ширина, скругление, размытие, отступы, рамка, тень
+  if (input.dataset.lyrbox) {
+    const key = input.dataset.lyrbox;
+    const value = clamp(Number(input.value), Number(input.min), Number(input.max));
+    update(`lyricsBox.${key}`, value);
+    const label = document.querySelector(`[data-val-for="lyrbox-${key}"]`);
+    if (label) label.textContent = key === 'width' ? `${value}%` : `${value}px`;
+    return;
+  }
+  if (input.dataset.lyrboxToggle) {
+    update(`lyricsBox.${input.dataset.lyrboxToggle}`, input.checked);
     return;
   }
   if (input.dataset.block) {

@@ -333,8 +333,9 @@ body[data-variant="vinyl"] .page-head h1 {
 .chips { display: flex; gap: 7px; flex-wrap: wrap; }
 
 .seg {
-  display: inline-flex; padding: 3px; gap: 2px;
-  border-radius: 999px; background: var(--hover); border: 1px solid var(--border);
+  display: inline-flex; flex-wrap: wrap; max-width: 100%; padding: 3px; gap: 2px;
+  border-radius: 16px; background: var(--hover); border: 1px solid var(--border);
+  box-sizing: border-box;
 }
 .seg button {
   border: 0; background: transparent; color: var(--mute);

@@ -329,7 +329,7 @@ mark.hit {
 .ov[data-state="warn"] .ov__dot { background: #ffc44d; box-shadow: 0 0 0 3px rgba(255, 196, 77, .14); }
 .ov[data-state="err"] .ov__dot { background: #ff6b5c; box-shadow: 0 0 0 3px rgba(255, 107, 92, .14); }
 
-.source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; align-items: start; }
+.source-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 14px; align-items: start; min-width: 0; }
 .source-card { padding: 4px 20px 16px; }
 .panel.source-card { margin-top: 0; }
 .source-card__head { display: flex; align-items: center; gap: 11px; padding: 16px 0 12px; }
@@ -1277,3 +1277,17 @@ mark.hit {
 }
 
 .artist-pick__go:hover { filter: brightness(1.1); }
+
+
+/* ------ разделы страницы подключений: сервисы и сеть отдельно -------- */
+.sources-section {
+  margin-top: 22px;
+}
+
+.sources-section .panel__head {
+  padding: 0 0 10px;
+}
+
+.source-grid--net {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+}
