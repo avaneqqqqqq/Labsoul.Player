@@ -230,7 +230,9 @@ function shellHtml() {
 
     <nav class="design-tabs" id="design-tabs">
       <button class="design-tab is-on" type="button" data-tab-section="look">${icon('palette')} <span>Внешний вид</span></button>
-      <button class="design-tab" type="button" data-tab-section="form">${icon('type')} <span>Форма и текст</span></button>
+      <button class="design-tab" type="button" data-tab-section="form">${icon('type')} <span>Форма</span></button>
+      <button class="design-tab" type="button" data-tab-section="grid">${icon('grid')} <span>Карточки</span></button>
+      <button class="design-tab" type="button" data-tab-section="lyrics">${icon('type')} <span>Блок текста</span></button>
       <button class="design-tab" type="button" data-tab-section="blocks">${icon('library')} <span>Блоки</span></button>
       <button class="design-tab" type="button" data-tab-section="motion">${icon('spark')} <span>Анимации</span></button>
       <button class="design-tab" type="button" data-tab-section="eq">${icon('eq')} <span>Эквалайзер</span></button>
