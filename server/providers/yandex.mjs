@@ -166,19 +166,37 @@ export function configure(next) {
 }
 
 export async function status() {
-  const diagnosis = hostSwitch.diagnosis();
   if (!cfg.token) return { connected: false, error: 'NO_TOKEN' };
-  try {
-    const data = await request('/account/status');
-    const account = data?.result?.account || data?.account || {};
-    cachedUser = account.displayName || account.login || account.uid || 'пользователь';
-    lastError = null;
-    return { connected: true, user: cachedUser };
-  } catch (err) {
-    lastError = err.code || 'UPSTREAM';
-    cachedUser = null;
-    return { connected: false, error: lastError, message: err.message };
+
+  /*
+   * Прогрев соединения.
+   *
+   * Самый первый HTTPS-запрос после запуска процесса часто падает с
+   * «fetch failed»: ядро ещё не подняло DNS-кэш и пул соединений, а при
+   * работе через обход блокировки первый пакет теряется. Из-за этого при
+   * входе в приложение Яндекс показывался как недоступный, а повторная
+   * проверка сразу проходила. Повторяем пару раз с короткой паузой.
+   */
+  let lastFailure = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const data = await request('/account/status');
+      const account = data?.result?.account || data?.account || {};
+      cachedUser = account.displayName || account.login || account.uid || 'пользователь';
+      lastError = null;
+      return { connected: true, user: cachedUser };
+    } catch (err) {
+      lastFailure = err;
+      const code = String(err?.code || '');
+      const retryable = code === 'UPSTREAM' || /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN/i.test(String(err?.message || ''));
+      if (!retryable || attempt === 3) break;
+      await new Promise((resolve) => setTimeout(resolve, 250 * attempt));
+    }
   }
+
+  lastError = lastFailure?.code || 'UPSTREAM';
+  cachedUser = null;
+  return { connected: false, error: lastError, message: lastFailure?.message };
 }
 
 export async function search(query, limit = 20) {

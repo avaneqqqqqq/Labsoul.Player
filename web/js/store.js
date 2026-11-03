@@ -800,12 +800,19 @@ export function setQueueOpen(open) {
 
 export function initStore() {
   loadLikes();
-  onNetChange(() => {
+  onNetChange((state) => {
     emit('net');
+    // Сервер поднялся позже интерфейса — догоняем статус, не дожидаясь
+    // нажатия «Проверить связь».
+    if (state?.mode === 'online' && !app.status?.sources) {
+      refreshStatus().catch(() => {});
+    }
   });
-  if (net.mode === 'online') {
-    refreshStatus().catch(() => {});
-  }
+
+  // Статус запрашиваем всегда: даже если ping ещё не ответил, сервер может
+  // быть уже готов. Пустой результат не кэшируется на сервере.
+  refreshStatus().catch(() => {});
+
   app.ready = true;
   emit('init');
   return app;

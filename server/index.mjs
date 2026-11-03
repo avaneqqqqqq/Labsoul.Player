@@ -578,7 +578,20 @@ function refreshStatus() {
   if (statusRefreshing) return statusRefreshing;
   statusRefreshing = probeStatusAll()
     .then((result) => {
-      if (result) {
+      /*
+       * Кэшируем только осмысленный результат.
+       *
+       * Если провайдеры ещё не загрузились (первые миллисекунды после
+       * старта сервера) или сработал таймаут, приходит пустой ответ.
+       * Раньше он попадал в кэш на минуту, и интерфейс минуту показывал
+       * «нет доступа» ко всем сервисам, пока не нажмёшь «Проверить».
+       */
+      const meaningful = result
+        && Object.keys(result).length > 0
+        && Object.values(result).some((s) => s && s.connected);
+      const allStubs = result && Object.values(result).every((s) => s && s.error === 'NOT_INSTALLED');
+
+      if (meaningful || (result && !allStubs)) {
         statusCache = result;
         statusCacheAt = Date.now();
       }
@@ -1317,15 +1330,30 @@ audioconvert.configure();
 libraryCache.configure();
 dpi.configure();
 
-server.listen(PORT, '127.0.0.1', async () => {
-  await loadProviders();
-  store.log(`labsoul запущен: http://127.0.0.1:${PORT}`);
-  process.stdout.write(`\n  labsoul: http://127.0.0.1:${PORT}\n\n`);
+/*
+ * Порт открываем ПОСЛЕ загрузки провайдеров.
+ *
+ * Раньше listen() срабатывал сразу, а провайдеры грузились внутри колбэка.
+ * Интерфейс успевал спросить /api/status в эту щель и получал заглушки
+ * («нет доступа» ко всем сервисам), которые потом залипали в кэше.
+ */
+loadProviders()
+  .then(() => {
+    server.listen(PORT, '127.0.0.1', () => {
+      store.log(`labsoul запущен: http://127.0.0.1:${PORT}`);
+      process.stdout.write(`\n  labsoul: http://127.0.0.1:${PORT}\n\n`);
 
-  // Прогреваем статус сразу: первый заход в интерфейс покажет готовые
-  // данные, а не «нет доступа» на время проверки провайдеров.
-  refreshStatus().catch(() => {});
-});
+      // Прогрев статуса: первый заход в интерфейс покажет готовые данные.
+      refreshStatus().catch(() => {});
+    });
+  })
+  .catch((err) => {
+    store.log('Ошибка загрузки провайдеров:', err?.message || err);
+    // даже без провайдеров интерфейс должен открыться
+    server.listen(PORT, '127.0.0.1', () => {
+      process.stdout.write(`\n  labsoul: http://127.0.0.1:${PORT}\n\n`);
+    });
+  });
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
