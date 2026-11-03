@@ -251,12 +251,16 @@ function normalizeSettings(raw) {
 /* Проверка живости                                                    */
 /* ------------------------------------------------------------------ */
 
-export async function ping(timeout = 1800) {
+export async function ping(timeout = 6000) {
   if (typeof location !== 'undefined' && location.protocol === 'file:') {
     degrade(new Error('страница открыта как файл'));
     return false;
   }
   try {
+    // 1.8 секунды было мало: при первом запуске сервер ещё поднимает
+    // провайдеров, ping не успевал и интерфейс переходил в «нет соединения»
+    // на всех трёх сервисах. Кнопка «Проверить» потом проходила, потому
+    // что сервер к тому моменту уже готов.
     const data = await request('/api/health', { timeout });
     if (data && data.ok) {
       setMode('online', data.version || null);

@@ -252,6 +252,18 @@ export async function refreshStatus() {
     app.statusLoading = false;
     emit('status');
   }
+
+  // Сервер при первом запуске ещё поднимает источники — статус мог прийти
+  // с сетевыми ошибками. Молча повторяем пару раз, вместо того чтобы
+  // требовать от пользователя нажимать «Проверить связь».
+  const sources = app.status?.sources || {};
+  const shaky = Object.values(sources).some((s) => s && !s.connected && (s.error === 'UPSTREAM' || s.error === 'TIMEOUT'));
+  if (shaky && (refreshStatus.tries = (refreshStatus.tries || 0) + 1) <= 2) {
+    setTimeout(() => { refreshStatus().catch(() => {}); }, 1500);
+  } else if (!shaky) {
+    refreshStatus.tries = 0;
+  }
+
   return app.status;
 }
 

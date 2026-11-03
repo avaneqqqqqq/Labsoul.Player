@@ -40,7 +40,9 @@ function stateOf(key) {
     return { cls: 'warn', label: 'Демо', detail: 'сервер не запущен' };
   }
   const src = app.status?.sources?.[key];
-  if (!src) return { cls: '', label: 'Нет данных', detail: 'проверяем подключение…' };
+  // Пока статус не пришёл, это НЕ ошибка: раньше здесь рисовался красный
+  // «сервис не отвечает» на всех трёх, хотя сервер просто ещё не ответил.
+  if (!src) return { cls: 'wait', label: 'Проверяем', detail: 'проверяем подключение…' };
   if (src.connected) {
     return { cls: 'ok', label: 'Подключено', detail: src.user ? `аккаунт ${src.user}` : 'готово к работе' };
   }
@@ -52,6 +54,10 @@ function stateOf(key) {
       label: 'Нужен токен',
       detail: src.error === 'NOT_INSTALLED' ? 'источник недоступен в этой сборке' : 'вход ещё не выполнен',
     };
+  }
+  // сетевые сбои не красят весь сервис в красный: загрузка ещё идёт
+  if (src.error === 'UPSTREAM' || src.error === 'TIMEOUT') {
+    return { cls: 'wait', label: 'Проверяем', detail: 'сервис отвечает медленно — повторим' };
   }
   if (src.error) return { cls: 'err', label: 'Ошибка', detail: humanizeError(src.error) };
   return { cls: 'warn', label: 'Не подключено', detail: 'нужен токен или ключ' };

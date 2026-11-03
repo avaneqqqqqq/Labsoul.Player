@@ -1062,11 +1062,21 @@ function applyLyricsResult(data) {
 function toggleLyrics() {
   const state = lyricsState();
   state.open = !state.open;
+
+  // Текст и клип могут быть открыты одновременно: текст справа, клип слева.
+  // Раньше они боролись за одно место в сетке и наложение ломало вёрстку.
+  toggleClass('is-lyrics', state.open);
+
   if (state.open) {
     loadLyrics(player.getState().current);
     return;
   }
   renderLyrics();
+}
+
+function toggleClass(name, on) {
+  const el = nowPlaying.el;
+  if (el) el.classList.toggle(name, Boolean(on));
 }
 
 /** Клик по строке — перемотка на её время. */
@@ -1095,11 +1105,9 @@ async function toggleClips() {
 
   clipsState.open = !clipsState.open;
 
-  // открытие клипа закрывает текст — они занимают одно место
-  if (clipsState.open) {
-    const lyrics = lyricsState();
-    if (lyrics.open) { lyrics.open = false; renderLyrics(); }
-  }
+  // Клип и текст живут вместе: слева видео, справа текст. Раньше клип
+  // закрывал текст, а при обоих сразу вёрстка наезжала друг на друга.
+  if (clipsState.open) toggleClass('is-lyrics', lyricsState().open);
 
   if (clipsState.open && clipsState.key !== track.id) {
     clipsState.key = track.id;
@@ -1157,9 +1165,9 @@ function renderClips() {
     box.innerHTML = `
       <div class="np__clips-frame">
         <iframe
-          src="https://www.youtube.com/embed/${esc(clipsState.current)}?autoplay=0&rel=0"
+          src="https://www.youtube.com/embed/${esc(clipsState.current)}?rel=0&modestbranding=1&playsinline=1&autoplay=0&controls=1"
           title="Клип"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture"
+          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowfullscreen
         ></iframe>
       </div>
