@@ -73,9 +73,13 @@ export const DEFAULTS = {
    */
   lyricsBox: {
     width: 100,     // ширина блока, %
+    height: 72,     // предел высоты относительно окна, %
     blur: 0,        // размытие подложки, px
     radius: 22,     // скругление, px
     pad: 18,        // внутренние отступы, px
+    opacity: 100,   // прозрачность фона, %
+    lineHeight: 140, // межстрочный интервал, %
+    align: 'center', // выравнивание: center | left
     border: true,   // показывать рамку
     shadow: true,   // тень под блоком
   },
@@ -195,6 +199,10 @@ function normalizeTheme(raw) {
     if (Number.isFinite(box.blur)) base.blur = clamp(Math.round(box.blur), 0, 40);
     if (Number.isFinite(box.radius)) base.radius = clamp(Math.round(box.radius), 0, 40);
     if (Number.isFinite(box.pad)) base.pad = clamp(Math.round(box.pad), 0, 48);
+    if (Number.isFinite(box.height)) base.height = clamp(Math.round(box.height), 30, 90);
+    if (Number.isFinite(box.opacity)) base.opacity = clamp(Math.round(box.opacity), 0, 100);
+    if (Number.isFinite(box.lineHeight)) base.lineHeight = clamp(Math.round(box.lineHeight), 100, 220);
+    if (box.align === 'center' || box.align === 'left') base.align = box.align;
     if (typeof box.border === 'boolean') base.border = box.border;
     if (typeof box.shadow === 'boolean') base.shadow = box.shadow;
   }
@@ -412,6 +420,10 @@ export function applyTheme({ emitEvent = false } = {}) {
   body.style.setProperty('--np-lyr-pad', `${Number(lb.pad) ?? 18}px`);
   body.style.setProperty('--np-lyr-border', lb.border === false ? 'transparent' : 'var(--border)');
   body.style.setProperty('--np-lyr-shadow', lb.shadow === false ? 'none' : '0 18px 50px -24px rgba(0, 0, 0, .7)');
+  body.style.setProperty('--np-lyr-height', `${Number(lb.height) || 72}vh`);
+  body.style.setProperty('--np-lyr-opacity', String((Number(lb.opacity) ?? 100) / 100));
+  body.style.setProperty('--np-lyr-line', String((Number(lb.lineHeight) || 140) / 100));
+  body.style.setProperty('--np-lyr-align', lb.align === 'left' ? 'left' : 'center');
 
   body.style.setProperty('--radius', `${theme.radius}px`);
   // реактивность фона под музыку: значение 0…1 обновляет плеер

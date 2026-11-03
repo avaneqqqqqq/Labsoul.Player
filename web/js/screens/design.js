@@ -287,7 +287,7 @@ function shellHtml() {
         </div>
 
         <div class="panel" data-section="form">
-          <div class="panel__head">${icon('type')}<h3>Форма и текст</h3><span class="hint">плотность и радиусы</span></div>
+          <div class="panel__head">${icon('type')}<h3>Форма</h3><span class="hint">плотность, радиусы, масштаб</span></div>
           <div class="ctl">
             <div class="ctl__label">Плотность<small>сколько воздуха между строками</small></div>
             <div class="seg" id="seg-density">${segButtons('density', [['compact', 'Компакт'], ['normal', 'Обычно'], ['roomy', 'Просторно']])}</div>
@@ -300,9 +300,20 @@ function shellHtml() {
             </div>
           </div>
           <div class="ctl">
-            <div class="ctl__label">Шрифт<small>системный, с засечками, моно</small></div>
+            <div class="ctl__label">Шрифт<small>характер подписей и заголовков</small></div>
             <div class="seg" id="seg-font">${segButtons('font', [['ui', 'Обычный'], ['serif', 'Сериф'], ['mono', 'Моно'], ['rounded', 'Округлый'], ['condensed', 'Узкий']])}</div>
           </div>
+          <div class="ctl">
+            <div class="ctl__label">Размер интерфейса<small>масштаб всего окна</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="85" max="120" step="5" value="${theme.uiScale}" data-range="uiScale" aria-label="Размер интерфейса">
+              <span class="rng-val" data-val-for="uiScale">${theme.uiScale}%</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" data-section="grid">
+          <div class="panel__head">${icon('grid')}<h3>Карточки и обложки</h3><span class="hint">сетка, размер, форма</span></div>
           <div class="ctl">
             <div class="ctl__label">Обложки<small>размер карточек</small></div>
             <div class="seg" id="seg-cards">${segButtons('cards', [['s', 'S'], ['m', 'M'], ['l', 'L']])}</div>
@@ -318,33 +329,37 @@ function shellHtml() {
               <span class="rng-val" data-val-for="coverRadius">${theme.coverRadius}px</span>
             </div>
           </div>
+        </div>
+
+        <div class="panel" data-section="lyrics">
+          <div class="panel__head">${icon('type')}<h3>Блок текста песни</h3><span class="hint">панель в полноэкранном</span></div>
           <div class="ctl">
-            <div class="ctl__label">Размер интерфейса<small>масштаб всего окна</small></div>
-            <div class="ctl__body">
-              <input class="rng" type="range" min="85" max="120" step="5" value="${theme.uiScale}" data-range="uiScale" aria-label="Размер интерфейса">
-              <span class="rng-val" data-val-for="uiScale">${theme.uiScale}%</span>
-            </div>
-          </div>
-          <div class="ctl">
-            <div class="ctl__label">Размер текста песни<small>панель с текстом в полноэкранном</small></div>
+            <div class="ctl__label">Размер текста<small>кегль самих строк</small></div>
             <div class="ctl__body">
               <input class="rng" type="range" min="85" max="150" step="5" value="${theme.lyricsSize}" data-range="lyricsSize" aria-label="Размер текста песни">
               <span class="rng-val" data-val-for="lyricsSize">${theme.lyricsSize}%</span>
             </div>
           </div>
           <div class="ctl">
-            <div class="ctl__label">Текст сразу<small>открывать текст при входе в полноэкранный</small></div>
+            <div class="ctl__label">Текст сразу<small>открывать при входе в полноэкранный</small></div>
             <label class="toggle"><input type="checkbox" data-toggle="lyricsAuto" ${theme.lyricsAuto ? 'checked' : ''}><span class="toggle__track"></span></label>
           </div>
           <div class="ctl">
-            <div class="ctl__label">Ширина блока текста<small>сколько места занимает панель</small></div>
+            <div class="ctl__label">Ширина блока<small>сколько места занимает панель</small></div>
             <div class="ctl__body">
               <input class="rng" type="range" min="40" max="100" step="5" value="${theme.lyricsBox?.width ?? 100}" data-lyrbox="width" aria-label="Ширина блока текста">
               <span class="rng-val" data-val-for="lyrbox-width">${theme.lyricsBox?.width ?? 100}%</span>
             </div>
           </div>
           <div class="ctl">
-            <div class="ctl__label">Скругление<small>форма панели текста</small></div>
+            <div class="ctl__label">Высота блока<small>предел высоты панели</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="30" max="90" step="5" value="${theme.lyricsBox?.height ?? 72}" data-lyrbox="height" aria-label="Высота блока текста">
+              <span class="rng-val" data-val-for="lyrbox-height">${theme.lyricsBox?.height ?? 72}%</span>
+            </div>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Скругление панели<small>форма самого блока</small></div>
             <div class="ctl__body">
               <input class="rng" type="range" min="0" max="40" step="2" value="${theme.lyricsBox?.radius ?? 22}" data-lyrbox="radius" aria-label="Скругление панели текста">
               <span class="rng-val" data-val-for="lyrbox-radius">${theme.lyricsBox?.radius ?? 22}px</span>
@@ -358,10 +373,24 @@ function shellHtml() {
             </div>
           </div>
           <div class="ctl">
+            <div class="ctl__label">Прозрачность фона<small>насколько виден фон под панелью</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="0" max="100" step="5" value="${theme.lyricsBox?.opacity ?? 100}" data-lyrbox="opacity" aria-label="Прозрачность фона панели">
+              <span class="rng-val" data-val-for="lyrbox-opacity">${theme.lyricsBox?.opacity ?? 100}%</span>
+            </div>
+          </div>
+          <div class="ctl">
             <div class="ctl__label">Внутренние отступы<small>плотность текста внутри</small></div>
             <div class="ctl__body">
               <input class="rng" type="range" min="0" max="48" step="2" value="${theme.lyricsBox?.pad ?? 18}" data-lyrbox="pad" aria-label="Отступы панели текста">
               <span class="rng-val" data-val-for="lyrbox-pad">${theme.lyricsBox?.pad ?? 18}px</span>
+            </div>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Межстрочный интервал<small>расстояние между строками</small></div>
+            <div class="ctl__body">
+              <input class="rng" type="range" min="100" max="220" step="5" value="${theme.lyricsBox?.lineHeight ?? 140}" data-lyrbox="lineHeight" aria-label="Межстрочный интервал">
+              <span class="rng-val" data-val-for="lyrbox-lineHeight">${theme.lyricsBox?.lineHeight ?? 140}%</span>
             </div>
           </div>
           <div class="ctl">
@@ -371,6 +400,10 @@ function shellHtml() {
           <div class="ctl">
             <div class="ctl__label">Тень<small>мягкая тень под панелью</small></div>
             <label class="toggle"><input type="checkbox" data-lyrbox-toggle="shadow" ${theme.lyricsBox?.shadow !== false ? 'checked' : ''}><span class="toggle__track"></span></label>
+          </div>
+          <div class="ctl">
+            <div class="ctl__label">Выравнивание текста<small>по центру или слева</small></div>
+            <div class="seg" id="seg-lyrbox-align">${segButtons('lyrbox-align', [['center', 'Центр'], ['left', 'Слева']])}</div>
           </div>
         </div>
 
@@ -488,6 +521,11 @@ function sync() {
     }
     if (key === 'accent') {
       button.classList.toggle('on', !theme.accentAuto && button.dataset.v?.toLowerCase() === theme.accent.toLowerCase());
+      continue;
+    }
+    // вложенная настройка выравнивания текста
+    if (key === 'lyrbox-align') {
+      button.classList.toggle('on', (theme.lyricsBox?.align || 'center') === button.dataset.v);
       continue;
     }
     button.classList.toggle('on', String(theme[key]) === String(button.dataset.v));
@@ -772,6 +810,12 @@ function onClick(event) {
     applyAccent(target.dataset.v);
     return;
   }
+  // выравнивание текста в блоке хранится во вложенном объекте
+  if (target.dataset.t === 'lyrbox-align') {
+    update(`lyricsBox.align`, target.dataset.v);
+    sync();
+    return;
+  }
   if (target.dataset.t) {
     update(target.dataset.t, target.dataset.v);
     sync();
@@ -781,6 +825,18 @@ function onClick(event) {
 function onInput(event) {
   const input = event.target;
   if (!(input instanceof HTMLInputElement)) return;
+
+  // Оформление блока текста: ползунки двигаются событием input, поэтому
+  // ветка должна быть здесь, а не только в onChange — иначе при
+  // перетаскивании ничего не менялось.
+  if (input.dataset.lyrbox) {
+    const key = input.dataset.lyrbox;
+    const value = clamp(Number(input.value), Number(input.min), Number(input.max));
+    update(`lyricsBox.${key}`, value);
+    const out = screen.root?.querySelector(`[data-val-for="lyrbox-${key}"]`);
+    if (out) out.textContent = key === 'width' ? `${value}%` : `${value}px`;
+    return;
+  }
 
   if (input.dataset.range) {
     const key = input.dataset.range;
