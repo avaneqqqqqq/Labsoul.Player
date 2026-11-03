@@ -888,10 +888,24 @@ export async function artistTracks(artistId, limit = 50) {
   if (!id) throw fail('BAD_REQUEST', 'Не указан исполнитель');
 
   const size = Math.min(Math.max(Number(limit) || 50, 1), 200);
-  const data = await apiJson(`/users/${encodeURIComponent(id)}/tracks`, {
-    limit: size,
-    linked_partitioning: 1,
-  });
+
+  // client_id, добытый скрейпингом, иногда мёртв с первого раза —
+  // повторяем один раз со свежим ключом, иначе страница падает
+  // с сетевой ошибкой при холодном старте
+  let data;
+  try {
+    data = await apiJson(`/users/${encodeURIComponent(id)}/tracks`, {
+      limit: size,
+      linked_partitioning: 1,
+    });
+  } catch (first) {
+    await getClientId(true).catch(() => {});
+    data = await apiJson(`/users/${encodeURIComponent(id)}/tracks`, {
+      limit: size,
+      linked_partitioning: 1,
+    });
+  }
+
   const list = Array.isArray(data?.collection) ? data.collection : [];
   return { artistId: id, tracks: list.map(mapTrack).filter(Boolean) };
 }

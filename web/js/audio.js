@@ -745,10 +745,19 @@ export function play() {
   }
   resumeCtx();
   if (!audio.src) { playCurrent(); return; }
+
+  // Интерфейс переключаем СРАЗУ, не дожидаясь ответа браузера: audio.play()
+  // возвращает промис, и до его завершения кнопка не реагировала —
+  // отсюда «пауза срабатывает не сразу». Если браузер откажет,
+  // состояние вернём обратно.
+  state.playing = true;
+  emit('state');
+
   audio.play().then(() => {
-    state.playing = true;
-    emit('state');
+    if (!state.playing) { try { audio.pause(); } catch { /* ignore */ } }
   }).catch(() => {
+    state.playing = false;
+    emit('state');
     // сервер пропал — доигрываем демо-симуляцией, чтобы интерфейс не «залипал»
     startSimulation();
   });

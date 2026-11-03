@@ -537,21 +537,86 @@ async function handleStream(req, res, source, sourceId) {
 
 /* ------------------------------- статусы --------------------------------- */
 
-async function statusAll() {
-  const out = {};
-  await Promise.all(
-    PROVIDER_NAMES.map(async (name) => {
-      try {
-        const st = await providers[name].status();
-        // провайдеры вправе вернуть error объектом — в UI проще строковый код
-        if (st && st.error && typeof st.error === 'object') st.error = st.error.code || 'UPSTREAM';
-        out[name] = st;
-      } catch (err) {
-        out[name] = { connected: false, error: err.code || 'UPSTREAM' };
+/**
+ * Статус всех сервисов.
+ *
+ * Раньше каждый вызов ждал ЖИВОЙ проверки: первый занимал до 8 секунд
+ * (SoundCloud ищет client_id, Яндекс перебирает хосты), и приложение,
+ * не дождавшись, показывало «нет доступа». Теперь статус отдаётся из кэша
+ * сразу, а проверка идёт в фоне и обновляет его.
+ */
+const STATUS_TTL_MS = 60_000;
+let statusCache = null;
+let statusCacheAt = 0;
+let statusRefreshing = null;
+
+/** Живая проверка всех провайдеров, с ограничением по времени. */
+async function probeStatusAll(timeoutMs = 9_000) {
+  const work = (async () => {
+    const out = {};
+    await Promise.all(
+      PROVIDER_NAMES.map(async (name) => {
+        try {
+          const st = await providers[name].status();
+          if (st && st.error && typeof st.error === 'object') st.error = st.error.code || 'UPSTREAM';
+          out[name] = st;
+        } catch (err) {
+          out[name] = { connected: false, error: err.code || 'UPSTREAM' };
+        }
+      }),
+    );
+    return out;
+  })();
+
+  // если провайдер завис — не держим интерфейс, отдаём что есть
+  const timer = new Promise((resolve) => setTimeout(() => resolve(null), timeoutMs).unref?.());
+  return Promise.race([work, timer]);
+}
+
+function refreshStatus() {
+  if (statusRefreshing) return statusRefreshing;
+  statusRefreshing = probeStatusAll()
+    .then((result) => {
+      if (result) {
+        statusCache = result;
+        statusCacheAt = Date.now();
       }
-    }),
-  );
-  return out;
+      return result;
+    })
+    .catch(() => null)
+    .finally(() => { statusRefreshing = null; });
+  return statusRefreshing;
+}
+
+/**
+ * Статус для интерфейса.
+ * @param {boolean} force — дождаться живой проверки (кнопка «обновить»)
+ */
+async function statusAll(force = false) {
+  const fresh = statusCache && Date.now() - statusCacheAt < STATUS_TTL_MS;
+
+  // принудительно — ждём полную проверку без обрезки по времени
+  if (force) {
+    const result = await probeStatusAll(20_000);
+    if (result) {
+      statusCache = result;
+      statusCacheAt = Date.now();
+      return result;
+    }
+  }
+
+  // свежий кэш — отдаём сразу
+  if (fresh) return statusCache;
+
+  // кэш устарел: показываем его и параллельно обновляем в фоне
+  if (statusCache) {
+    refreshStatus();
+    return statusCache;
+  }
+
+  // самый первый запрос — ждём, но не дольше семи секунд
+  const result = await refreshStatus();
+  return result || {};
 }
 
 /* --------------------------------- API ----------------------------------- */
@@ -608,7 +673,10 @@ async function handleApi(req, res, url) {
           store.log(`[settings] ${name}: ${err.message}`);
         }
       }
-      sendJson(res, 200, { ok: true, settings: store.maskedSettings(), sources: await statusAll() });
+      // настройки изменились (например, токен) — старый статус больше не верен
+      statusCache = null;
+      statusCacheAt = 0;
+      sendJson(res, 200, { ok: true, settings: store.maskedSettings(), sources: await statusAll(true) });
       return;
     }
     throw badRequest('Метод не поддерживается');
@@ -714,9 +782,38 @@ async function handleApi(req, res, url) {
         sendJson(res, 200, { ...fresh, fromCache: true });
         return;
       }
+      // Готовой партии нет, но на диске есть прошлая лента — отдаём её
+      // мгновенно, а свежую собираем в фоне. Без этого первый вход
+      // ждал до 20 секунд, пока ответят все сервисы.
+      const onDisk = libraryCache.loadWave(waveKey);
+      if (onDisk && Array.isArray(onDisk.items) && onDisk.items.length) {
+        sendJson(res, 200, {
+          items: onDisk.items,
+          station: onDisk.station || station,
+          fromCache: true,
+          cachedAt: new Date(onDisk.at).toISOString(),
+        });
+        // прогрев в фоне: следующий запрос получит свежую партию
+        waveEngine.getWave(limit, station, sources)
+          .then((fresh2) => {
+            if (Array.isArray(fresh2?.items) && fresh2.items.length) {
+              libraryCache.saveWave(waveKey, fresh2.items, fresh2.station || station);
+            }
+          })
+          .catch(() => {});
+        return;
+      }
     }
 
-    const result = await waveEngine.getWave(limit, station, sources);
+    // Живая сборка с ограничением по времени: один медленный сервис
+    // не должен держать ленту дольше восьми секунд.
+    const result = await Promise.race([
+      waveEngine.getWave(limit, station, sources),
+      new Promise((resolve) => setTimeout(
+        () => resolve({ items: [], station, warming: true, hint: 'Собираем ленту — ещё пара секунд' }),
+        8_000,
+      ).unref?.()),
+    ]);
 
     // кэш ленты: сохраняем непустые партии и используем их, когда сервис недоступен
     if (Array.isArray(result.items) && result.items.length) {
@@ -1016,6 +1113,8 @@ function reasonMessage(reason) {
     if (req.method === 'DELETE') {
       store.saveSettings({ soundcloud: { cookies: '', cookiesAt: 0 } });
       await loadProviders();
+      statusCache = null;
+      statusCacheAt = 0;
       sendJson(res, 200, { ok: true, me: null });
       return;
     }
@@ -1039,6 +1138,9 @@ function reasonMessage(reason) {
     for (const name of PROVIDER_NAMES) {
       try { providers[name].configure?.(saved[name] || {}); } catch { /* ignore */ }
     }
+    // вошли в аккаунт — прежний статус «не подключено» уже неверен
+    statusCache = null;
+    statusCacheAt = 0;
 
     let me = null;
     try {
@@ -1208,6 +1310,10 @@ server.listen(PORT, '127.0.0.1', async () => {
   await loadProviders();
   store.log(`labsoul запущен: http://127.0.0.1:${PORT}`);
   process.stdout.write(`\n  labsoul: http://127.0.0.1:${PORT}\n\n`);
+
+  // Прогреваем статус сразу: первый заход в интерфейс покажет готовые
+  // данные, а не «нет доступа» на время проверки провайдеров.
+  refreshStatus().catch(() => {});
 });
 
 server.on('error', (err) => {
