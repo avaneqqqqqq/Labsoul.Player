@@ -455,7 +455,8 @@ function refreshFlow() {
   screen.autoFills = 0;
   screen.aheadAt = 0;
   paint();
-  const reload = () => loadWaveMore({ force: true });
+  // live: кнопке нужен действительно новый набор, а не сохранённая лента
+  const reload = () => loadWaveMore({ force: true, live: true });
   if (app.wave.loading) {
     setTimeout(reload, 400);
   } else {

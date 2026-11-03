@@ -1,0 +1,13 @@
+2026-11-03T21:01:52.044Z [providers] yandex: загружен
+2026-11-03T21:01:52.049Z [providers] soundcloud: загружен
+2026-11-03T21:01:52.052Z [providers] spotify: загружен
+2026-11-03T21:01:52.054Z [providers] local: загружен
+2026-11-03T21:01:52.060Z labsoul запущен: http://127.0.0.1:5399
+
+  labsoul: http://127.0.0.1:5399
+
+2026-11-03T21:01:58.882Z [wave] дособрано 13 треков от опоздавших источников
+2026-11-03T21:02:03.812Z [api] GET /api/wave?limit=20&station=user:onyourwave&sources=yandex → 200 (6919 мс)
+2026-11-03T21:02:05.370Z [api] GET /api/wave?limit=20&station=user:onyourwave&sources=yandex → 200 (1 мс)
+2026-11-03T21:02:08.051Z [api] GET /api/wave?limit=20&station=user:onyourwave&sources=yandex → 200 (1 мс)
+2026-11-03T21:02:08.508Z [wave] дособрано 15 треков от опоздавших источников

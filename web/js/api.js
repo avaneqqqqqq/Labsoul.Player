@@ -59,16 +59,23 @@ function setMode(mode, version = null, error = null) {
 function degrade(err) {
   // Даже один медленный запрос (волна думает 10 секунд) не должен ронять
   // весь интерфейс в демо-режим. Переключаемся только если сервер реально
-  // перестал отвечать на /api/health — это проверяет recoverIfNeeded().
+  // перестал отвечать на /api/health — это проверяет scheduleHealthCheck().
   const message = err?.name === 'AbortError'
     ? 'запрос превысил время ожидания'
     : err?.message || 'сервер не отвечает';
   net.lastError = message;
-  if (net.mode === 'online') {
-    // мягкий сбой: остаёмся онлайн, но помечаем проблему и проверяем живость
+
+  /*
+   * Онлайн ИЛИ ещё не проверено (unknown) — остаёмся рабочими и
+   * перепроверяем сервер. Раньше при net.mode === 'unknown' ЛЮБАЯ ошибка
+   * сразу включала демо-режим, и тогда текст песни, статус сервисов и
+   * поиск молча отдавали заглушки до перезапуска.
+   */
+  if (net.mode === 'online' || net.mode === 'unknown') {
     scheduleHealthCheck();
     return;
   }
+
   setMode('demo', net.version, message);
 }
 
@@ -220,6 +227,10 @@ function normalizeWave(raw) {
     station: raw?.station || 'user:onyourwave',
     batchId: raw?.batchId || null,
     items: normalizeTrackList(raw?.items),
+    // сервер пометил, что лента взята из сохранённой: свежая ещё собирается
+    cached: raw?.cached === true || raw?.fromCache === true,
+    warming: raw?.warming === true,
+    hint: typeof raw?.hint === 'string' ? raw.hint : null,
   };
 }
 
@@ -593,17 +604,26 @@ export async function getWaveStations() {
   }
 }
 
-export async function getWave(limit = 20, station = 'user:onyourwave', sources = null, { quick = false } = {}) {
+export async function getWave(limit = 20, station = 'user:onyourwave', sources = null, { quick = false, live = false } = {}) {
   const list = Array.isArray(sources) && sources.length ? sources : null;
   if (isDemo()) return normalizeWave(demoWave(limit, list));
+
+  /*
+   * Всегда даём большой запас времени.
+   *
+   * Было: в «быстром» режиме таймаут 8 секунд. Сервер в этот момент может
+   * ещё собирать ленту впервые (ротор Яндекса думает 2–6 с плюс поиск по
+   * SoundCloud), запрос обрывался, интерфейс уходил в демо-режим — и волна
+   * «грузилась долго», а точнее не грузилась вовсе.
+   */
   try {
     const params = new URLSearchParams({ limit: String(limit), station });
     if (list) params.set('sources', list.join(','));
-    // быстрый режим: сервер отдаёт уже собранную ленту, не дожидаясь ротора
     if (quick) params.set('quick', '1');
-    // волна собирается на сервере до 12 секунд: даём запас, иначе таймаут
-    // засчитывался как «сервер недоступен» и интерфейс уходил в демо-режим
-    return normalizeWave(await request(`/api/wave?${params.toString()}`, { timeout: quick ? 8000 : 40000 }));
+    // live: просим настоящую сборку. Обычный запрос отдаёт сохранённую ленту
+    // мгновенно и обновляется в фоне, а кнопке «обновить» нужен новый набор.
+    if (live) params.set('live', '1');
+    return normalizeWave(await request(`/api/wave?${params.toString()}`, { timeout: 40000 }));
   } catch (err) {
     if (isNetworkError(err)) { degrade(err); return normalizeWave(demoWave(limit, list)); }
     throw err;

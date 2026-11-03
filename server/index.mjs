@@ -793,7 +793,8 @@ async function handleApi(req, res, url) {
     if (quick) {
       const fresh = waveEngine.readyBatch(waveKey);
       if (fresh) {
-        sendJson(res, 200, { ...fresh, fromCache: true });
+        // из памяти приходит свежая партия (пометки cached нет), с диска — сохранённая
+        sendJson(res, 200, { ...fresh, items: fresh.items.slice(0, limit) });
         return;
       }
       // Готовой партии нет, но на диске есть прошлая лента — отдаём её
@@ -802,7 +803,7 @@ async function handleApi(req, res, url) {
       const onDisk = libraryCache.loadWave(waveKey);
       if (onDisk && Array.isArray(onDisk.items) && onDisk.items.length) {
         sendJson(res, 200, {
-          items: onDisk.items,
+          items: onDisk.items.slice(0, limit),
           station: onDisk.station || station,
           fromCache: true,
           cachedAt: new Date(onDisk.at).toISOString(),
@@ -821,6 +822,32 @@ async function handleApi(req, res, url) {
 
     // Живая сборка с ограничением по времени: один медленный сервис
     // не должен держать ленту дольше восьми секунд.
+    //
+    // Ещё лучше — не держать вообще: если на диске есть прошлая лента,
+    // отдаём её сразу, а свежую собираем в фоне (ровно как в quick-режиме).
+    // Клиент получает пометку warming и один раз переспрашивает сам.
+    const onDisk = libraryCache.loadWave(waveKey);
+    if (onDisk && Array.isArray(onDisk.items) && onDisk.items.length
+        && !waveEngine.hasPrepared(station, sources)) {
+      sendJson(res, 200, {
+        items: onDisk.items.slice(0, limit),
+        station: onDisk.station || station,
+        sources,
+        fromCache: true,
+        warming: true,
+        cachedAt: new Date(onDisk.at).toISOString(),
+        hint: 'Показана сохранённая лента — свежая собирается в фоне.',
+      });
+      waveEngine.getWave(limit, station, sources)
+        .then((freshBatch) => {
+          if (Array.isArray(freshBatch?.items) && freshBatch.items.length) {
+            libraryCache.saveWave(waveKey, freshBatch.items, freshBatch.station || station);
+          }
+        })
+        .catch(() => {});
+      return;
+    }
+
     const result = await Promise.race([
       waveEngine.getWave(limit, station, sources),
       new Promise((resolve) => setTimeout(

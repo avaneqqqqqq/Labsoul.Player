@@ -59,7 +59,25 @@ export function loadLikes(source) {
 /** Сохранить партию волны (для одной станции и набора источников). */
 export function saveWave(key, items, station = null) {
   if (!Array.isArray(items) || !items.length) return;
-  state.wave[key] = { at: Date.now(), station, items: items.slice(0, 120) };
+  /*
+   * Дописываем к прошлой партии, а не затираем её.
+   *
+   * Свежая сборка часто приносит 3–8 новых треков, и раньше она заменяла
+   * сохранённую ленту целиком: после нескольких быстрых обновлений в кэше
+   * оставалось два трека, и «сохранённая лента» показывала почти пустой экран.
+   */
+  const previous = state.wave[key];
+  const merged = [];
+  const seen = new Set();
+  const pool = [...items, ...(Array.isArray(previous?.items) ? previous.items : [])];
+  for (const track of pool) {
+    const id = track?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    merged.push(track);
+    if (merged.length >= 120) break;
+  }
+  state.wave[key] = { at: Date.now(), station: station || previous?.station || null, items: merged };
   save();
 }
 

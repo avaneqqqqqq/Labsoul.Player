@@ -294,7 +294,7 @@ export async function commitSettings(payload) {
 /* Волна                                                                */
 /* ------------------------------------------------------------------ */
 
-export async function loadWaveMore({ force = false, quick = false } = {}) {
+export async function loadWaveMore({ force = false, quick = false, live = false } = {}) {
   if (app.wave.loading) return;
   if (app.wave.done && !force) return;
 
@@ -311,20 +311,44 @@ export async function loadWaveMore({ force = false, quick = false } = {}) {
   }
 
   try {
-    const batch = await getWave(20, app.wave.station, app.wave.sources, { quick });
+    const batch = await getWave(20, app.wave.station, app.wave.sources, { quick, live });
     if (batch.station) app.wave.station = batch.station;
     if (batch.batchId) app.wave.batchId = batch.batchId;
     const items = safeTracks(batch.items);
     // запоминаем готовую ленту: при возврате к этому источнику покажем сразу
     if (items.length) waveCacheSet(app.wave.items.length ? app.wave.items : items);
-    // быстрый режим: отдали готовую ленту — следом просим свежую партию
-    if (quick && items.length) {
-      setTimeout(() => loadWaveMore({ force: true, quick: true }), 300);
+
+    /*
+     * Сервер отдал сохранённую ленту, пока собирает свежую.
+     *
+     * Раньше здесь стоял безусловный повтор через 300 мс — при каждом
+     * «быстром» ответе цепочка шла дальше, и приложение стучалось в
+     * /api/wave раз в секунду без остановки: 2666 запросов в журнале,
+     * ротор Яндекса занят непрерывно, каждый второй ответ — 8 секунд.
+     * Теперь повтор ровно один и не чаще раза в 20 секунд.
+     */
+    if (items.length && (batch.cached || batch.warming)) {
+      const now = Date.now();
+      if (!app.wave.refreshQueued && now - (app.wave.refreshAt || 0) > 20_000) {
+        app.wave.refreshQueued = true;
+        app.wave.refreshAt = now;
+        setTimeout(() => {
+          app.wave.refreshQueued = false;
+          loadWaveMore({ force: true });
+        }, 2500);
+      }
     }
+
     // сервер ещё собирает партию (warming) — повторим чуть позже, ленту не закрываем
     if (!items.length && batch.warming) {
-      setTimeout(() => loadWaveMore(), 900);
-      return;
+      app.wave.warmTries = (app.wave.warmTries || 0) + 1;
+      if (app.wave.warmTries <= 3) {
+        setTimeout(() => loadWaveMore(), 900);
+        return;
+      }
+      app.wave.warmTries = 0;
+    } else if (items.length) {
+      app.wave.warmTries = 0;
     }
     if (!items.length) {
       // новых треков нет: пробуем позже, но ленту не закрываем навсегда
@@ -395,6 +419,10 @@ export function resetWave() {
   app.wave.done = false;
   app.wave.batchId = null;
   app.wave.batches = 0;
+  // обновление вручную не должно блокироваться троттлингом фоновых догрузок
+  app.wave.refreshAt = 0;
+  app.wave.refreshQueued = false;
+  app.wave.warmTries = 0;
   emit('wave');
 }
 

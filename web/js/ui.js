@@ -460,6 +460,12 @@ function syncProgressClock(snap) {
   }
 }
 
+/** Обновить нижний бар сразу и через кадр — кнопка не должна отставать. */
+function refreshBar() {
+  syncPlayer(player.getState());
+  requestAnimationFrame(() => syncPlayer(player.getState()));
+}
+
 function onPlayerEvent(snap, event) {
   if (event === 'time') {
     syncPlayer(snap);
@@ -510,12 +516,12 @@ function onPlayerClick(event) {
       return;
     }
     const meta = event.target instanceof Element ? event.target.closest('.pl-now__meta') : null;
-    if (meta) player.toggle();
+      if (meta) { player.toggle(); refreshBar(); }
     return;
   }
   const action = target.dataset.pl;
   switch (action) {
-    case 'toggle': player.toggle(); break;
+    case 'toggle': player.toggle(); refreshBar(); break;
     case 'next': player.next(); break;
     case 'prev': player.prev(); break;
     case 'shuffle': {
@@ -1604,9 +1610,9 @@ function openNowPlaying() {
     }
     const action = button.dataset.np;
     if (action === 'close') { closeNowPlaying(); return; }
-    if (action === 'toggle') { player.toggle(); syncNowPlaying(); return; }
-    if (action === 'next') { player.next(); syncNowPlaying(); return; }
-    if (action === 'prev') { player.prev(); syncNowPlaying(); return; }
+    if (action === 'toggle') { player.toggle(); afterAction(); return; }
+    if (action === 'next') { player.next(); afterAction(); return; }
+    if (action === 'prev') { player.prev(); afterAction(); return; }
     if (action === 'shuffle') { player.toggleShuffle(); syncNowPlaying(); return; }
     if (action === 'repeat') { player.cycleRepeat(); syncNowPlaying(); return; }
     if (action === 'queue') { closeNowPlaying(); if (!app.ui.queueOpen) toggleQueue(); return; }
@@ -1822,6 +1828,18 @@ async function renderArtistPage(host, source, artist, track) {
   } catch (err) {
     host.innerHTML = `<div class="empty"><b>Не удалось открыть исполнителя</b><span>${esc(err?.message || '')}</span></div>`;
   }
+}
+
+/**
+ * Обновить полноэкранный плеер сразу и ещё раз через мгновение.
+ *
+ * Плеер обновляет своё состояние синхронно, но при первом запуске трека
+ * ему нужно время на загрузку потока. Второй вызов через кадр подхватывает
+ * актуальную иконку, чтобы кнопка не выглядела «не нажатой».
+ */
+function afterAction() {
+  syncNowPlaying();
+  requestAnimationFrame(() => syncNowPlaying());
 }
 
 function closeNowPlaying() {

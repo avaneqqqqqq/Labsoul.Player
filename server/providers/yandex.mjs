@@ -343,7 +343,7 @@ export async function stream(sourceId) {
 
 const DEFAULT_STATION = 'user:onyourwave';
 
-export async function wave(limit = 20, station = DEFAULT_STATION) {
+export async function wave(limit = 20, station = DEFAULT_STATION, options = {}) {
   const want = Math.min(Math.max(Number(limit) || 20, 1), 50);
   const items = [];
   const seen = new Set();
@@ -352,7 +352,15 @@ export async function wave(limit = 20, station = DEFAULT_STATION) {
   // Ротор отдаёт по 5 треков и только последовательные вызовы дают разные
   // порции: параллельные возвращают одну и ту же пятёрку. Поэтому идём
   // по очереди, а латентность скрывает серверная заготовка партий.
-  const maxRounds = Math.min(6, Math.ceil(want / 5) + 1);
+  //
+  // Число проходов ровно по 5 треков: лишний проход — это лишние 1.5 с
+  // ожидания. Добор «сверх плана» (когда лента почти иссякла из-за уже
+  // показанного) заказывает меньше проходов и укладывается в бюджет.
+  const defaultRounds = Math.min(6, Math.max(1, Math.ceil(want / 5)));
+  const askedRounds = Number(options.rounds);
+  const maxRounds = Number.isFinite(askedRounds) && askedRounds > 0
+    ? Math.min(6, Math.max(1, Math.round(askedRounds)))
+    : defaultRounds;
   for (let round = 0; round < maxRounds && items.length < want; round += 1) {
     let data;
     try {

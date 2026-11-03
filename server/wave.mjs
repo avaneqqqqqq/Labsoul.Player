@@ -156,7 +156,6 @@ function markSeen(station, id) {
 /* ------------------------------------------------------------------ */
 
 const prepared = new Map();   // ключ -> готовый ответ
-const preparing = new Set();   // ключи, которые собираются сейчас
 const pending = new Map();     // ключ -> промис сборки (тот же, что в заготовке)
 
 const waveKey = (station, wanted) => `${station}|${wanted.join(',')}`;
@@ -193,10 +192,38 @@ export function readyBatch(key) {
   return null;
 }
 
+/**
+ * Есть ли уже собранная партия для этой станции и набора источников.
+ *
+ * Нужна маршруту, чтобы решить, можно ли ответить мгновенно (из памяти),
+ * или ленту придётся собирать и клиенту лучше сразу отдать дисковый кэш.
+ */
+export function hasPrepared(station, sources) {
+  const key = waveKey(String(station || DEFAULT_STATION), normalizeSources(sources));
+  const entry = prepared.get(key);
+  return Boolean(entry && Array.isArray(entry.items) && entry.items.length);
+}
+
+/**
+ * Одна сборка на ключ.
+ *
+ * Раньше «заготовка» и живой запрос запускали каждый свою сборку: два
+ * одинаковых прохода по ротору Яндекса шли параллельно, ротор отвечал
+ * вдвое медленнее, а в журнале появлялись две строки «дособрано … треков».
+ * Теперь второй запрос встаёт в ту же сборку, что уже идёт.
+ */
+function startBuild(key, want, station, wanted) {
+  const inFlight = pending.get(key);
+  if (inFlight) return inFlight;
+  const build = buildWave(want, station, wanted)
+    .finally(() => { pending.delete(key); });
+  pending.set(key, build);
+  return build;
+}
+
 function kickPrepare(key, want, station, wanted) {
-  if (prepared.has(key) || preparing.has(key)) return;
-  preparing.add(key);
-  buildWave(want, station, wanted)
+  if (prepared.has(key) || pending.has(key)) return;
+  startBuild(key, want, station, wanted)
     .then((result) => {
       // buildWave уже отфильтровал показанное и пометил треки — здесь не фильтруем повторно,
       // иначе заготовка всегда остаётся пустой
@@ -204,8 +231,7 @@ function kickPrepare(key, want, station, wanted) {
       if (!items.length) return;
       prepared.set(key, { ...result, items });
     })
-    .catch((err) => store.log('[wave] заготовка не собралась:', err.message))
-    .finally(() => preparing.delete(key));
+    .catch((err) => store.log('[wave] заготовка не собралась:', err.message));
 }
 
 /** Ответ волны: готовая партия — сразу, иначе собираем на месте. */
@@ -228,17 +254,28 @@ export async function getWave(limit = 20, station = DEFAULT_STATION, sources = n
     if (fresh.length) return remember({ ...ready, items: fresh });
   }
 
-  kickPrepare(key, want, station, wanted);
-
-  // Ротор отвечает медленно, поэтому не держим запрос: отдаём пустой ответ
-  // с пометкой warming — клиент повторит через секунду, а заготовка догонит.
-  // готового нет — собираем на месте (первый запрос после запуска)
-  return remember(await buildWave(want, station, wanted));
+  // готового нет — встаём в сборку, которая уже идёт (или начинаем её).
+  // Второй параллельной сборки быть не должно: ротор Яндекса отвечает
+  // последовательно, и два одновременных прохода только удваивали время.
+  return remember(await startBuild(key, want, station, wanted));
 }
 
 async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) {
   const want = clampWant(limit);
   const wanted = normalizeSources(sources);
+
+  /*
+   * Бюджет времени на сборку.
+   *
+   * Первый ответ ротора поднимает ленту за 3–5 секунд, а добор «пока не
+   * наберём ровно want» уходил ещё на два-три таких прохода: запрос жил
+   * 8 секунд и упирался в аварийный потолок сервера. Теперь добор идёт,
+   * только пока есть запас по времени: лучше отдать 8–12 треков за 4 с,
+   * чем 20 за 8 с — остальное подтянется следующим запросом.
+   */
+  const startedAt = Date.now();
+  const TIME_BUDGET_MS = 5000;
+  const overBudget = () => Date.now() - startedAt > TIME_BUDGET_MS;
 
   /*
    * Источники опрашиваются параллельно, но НЕ ждём самый медленный.
@@ -327,12 +364,14 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
   // выкидываем то, что уже показывали, чтобы волна не ходила по кругу
   let items = interleave(usable, want).filter((track) => !wasSeen(station, track.id));
 
-  // если новинок мало — добираем ещё пару раз у тех же источников
-  for (let attempt = 0; attempt < 2 && items.length < want; attempt += 1) {
+  // если новинок мало — добираем ещё пару раз у тех же источников,
+  // но не дольше бюджета сборки
+  for (let attempt = 0; attempt < 2 && items.length < Math.ceil(want * 0.6) && !overBudget(); attempt += 1) {
     const extra = await Promise.all(
       wanted.map(async (source) => {
         try {
-          if (source === 'yandex') return await yandexBatch(want, station);
+          // добор — только короткая порция: полный проход не влезает в бюджет
+          if (source === 'yandex') return await yandexBatch(want, station, 2);
           if (source === 'soundcloud') return await soundcloudBatch(want);
           if (source === 'spotify') return await spotifyBatch(want);
           return null;
@@ -350,7 +389,7 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
   }
 
   // личная волна иссякла — тянем с родственных станций, а не повторяем старое
-  if (items.length < want && wanted.includes('yandex')) {
+  if (items.length < Math.ceil(want * 0.6) && wanted.includes('yandex') && !overBudget()) {
     // каждый вызов начинает с другой станции, чтобы не зацикливаться на одной
     fallbackCursor = (fallbackCursor + 2) % FALLBACK_STATIONS.length;
     const ordered = [
@@ -358,10 +397,10 @@ async function buildWave(limit = 20, station = DEFAULT_STATION, sources = null) 
       ...FALLBACK_STATIONS.slice(0, fallbackCursor),
     ].slice(0, 3);
     for (const alt of ordered) {
-      if (items.length >= want) break;
+      if (items.length >= want || overBudget()) break;
       if (alt === station) continue;
       try {
-        const altBatch = await yandexBatch(want - items.length, alt);
+        const altBatch = await yandexBatch(want - items.length, alt, 2);
         const more = (altBatch.items || [])
           .filter((track) => track.id && !items.some((item) => item.id === track.id) && !wasSeen(station, track.id));
         if (!more.length) continue;
@@ -422,14 +461,14 @@ function buildEmptyHint(wanted) {
 
 /* ------------------------------- источники ------------------------------- */
 
-async function yandexBatch(want, station) {
+async function yandexBatch(want, station, rounds) {
   const yandex = deps.yandex;
   if (!yandex) return { source: 'yandex', engine: 'yandex', items: [], error: 'NOT_INSTALLED' };
   const status = await yandex.status().catch((err) => ({ connected: false, error: err.code || 'UPSTREAM' }));
   if (!status.connected) {
     return { source: 'yandex', engine: 'yandex', items: [], error: status.error || 'NO_TOKEN', hint: null };
   }
-  const result = await yandex.wave(want, station);
+  const result = await yandex.wave(want, station, rounds ? { rounds } : {});
   return {
     source: 'yandex',
     engine: 'yandex',
