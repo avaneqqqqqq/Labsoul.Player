@@ -1,6 +1,6 @@
 {
   "name": "labsoul",
-  "version": "1.0.95",
+  "version": "1.0.96",
   "private": true,
   "type": "module",
   "description": "labsoul — свой музыкальный плеер: Яндекс.Музыка, SoundCloud, Spotify, лента «Волна», гибкая кастомизация",

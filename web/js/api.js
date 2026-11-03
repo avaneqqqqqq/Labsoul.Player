@@ -391,6 +391,19 @@ export async function getDpi() {
   }
 }
 
+/**
+ * Проверить хосты SoundCloud и при поломке починить обход.
+ *
+ * force — не ждать паузы между правками (кнопка «проверить и починить»).
+ */
+export async function autoFixDpiRequest(force = true) {
+  try {
+    return await request(`/api/dpi/check${force ? '?force=1' : ''}`, { timeout: 90000 });
+  } catch (err) {
+    return { ok: false, failed: [err?.message || 'сервер не ответил'], results: [] };
+  }
+}
+
 /** Дописать домены SoundCloud в списки установленного zapret. */
 export async function applyDpi() {
   try {

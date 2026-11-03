@@ -29,6 +29,7 @@ import * as proxySupport from './proxy.mjs';
 import * as scProxy from './scproxy.mjs';
 import * as proxyFinder from './proxyfind.mjs';
 import * as dpi from './dpi.mjs';
+import * as dpiauto from './dpiauto.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -790,7 +791,9 @@ async function handleApi(req, res, url) {
     // не дожидаясь ротора Яндекса (он думает 6–9 секунд). Свежие треки
     // подтянутся следующим запросом.
     const quick = url.searchParams.get('quick') === '1';
-    if (quick) {
+    // live: кнопка «обновить» просит настоящую сборку, без подмены сохранённой лентой
+    const live = url.searchParams.get('live') === '1';
+    if (quick && !live) {
       const fresh = waveEngine.readyBatch(waveKey);
       if (fresh) {
         // из памяти приходит свежая партия (пометки cached нет), с диска — сохранённая
@@ -827,7 +830,7 @@ async function handleApi(req, res, url) {
     // отдаём её сразу, а свежую собираем в фоне (ровно как в quick-режиме).
     // Клиент получает пометку warming и один раз переспрашивает сам.
     const onDisk = libraryCache.loadWave(waveKey);
-    if (onDisk && Array.isArray(onDisk.items) && onDisk.items.length
+    if (!live && onDisk && Array.isArray(onDisk.items) && onDisk.items.length
         && !waveEngine.hasPrepared(station, sources)) {
       sendJson(res, 200, {
         items: onDisk.items.slice(0, limit),
@@ -848,11 +851,13 @@ async function handleApi(req, res, url) {
       return;
     }
 
+    // live (кнопка «обновить») получает и время, и полные проходы ротора:
+    // пользователь сам попросил новый набор и ждёт его осознанно
     const result = await Promise.race([
-      waveEngine.getWave(limit, station, sources),
+      waveEngine.getWave(limit, station, sources, live ? { budgetMs: 12000, thorough: true } : {}),
       new Promise((resolve) => setTimeout(
         () => resolve({ items: [], station, warming: true, hint: 'Собираем ленту — ещё пара секунд' }),
-        8_000,
+        live ? 14_000 : 8_000,
       ).unref?.()),
     ]);
 
@@ -1209,6 +1214,21 @@ function reasonMessage(reason) {
     // Обход блокировки SoundCloud через zapret (DPI).
     // У большинства в РФ уже стоит zapret для YouTube/Discord — мы НЕ запускаем
     // второй обходчик, а дописываем домены SoundCloud в его списки.
+
+    // Автообслуживание проверяем ДО общей ветки GET: иначе она перехватит
+    if (route[1] === 'check') {
+      // ?force=1 — не ждать паузу между правками (кнопка «починить»)
+      const force = url.searchParams.get('force') === '1';
+      if (force) dpiauto.resetCooldown();
+      sendJson(res, 200, await dpiauto.ensure({ force }));
+      return;
+    }
+
+    if (route[1] === 'report') {
+      sendJson(res, 200, dpiauto.report());
+      return;
+    }
+
     if (req.method === 'GET') {
       sendJson(res, 200, {
         ...dpi.status(),
@@ -1372,6 +1392,21 @@ loadProviders()
 
       // Прогрев статуса: первый заход в интерфейс покажет готовые данные.
       refreshStatus().catch(() => {});
+
+      /*
+       * Автообслуживание обхода блокировки.
+       *
+       * Проверяем доступность SoundCloud в фоне и, если хосты отвалились,
+       * сами восстанавливаем списки zapret и перезапускаем стратегию.
+       * Пользователю не нужно ничего нажимать. Пауза между правками
+       * защищает работающий Discord и YouTube от лишних перезапусков.
+       */
+      setTimeout(() => {
+        dpiauto.ensure().then((result) => {
+          if (result.repaired) store.log(`[dpi] автопочинка: ${result.repairMessage}`);
+          else if (!result.ok) store.log(`[dpi] недоступно: ${(result.failed || []).join(', ')}`);
+        }).catch((error) => store.log(`[dpi] проверка не удалась: ${error.message}`));
+      }, 6000);
     });
   })
   .catch((err) => {

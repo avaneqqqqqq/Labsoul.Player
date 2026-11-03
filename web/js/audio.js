@@ -601,6 +601,7 @@ function playCurrent() {
   state.duration = track.duration || 0;
   state.error = null;
   state.loading = true;
+  state.retries = 0;
   state.playing = false;
   state.context = state.context ? { ...state.context, position: state.index } : null;
 
@@ -658,10 +659,44 @@ function playCurrent() {
         emit('state');
       }).catch((err) => {
         state.loading = false;
+
+        /*
+         * Браузер ждёт нажатия — это не сбой: ставим флаг и просим нажать.
+         */
+        if (err?.name === 'NotAllowedError') {
+          state.playing = false;
+          state.error = 'Браузер ждёт нажатия кнопки воспроизведения';
+          emit('error');
+          emit('state');
+          return;
+        }
+
+        /*
+         * Обрыв потока (обход блокировки, CDN, загрузка) — не повод пугать
+         * ошибкой. Пробуем ещё пару раз с паузой: с третьей попытки поток
+         * почти всегда проходит. Ошибку показываем только если не вышло.
+         */
+        state.retries = (state.retries || 0) + 1;
+        if (state.retries <= 2) {
+          state.playing = true;
+          emit('state');
+          setTimeout(() => {
+            try {
+              audio.load();
+              audio.play().then(() => {
+                state.retries = 0;
+                state.playing = true;
+                state.loading = false;
+                emit('state');
+              }).catch(() => { /* следующая попытка или сдаёмся */ });
+            } catch { /* повторим ещё раз */ }
+          }, 500 * state.retries);
+          return;
+        }
+
+        state.retries = 0;
         state.playing = false;
-        state.error = err?.name === 'NotAllowedError'
-          ? 'Браузер ждёт нажатия кнопки воспроизведения'
-          : 'Не удалось получить звук с сервера';
+        state.error = 'Не удалось получить звук с сервера';
         emit('error');
         emit('state');
       });
@@ -1076,6 +1111,7 @@ audio.addEventListener('pause', () => {
 audio.addEventListener('waiting', () => {
   if (state.simulated) return;
   state.loading = true;
+  state.retries = 0;
   emit('state');
 });
 audio.addEventListener('playing', () => {

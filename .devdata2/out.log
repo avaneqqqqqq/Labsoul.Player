@@ -1,0 +1,16 @@
+2026-11-03T21:08:22.699Z [proxy] принят прокси из настроек: http://46.232.249.209:40001
+2026-11-03T21:08:22.704Z [providers] yandex: загружен
+2026-11-03T21:08:22.708Z [providers] soundcloud: загружен
+2026-11-03T21:08:22.711Z [providers] spotify: загружен
+2026-11-03T21:08:22.713Z [providers] local: загружен
+2026-11-03T21:08:22.716Z labsoul запущен: http://127.0.0.1:5399
+
+  labsoul: http://127.0.0.1:5399
+
+2026-11-03T21:08:27.083Z [api] GET /api/wave?limit=20&station=user:onyourwave&sources=yandex → 200 (3 мс)
+2026-11-03T21:08:28.602Z [wave] дособрано 12 треков от опоздавших источников
+2026-11-03T21:08:32.612Z [api] GET /api/wave?limit=20&station=user:onyourwave&sources=yandex&live=1 → 200 (5490 мс)
+2026-11-03T21:08:34.172Z [wave] дособрано 12 треков от опоздавших источников
+2026-11-03T21:08:38.435Z [api] GET /api/wave?limit=20&station=user:onyourwave&sources=yandex&live=1 → 200 (5819 мс)
+2026-11-03T21:08:38.437Z [api] GET /api/wave?limit=20&station=user:onyourwave&sources=yandex → 200 (1 мс)
+2026-11-03T21:08:40.083Z [wave] дособрано 13 треков от опоздавших источников

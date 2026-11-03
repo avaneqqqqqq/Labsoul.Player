@@ -3,7 +3,7 @@
    Секреты приходят с сервера только маской; формы отправляют PUT /api/settings.
    ========================================================================= */
 
-import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy, getDpi, applyDpi, checkSoundcloudKey } from '../api.js';
+import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy, getDpi, applyDpi, autoFixDpiRequest, checkSoundcloudKey } from '../api.js';
 import { icon, SOURCE_MARKS } from '../components.js';
 import {
   app,
@@ -442,7 +442,11 @@ function dpiCard() {
         <button class="btn btn--ghost btn--sm" type="button" data-dpi-check>
           ${icon('refresh')} Проверить
         </button>
+        <button class="btn btn--ghost btn--sm" type="button" data-dpi-autofix title="Проверить SoundCloud и при поломке починить обход">
+          ${icon('shield')} Проверить и починить
+        </button>
       </div>
+      <div class="dpi-report" data-dpi-report hidden></div>
     </form>`;
 }
 
@@ -603,6 +607,46 @@ async function checkDpi() {
   toast(text, { icon: probe?.ok ? 'check' : 'alert' });
 }
 
+/**
+ * Проверить доступность всех хостов SoundCloud и при поломке починить обход.
+ *
+ * Плеер делает это сам в фоне при запуске, но кнопка нужна, когда что-то
+ * отвалилось именно сейчас: результат виден сразу, со списком хостов.
+ */
+async function autoFixDpi() {
+  const button = screen.root?.querySelector('[data-dpi-autofix]');
+  const report = screen.root?.querySelector('[data-dpi-report]');
+  if (button) button.disabled = true;
+  if (report) {
+    report.hidden = false;
+    report.textContent = 'Проверяю SoundCloud и при необходимости чиню обход…';
+  }
+
+  try {
+    const result = await autoFixDpiRequest();
+
+    if (!result) {
+      if (report) report.textContent = 'Сервер не ответил на проверку';
+      toast('Проверка не удалась', { type: 'err' });
+      return;
+    }
+
+    // список хостов с результатом
+    const lines = (result.results || []).map((item) => `${item.ok ? '✓' : '✗'} ${item.label}${item.ok ? ` — ${item.ms} мс` : ''}`);
+    const summary = result.ok
+      ? (result.repaired ? `Обход починен. ${result.repairMessage || ''}` : 'Всё открывается, обход в порядке')
+      : `Не открывается: ${(result.failed || []).join(', ')}`;
+
+    if (report) report.innerHTML = `<b>${esc(summary)}</b>${lines.length ? `<span>${lines.map(esc).join(' · ')}</span>` : ''}`;
+    toast(summary, { icon: result.ok ? 'check' : 'alert', type: result.ok ? undefined : 'warn' });
+  } catch (error) {
+    if (report) report.textContent = 'Ошибка проверки: ' + (error?.message || error);
+    toast('Проверка не удалась', { type: 'err' });
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 /** Проверка соединения с SoundCloud: идёт ли трафик через прокси. */
 async function runNetworkTest() {
   const host = screen.root?.querySelector('[data-net-status]');
@@ -740,6 +784,11 @@ function onClick(event) {
 
   if (target?.closest('[data-dpi-check]')) {
     checkDpi();
+    return;
+  }
+
+  if (target?.closest('[data-dpi-autofix]')) {
+    autoFixDpi();
     return;
   }
 
