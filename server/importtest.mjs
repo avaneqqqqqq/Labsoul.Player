@@ -110,6 +110,47 @@ try {
   check('проверка списка файлов сборки', false, error.message);
 }
 
+/*
+ * Каждый модуль, который подключает main.cjs, должен существовать и
+ * экспортировать то, что вызывается.
+ *
+ * Так уже случилось: в проект попал старый overlay.cjs без handleActions,
+ * приложение падало на старте с «handleActions is not a function».
+ */
+try {
+  const appDir = path.resolve(HERE, '..', 'app');
+  const mainSource = fs.readFileSync(path.join(appDir, 'main.cjs'), 'utf8');
+
+  for (const match of mainSource.matchAll(/const\s+(\w+)\s*=\s*require\('\.\/([\w.-]+\.cjs)'\)/g)) {
+    const [, alias, file] = match;
+    const full = path.join(appDir, file);
+
+    check(`модуль ${file} существует`, fs.existsSync(full));
+    if (!fs.existsSync(full)) continue;
+
+    const source = fs.readFileSync(full, 'utf8');
+
+    // имена из module.exports = { ... } — их и видно снаружи
+    const exportBlock = source.match(/module\.exports\s*=\s*\{([^}]*)\}/s)?.[1] || '';
+    const exported = new Set(
+      exportBlock
+        .split(',')
+        .map((part) => part.split(':')[0].trim())
+        .filter(Boolean),
+    );
+
+    // ищем вызовы вида overlay.handleActions() и проверяем имя в экспорте
+    const callRe = new RegExp(`${alias}\\.(\\w+)\\s*\\(`, 'g');
+    const called = new Set([...mainSource.matchAll(callRe)].map((m) => m[1]));
+
+    for (const method of called) {
+      check(`${file} экспортирует ${method}`, exported.has(method));
+    }
+  }
+} catch (error) {
+  check('проверка API модулей Electron', false, error.message);
+}
+
 if (failures.length) {
   console.error('Провалено проверок:', failures.length);
   for (const failure of failures) console.error('  ✗', failure);

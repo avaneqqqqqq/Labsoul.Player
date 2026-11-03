@@ -1,30 +1,35 @@
 /**
- * Оверлей-плеер: маленькое окно поверх всех приложений (идея из Liner).
+ * Мини-плеер поверх всех окон (идея из Liner).
  *
- * Показывает, что играет, и даёт управление без переключения в labsoul —
- * удобно, когда работаешь в другом окне на весь экран.
+ * Это отдельное лёгкое окно со своей страницей: раньше сюда грузилась вся
+ * страница приложения — отсюда огромный размер и лишние элементы.
  *
- * Окно без рамки, всегда сверху, не перехватывает фокус у игр и видео
- * (focusable), закрывается кнопкой и горячей клавишей.
+ * Окно без рамки, всегда сверху, не забирает фокус у игр и видео,
+ * перетаскивается за любую точку.
  */
 
 const path = require('node:path');
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, ipcMain } = require('electron');
 
-const SIZE = { width: 340, height: 88 };
+const SIZE = { width: 330, height: 74 };
 
 let overlay = null;
-let overlayEnabled = false;
+/** Окно приложения, которому пересылаем команды из мини-плеера. */
+let mainWindowRef = null;
+let actionsBound = false;
+
+/** Подключить главное окно — команды мини-плеера идут в него. */
+function attachMain(win) {
+  mainWindowRef = win;
+}
 
 /**
- * Создать оверлей. Возвращает окно или null, если уже есть.
- * @param {object} opts
- * @param {string} opts.html — страница оверлея
- * @param {number} opts.port — порт локального сервера
+ * Создать окно мини-плеера.
+ * @param {{html: string}} opts — путь к странице мини-плеера
  */
-function create({ html, port }) {
+function create({ html }) {
   if (overlay && !overlay.isDestroyed()) {
-    overlay.show();
+    overlay.showInactive();
     return overlay;
   }
 
@@ -39,23 +44,23 @@ function create({ html, port }) {
     fullscreenable: false,
     skipTaskbar: true,
     alwaysOnTop: true,
-    // не забираем фокус у активного приложения
+    // не отбираем фокус у активного приложения
     focusable: false,
     hasShadow: false,
     show: false,
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      preload: path.join(__dirname, 'miniplayer-preload.cjs'),
     },
   });
 
-  // поверх полноэкранных окон, включая игры
   try {
     overlay.setAlwaysOnTop(true, 'screen-saver');
     overlay.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   } catch { /* ignore */ }
 
-  overlay.loadURL(`${html}${html.includes('?') ? '&' : '?'}overlay=1&port=${port}`);
+  overlay.loadFile(html);
   overlay.once('ready-to-show', () => {
     if (overlay && !overlay.isDestroyed()) overlay.showInactive();
   });
@@ -67,34 +72,54 @@ function create({ html, port }) {
   return overlay;
 }
 
-/** Показать/скрыть оверлей. */
+/** Показать/скрыть мини-плеер. */
 function toggle(opts) {
   if (overlay && !overlay.isDestroyed()) {
-    if (overlay.isVisible()) overlay.hide();
-    else overlay.showInactive();
-    return Boolean(overlay.isVisible());
+    if (overlay.isVisible()) {
+      overlay.hide();
+      return false;
+    }
+    overlay.showInactive();
+    return true;
   }
   create(opts);
   return true;
 }
 
-/** Закрыть оверлей. */
 function close() {
   if (overlay && !overlay.isDestroyed()) overlay.close();
   overlay = null;
-  overlayEnabled = false;
 }
 
-/** Отправить данные о треке в оверлей. */
+/** Отправить состояние трека в мини-плеер. */
 function send(state) {
-  if (!overlay || overlay.isDestroyed()) return;
+  if (!overlay || overlay.isDestroyed()) return false;
   try {
-    overlay.webContents.send('overlay:state', state);
-  } catch { /* ignore */ }
+    overlay.webContents.send('mini:state', state);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isOpen() {
   return Boolean(overlay && !overlay.isDestroyed() && overlay.isVisible());
 }
 
-module.exports = { create, toggle, close, send, isOpen, overlayEnabled };
+/**
+ * Команды из мини-плеера (плей/пауза, следующий, предыдущий).
+ * Обработчик регистрируется один раз.
+ */
+function handleActions() {
+  if (actionsBound) return;
+  actionsBound = true;
+  ipcMain.on('mini:action', (_event, action) => {
+    if (action === 'close') { close(); return; }
+    // остальные команды пересылаем в главное окно — там живёт плеер
+    if (mainWindowRef && !mainWindowRef.isDestroyed()) {
+      mainWindowRef.webContents.send('mini:command', action);
+    }
+  });
+}
+
+module.exports = { create, toggle, close, send, isOpen, attachMain, handleActions };
