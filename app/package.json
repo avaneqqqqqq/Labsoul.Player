@@ -1,7 +1,7 @@
 {
   "name": "labsoul-desktop",
   "productName": "labsoul",
-  "version": "1.0.70",
+  "version": "1.0.71",
   "private": true,
   "description": "labsoul — десктопная оболочка плеера",
   "main": "main.cjs",
@@ -33,7 +33,9 @@
       "banner-preload.cjs",
       "package.json",
       "build/icon.png",
-      "node_modules/ffmpeg-static/**"
+      "node_modules/ffmpeg-static/**",
+      "miniplayer.html",
+      "miniplayer-preload.cjs"
     ],
     "extraResources": [
       {

@@ -55,6 +55,11 @@ contextBridge.exposeInMainWorld('playerDesktop', {
     return ipcRenderer.invoke('overlay:state', payload);
   },
 
+  /** Команды из мини-плеера (плей/пауза, следующий, предыдущий). */
+  onMiniCommand(callback) {
+    return subscribe('mini:command', callback);
+  },
+
   /**
    * Путь файла, перетащенного в окно. В Electron 32 свойство File.path убрано,
    * поэтому путь берём через webUtils (документированный способ).

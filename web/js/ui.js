@@ -1305,10 +1305,15 @@ async function openArtistPage() {
     return;
   }
 
+  // закрываем полноэкранный режим ДО перехода: он тоже меняет экран,
+  // и ссылка на #content успела бы устареть
   closeNowPlaying();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
-  // показываем экран поиска с индикатором загрузки, затем подставляем треки
   go('search');
+  // ждём, пока экран поиска отрисуется, и только потом берём актуальный контейнер
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+
   const host = document.getElementById('content');
   if (!host) return;
 
@@ -1709,6 +1714,16 @@ export function initShell() {
   ui.queueHost = document.getElementById('queue');
   ui.scrim = document.getElementById('scrim');
   ui.banner = document.getElementById('banner');
+
+  // Команды из мини-плеера: работают, даже когда окно свёрнуто
+  window.playerDesktop?.onMiniCommand?.((action) => {
+    if (action === 'toggle') player.toggle();
+    else if (action === 'next') player.next();
+    else if (action === 'prev') player.prev();
+    if (action === 'toggle' || action === 'next' || action === 'prev') {
+      syncPresence(player.getState());
+    }
+  });
 
   renderSources();
   modeChip();

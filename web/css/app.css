@@ -162,8 +162,7 @@ body[data-scheme="light"] .iconbtn { background: rgba(255, 255, 255, .7); }
   height: 38px; padding: 0 14px;
   border-radius: 999px; border: 1px solid var(--border);
   background: color-mix(in srgb, var(--panel) 72%, transparent);
-  backdrop-filter: blur(var(--blur));
-  -webkit-backdrop-filter: blur(var(--blur));
+  background: color-mix(in srgb, var(--panel) 94%, transparent);
   color: var(--mute); font-size: 13px;
   transition: var(--transition);
 }
@@ -434,13 +433,11 @@ body[data-variant="vinyl"] .section__head h3 { font-style: italic; font-weight: 
   position: relative; display: flex; flex-direction: column; gap: 11px;
   padding: 11px; text-align: left;
   border: 1px solid var(--border); border-radius: var(--radius);
-  background: color-mix(in srgb, var(--panel) 76%, transparent);
-  backdrop-filter: blur(var(--blur)) saturate(1.08);
-  -webkit-backdrop-filter: blur(var(--blur)) saturate(1.08);
+  background: color-mix(in srgb, var(--panel) 92%, transparent);
   color: var(--text); font: inherit;
   cursor: pointer; transition: var(--transition);
 }
-.card:hover { border-color: var(--border-strong); transform: translateY(-3px); box-shadow: var(--shadow-sm); }
+.card:hover { border-color: var(--border-strong); }
 .card:active { transform: translateY(-1px) scale(.995); }
 body[data-variant="vinyl"] .card { background: transparent; }
 body[data-variant="paper"] .card { background: color-mix(in srgb, #fff 84%, transparent); box-shadow: 0 2px 10px -6px rgba(60, 50, 30, .2); }
@@ -1576,4 +1573,25 @@ body[data-anim="off"] .np__cover img {
 
 @media (prefers-reduced-motion: reduce) {
   .pl-now__art, .np__cover img { transition: none; transform: none; }
+}
+
+
+/* --------------------- производительность длинных списков --------------- */
+/* content-visibility: браузер не рисует строки за пределами экрана, а
+   подставляет их высоту. На лентах в сотни треков это главный приём:
+   прокрутка перестаёт упираться в перерисовку всего списка. */
+.row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
+
+.card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 220px;
+}
+
+/* при прокрутке отключаем дорогие эффекты у элементов ленты */
+.scroll-fast .row,
+.scroll-fast .card {
+  transition: none;
 }

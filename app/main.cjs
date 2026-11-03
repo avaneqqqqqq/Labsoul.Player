@@ -714,10 +714,14 @@ ipcMain.handle('discord:activity', (_event, payload) => {
   return discord.setActivity(payload);
 });
 
-ipcMain.handle('overlay:toggle', () => overlay.toggle({
-  html: `http://127.0.0.1:${currentPort || 5270}/`,
-  port: currentPort || 5270,
-}));
+// Мини-плеер — отдельная лёгкая страница, а не копия всего приложения
+const MINIPLAYER_HTML = path.join(__dirname, 'miniplayer.html');
+overlay.handleActions();
+
+ipcMain.handle('overlay:toggle', () => {
+  overlay.attachMain(mainWindow);
+  return overlay.toggle({ html: MINIPLAYER_HTML });
+});
 
 ipcMain.handle('overlay:close', () => {
   overlay.close();
