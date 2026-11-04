@@ -69,6 +69,23 @@ function makeStub(name) {
 }
 
 async function loadProviders() {
+  /*
+   * Сохранение обновлённого токена SoundCloud.
+   *
+   * Токен живёт сутки; провайдер продлевает его сам через refresh_token.
+   * Новую пару надо записать на диск, иначе после перезапуска останется
+   * старый токен и всё начнётся заново.
+   */
+  try {
+    providers.soundcloud?.setTokenSaver?.((cookies) => {
+      try {
+        store.saveSettings({ soundcloud: { cookies, cookiesAt: Date.now() } });
+        store.log('[soundcloud] обновлённый токен сохранён');
+      } catch (err) {
+        store.log(`[soundcloud] не удалось сохранить токен: ${err.message}`);
+      }
+    });
+  } catch { /* провайдер может быть не загружен */ }
   const settings = store.loadSettings();
 
   // Прокси — только для SoundCloud и только если пользователь задал его сам.
@@ -1112,6 +1129,8 @@ function reasonMessage(reason) {
         autoProxyCurrent: scProxy.current() || '',
         autoProxyLast: scProxy.last(),
         ffmpeg: audioconvert.hasFfmpeg(),
+        // тумблер обхода блокировки: по умолчанию выключен
+        bypass: { enabled: Boolean(settings.network?.bypass?.enabled) },
       });
       return;
     }
@@ -1169,6 +1188,12 @@ function reasonMessage(reason) {
           useSystemProxy: Boolean(body?.useSystemProxy),
           // выключатель системы автоподбора для SoundCloud
           ...(typeof body?.autoProxy === 'boolean' ? { autoProxy: body.autoProxy } : {}),
+          /*
+           * Тумблер обхода блокировки. По умолчанию выключен: у большинства
+           * в России zapret уже стоит отдельно, и плееру не нужно его
+           * поднимать или править чужие списки.
+           */
+          ...(body?.bypass && typeof body.bypass === 'object' ? { bypass: body.bypass } : {}),
         },
       });
 
@@ -1492,19 +1517,26 @@ loadProviders()
       warmupBypass().catch(() => {});
 
       /*
-       * Автообслуживание обхода блокировки.
+       * Обслуживание обхода блокировки — только если он включён.
        *
-       * Проверяем доступность SoundCloud в фоне и, если хосты отвалились,
-       * сами восстанавливаем списки zapret. Пользователю не нужно ничего
-       * нажимать. Чужую стратегию не перезапускаем никогда — это могло
-       * оставить без обхода вообще.
+       * По умолчанию обход выключен: у большинства в России zapret уже
+       * стоит, и трогать его не нужно. Если пользователь включил тумблер
+       * в настройках — поднимаем и следим; если нет — не вмешиваемся
+       * вообще и ничего не пишем в чужие списки.
        */
-      setTimeout(() => {
-        dpiauto.ensure().then((result) => {
-          if (result.repaired) store.log(`[dpi] автопочинка: ${result.repairMessage}`);
-          else if (!result.ok) store.log(`[dpi] недоступно: ${(result.failed || []).join(', ')}`);
-        }).catch((error) => store.log(`[dpi] проверка не удалась: ${error.message}`));
-      }, 6000);
+      const network = store.loadSettings().network || {};
+      const bypassEnabled = Boolean(network.bypass?.enabled);
+
+      if (bypassEnabled) {
+        setTimeout(() => {
+          dpiauto.ensure().then((result) => {
+            if (result.repaired) store.log(`[dpi] автопочинка: ${result.repairMessage}`);
+            else if (!result.ok) store.log(`[dpi] недоступно: ${(result.failed || []).join(', ')}`);
+          }).catch((error) => store.log(`[dpi] проверка не удалась: ${error.message}`));
+        }, 6000);
+      } else {
+        store.log('[dpi] обход выключен в настройках — не трогаем');
+      }
     });
   })
   .catch((err) => {

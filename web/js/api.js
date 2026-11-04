@@ -335,12 +335,22 @@ export async function getNetwork() {
   }
 }
 
-/** Сохранить настройки прокси (применяются сразу). */
-export async function saveNetwork({ proxy = '', useSystemProxy = false, autoProxy } = {}) {
+/**
+ * Сохранить настройки сети: прокси и тумблер обхода.
+ *
+ * bypass — включён ли обход блокировки (zapret). По умолчанию выключен:
+ * у большинства в России он уже стоит отдельно, и плееру не нужно его
+ * поднимать. Настройка передаётся целиком, чтобы не затереть соседние.
+ */
+export async function saveNetwork({ proxy = '', useSystemProxy = false, autoProxy, bypass } = {}) {
   try {
+    const body = { proxy, useSystemProxy };
+    if (typeof autoProxy === 'boolean') body.autoProxy = autoProxy;
+    if (bypass && typeof bypass === 'object') body.bypass = bypass;
+
     const data = await request('/api/network', {
       method: 'PUT',
-      body: { proxy, useSystemProxy, ...(typeof autoProxy === 'boolean' ? { autoProxy } : {}) },
+      body,
       timeout: 20000,
     });
     return { ok: true, ...data };

@@ -1,4 +1,5 @@
 import { trace } from './trace.js';
+import * as control from './control.js';
 /* =========================================================================
    labsoul — оболочка: шапка, сайдбар, нижний плеер, очередь, модалки, клавиши.
    Экраны живут в js/screens/* и сами рисуют только #content.
@@ -518,12 +519,12 @@ function onPlayerClick(event) {
       return;
     }
     const meta = event.target instanceof Element ? event.target.closest('.pl-now__meta') : null;
-      if (meta) { player.toggle(); refreshBar(); }
+      if (meta) { control.toggle('название в баре'); }
     return;
   }
   const action = target.dataset.pl;
   switch (action) {
-    case 'toggle': trace('player', 'toggle нажат', { playing: player.getState().playing }); player.toggle(); trace('player', 'toggle выполнен', { playing: player.getState().playing }); refreshBar(); break;
+    case 'toggle': control.toggle('кнопка в баре'); break;
     case 'next': player.next(); break;
     case 'prev': player.prev(); break;
     case 'shuffle': {
@@ -1632,7 +1633,7 @@ function openNowPlaying() {
     }
     const action = button.dataset.np;
     if (action === 'close') { closeNowPlaying(); return; }
-    if (action === 'toggle') { player.toggle(); afterAction(); return; }
+    if (action === 'toggle') { control.toggle('полноэкранный'); return; }
     if (action === 'next') { player.next(); afterAction(); return; }
     if (action === 'prev') { player.prev(); afterAction(); return; }
     if (action === 'shuffle') { player.toggleShuffle(); syncNowPlaying(); return; }
@@ -1671,7 +1672,7 @@ function openNowPlaying() {
     if (event.key === 'Escape') { closeNowPlaying(); return; }
     if (event.key === ' ' && !(event.target instanceof HTMLInputElement)) {
       event.preventDefault();
-      player.toggle();
+      control.toggle('пробел');
     }
   };
   document.addEventListener('keydown', nowPlaying.onKey);
@@ -2160,7 +2161,7 @@ function setupKeyboard() {
 
     if (event.code === 'Space') {
       event.preventDefault();
-      player.toggle();
+      control.toggle('пробел');
       return;
     }
     if (key === 'Escape') {
@@ -2223,6 +2224,18 @@ function syncRouteUi() {
 /* ------------------------------------------------------------------ */
 
 export function initShell() {
+  /*
+   * Подключаем обновление панелей к единой кнопке переключения.
+   *
+   * Раньше каждое место (бар, полноэкранный, пробел, мини-плеер) само
+   * обновляло интерфейс — и некоторые забывали. Теперь все зовут
+   * control.toggle(), а она через эти колбэки обновляет обе панели.
+   */
+  control.setRefreshers({
+    bar: () => syncPlayer(player.getState()),
+    fullscreen: () => { if (nowPlaying.el) syncNowPlaying(); },
+  });
+
   ui.playerHost = document.getElementById('player');
   ui.queueHost = document.getElementById('queue');
   ui.scrim = document.getElementById('scrim');
@@ -2230,7 +2243,7 @@ export function initShell() {
 
   // Команды из мини-плеера: работают, даже когда окно свёрнуто
   window.playerDesktop?.onMiniCommand?.((action) => {
-    if (action === 'toggle') player.toggle();
+    if (action === 'toggle') control.toggle('мини-плеер');
     else if (action === 'next') player.next();
     else if (action === 'prev') player.prev();
     if (action === 'toggle' || action === 'next' || action === 'prev') {

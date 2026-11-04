@@ -1370,3 +1370,57 @@ mark.hit {
   color: var(--dim);
   line-height: 1.45;
 }
+
+
+/* тумблер обхода блокировки */
+.dpi-switch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  margin: 12px 0;
+  border-radius: 12px;
+  background: var(--hover);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 160ms var(--ease);
+}
+.dpi-switch:hover { border-color: var(--accent); }
+.dpi-switch input { position: absolute; opacity: 0; pointer-events: none; }
+
+.dpi-switch__track {
+  flex: none;
+  width: 42px;
+  height: 24px;
+  border-radius: 12px;
+  background: var(--border);
+  position: relative;
+  transition: background 180ms var(--ease);
+}
+.dpi-switch__dot {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition: transform 180ms var(--ease), background 180ms var(--ease);
+}
+.dpi-switch input:checked + .dpi-switch__track { background: var(--accent); }
+.dpi-switch input:checked + .dpi-switch__track .dpi-switch__dot {
+  transform: translateX(18px);
+  background: var(--on-accent);
+}
+
+.dpi-switch__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.dpi-switch__text b { font-weight: 600; color: var(--text); }
+.dpi-switch__text small { color: var(--dim); font-size: 11px; }
+
+.dpi-body[hidden] { display: none; }

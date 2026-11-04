@@ -20,6 +20,8 @@
  */
 
 import * as proxy from '../proxy.mjs';
+import * as sctoken from './sctoken.mjs';
+import * as screlay from './screlay.mjs';
 import * as scProxy from '../scproxy.mjs';
 
 export const id = 'soundcloud';
@@ -171,12 +173,20 @@ async function httpFetch(url, { method = 'GET', headers = {}, body, timeout = TI
     ...headers,
   };
 
-  // Прокси применяется ТОЛЬКО к запросам SoundCloud: домен soundcloud.com и
-  // медиа-CDN заблокированы в РФ. Яндекса, Spotify, текстов и обновлений это
-  // не касается — они ходят напрямую.
-  const attempt = async () => {
+  /*
+   * Порядок путей к SoundCloud — от лучшего к запасному:
+   *
+   *   1. Релеи, если пользователь их задал: открываются напрямую из
+   *      России и не требуют прав администратора.
+   *   2. Прямое соединение: работает, когда включён обход блокировки.
+   *   3. Прокси из настроек.
+   *
+   * Человеку не нужно выбирать — плеер сам идёт тем путём, который
+   * работает в его сети.
+   */
+  const perform = (requestUrl) => {
     const dispatcher = proxy.soundcloudDispatcher();
-    return await fetch(url, {
+    return fetch(requestUrl, {
       method,
       headers: requestHeaders,
       body,
@@ -184,6 +194,25 @@ async function httpFetch(url, { method = 'GET', headers = {}, body, timeout = TI
       signal: AbortSignal.timeout(timeout),
       ...(dispatcher ? { dispatcher } : {}),
     });
+  };
+
+  /*
+   * Порядок попыток: сначала напрямую, потом через релей.
+   *
+   * У большинства в России стоит обход блокировки — тогда прямое
+   * соединение работает и даёт полную скорость, а релей не тратит
+   * бесплатный лимит. Релей берём только когда напрямую не вышло:
+   * он нужен тем, у кого обхода нет.
+   */
+  const attempt = async () => {
+    try {
+      return await perform(url);
+    } catch (directError) {
+      if (screlay.hasRelay()) {
+        return screlay.through(url, perform);
+      }
+      throw directError;
+    }
   };
 
   try {
@@ -523,16 +552,128 @@ async function getClientId(force = false) {
 /* ------------------------------------------------------------------ */
 
 /** Токен из сохранённых cookie после входа (oauth_token). */
-function oauthToken() {
+/** Токен из сохранённых cookie после входа (oauth_token). */
+function readCookieValue(name) {
   if (!configuredCookies) return '';
   try {
     const list = JSON.parse(configuredCookies);
-    const found = list.find((item) => /^oauth_token$/i.test(item.name || '') && item.value);
+    const found = list.find((item) => new RegExp(`^${name}$`, 'i').test(item.name || '') && item.value);
     return found ? String(found.value) : '';
   } catch {
     return '';
   }
 }
+
+function oauthToken() {
+  return readCookieValue('oauth_token');
+}
+
+/** Ключ обновления: им продлеваем токен без участия пользователя. */
+function refreshToken() {
+  return readCookieValue('oauth_refresh_token');
+}
+
+/**
+ * Время до конца жизни токена и признак скорого истечения.
+ * Отдаётся в статусе, чтобы интерфейс мог предупредить.
+ */
+export function tokenInfo() {
+  const token = oauthToken();
+  const info = sctoken.decodeToken(token);
+  if (!info) return { jwt: false, expiresAt: 0, leftMs: 0, needsRefresh: false };
+  const leftMs = Math.max(0, info.exp - Date.now());
+  return {
+    jwt: true,
+    expiresAt: info.exp,
+    leftMs,
+    needsRefresh: sctoken.needsRefresh(token),
+    expired: sctoken.isExpired(token),
+    hasRefresh: Boolean(refreshToken()),
+  };
+}
+
+/**
+ * Продлить токен, если срок подходит к концу.
+ *
+ * Вызывается перед каждым обращением к API. Если refresh_token есть, а
+ * токен скоро истечёт — обновляем молча. Ошибку не выбрасываем наружу:
+ * вызывающий код просто пойдёт со старым токеном и, если тот уже не
+ * работает, получит 401 — это обработается выше.
+ *
+ * @returns {Promise<boolean>} обновили ли
+ */
+async function ensureFreshToken() {
+  const token = oauthToken();
+  if (!token) return false;
+  if (!sctoken.needsRefresh(token)) return false;
+
+  const refresh = refreshToken();
+  if (!refresh) return false;
+
+  // другой запрос уже обновляет — не дублируем
+  if (tokenRefreshPromise) return tokenRefreshPromise;
+
+  tokenRefreshPromise = (async () => {
+    try {
+      const next = await sctoken.refreshTokens({ refreshToken: refresh, accessToken: token });
+      // подменяем оба токена в сохранённых cookie
+      replaceTokensInCookies(next.accessToken, next.refreshToken);
+      log?.('токен SoundCloud обновлён автоматически');
+      return true;
+    } catch (error) {
+      console.warn(`[soundcloud] автообновление токена: ${error.message}`);
+      return false;
+    } finally {
+      tokenRefreshPromise = null;
+    }
+  })();
+
+  return tokenRefreshPromise;
+}
+
+let tokenRefreshPromise = null;
+
+/**
+ * Записать новые токены в сохранённые cookie и на диск.
+ *
+ * Список cookie хранится строкой JSON; меняем в нём значения
+ * oauth_token и oauth_refresh_token, остальное не трогаем.
+ */
+function replaceTokensInCookies(accessToken, newRefresh) {
+  if (!configuredCookies) return;
+  try {
+    const list = JSON.parse(configuredCookies);
+    let changed = false;
+
+    for (const item of list) {
+      if (/^oauth_token$/i.test(item.name || '')) {
+        if (item.value !== accessToken) { item.value = accessToken; changed = true; }
+      } else if (/^oauth_refresh_token$/i.test(item.name || '') && newRefresh) {
+        if (item.value !== newRefresh) { item.value = newRefresh; changed = true; }
+      }
+    }
+
+    if (!changed) return;
+    configuredCookies = JSON.stringify(list);
+
+    // сохраняем на диск, иначе после перезапуска вернёмся к старому токену
+    onTokensChanged?.(configuredCookies);
+  } catch (error) {
+    console.warn(`[soundcloud] не удалось сохранить обновлённый токен: ${error.message}`);
+  }
+}
+
+/** Колбэк из сервера: записать новые cookie в настройки. */
+let onTokensChanged = null;
+
+export function setTokenSaver(handler) {
+  onTokensChanged = typeof handler === 'function' ? handler : null;
+}
+
+function log(message) {
+  try { console.log(`[soundcloud] ${message}`); } catch { /* ignore */ }
+}
+
 
 /**
  * Заголовки авторизации для api-v2.
@@ -584,6 +725,12 @@ async function callApi(pathname, params, clientId) {
 }
 
 async function apiJson(pathname, params = {}, { retry = true } = {}) {
+  /*
+   * Перед каждым обращением к API продлеваем токен, если срок подходит
+   * к концу. SoundCloud отдаёт токен на сутки; без этого через сутки
+   * звук перестаёт идти и человеку приходилось входить заново.
+   */
+  await ensureFreshToken();
   /*
    * Порядок попыток подобран по опыту живых тестов:
    *
@@ -757,6 +904,13 @@ function mapTrack(raw) {
  * @param {{clientId?: string}} [cfg] настройки источника (PUT /api/settings)
  */
 export function configure(cfg = {}) {
+  /*
+   * Релеи: список адресов через запятую. Если пусто — берём наш
+   * официальный. Это то, что позволяет слушать SoundCloud без прав
+   * администратора и без обхода блокировки.
+   */
+  screlay.configure(cfg?.relays ?? screlay.DEFAULT_RELAYS);
+
   // профиль нужен и для лайков, и для плейлистов — запоминаем его всегда
   configuredProfile = typeof cfg?.profileUrl === 'string' ? cfg.profileUrl.trim() : configuredProfile;
   configuredCookies = typeof cfg?.cookies === 'string' ? cfg.cookies : configuredCookies;

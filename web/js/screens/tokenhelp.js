@@ -1,9 +1,9 @@
 /**
- * labsoul — наглядные инструкции: где брать токены и ключи.
+ * labsoul — короткие пояснения: где брать токены и что нужно на самом деле.
  *
- * Каждая карточка: почему нужен ключ, что нажать, что скопировать.
- * Значения, которые нужно вводить, оформлены кнопкой `copy()`:
- * один клик — и текст уже в буфере обмена.
+ * Правило: текст должен быть полезным, а не длинным. Если что-то работает
+ * само — так и пишем одной строкой. Пошаговые инструкции прячем в
+ * раскрывающийся блок, чтобы не загромождать карточку.
  */
 
 import { icon } from '../components.js';
@@ -11,14 +11,12 @@ import { icon } from '../components.js';
 const link = (url, text = url) =>
   `<a href="${url}" target="_blank" rel="noreferrer noopener">${text}</a>`;
 
-const code = (text) => `<code>${text}</code>`;
-
 /** Копируемое значение: клик — и текст в буфере обмена. */
 export const copy = (text, label = '') =>
   `<button class="tokens__copy" type="button" data-copy="${text}" title="Копировать">${label || text}${icon('copy')}</button>`;
 
-/** Общая обёртка шагов. */
-function steps({ title = 'Где взять', items = [], note = '' }) {
+/** Раскрывающийся блок с шагами. */
+function steps({ title, items = [], note = '' }) {
   return `
     <details class="steps tokens">
       <summary>${icon('chev-down')} ${title}</summary>
@@ -27,63 +25,53 @@ function steps({ title = 'Где взять', items = [], note = '' }) {
     </details>`;
 }
 
-/** Яндекс.Музыка: OAuth-токен. */
+/**
+ * Яндекс.Музыка.
+ *
+ * Вход через окно приложения — основной путь. Ручной токен оставляем
+ * только как запасной, и коротко: кому нужно, тот знает, что делает.
+ */
 export function yandexTokenHelp() {
   return steps({
-    title: 'Где взять токен Яндекс.Музыки',
+    title: 'Токен вручную — если вход через окно не сработал',
     items: [
-      '<b>Проще всего:</b> нажмите «Войти в Яндекс.Музыку» выше — токен сохранится сам, копировать ничего не нужно.',
-      `Вручную: войдите на ${link('https://music.yandex.ru/', 'music.yandex.ru')} и откройте инструменты разработчика (${copy('F12')}).`,
-      `Вкладка Network, в поле фильтра вставьте ${copy('api.music.yandex.net')} и обновите страницу.`,
-      `Щёлкните любой запрос → Request Headers → найдите строку ${copy('authorization: OAuth')}.`,
-      `Скопируйте всё после ${copy('OAuth ')} — это токен (около 40 символов). Вставьте его в поле выше.`,
+      `Откройте ${link('https://music.yandex.ru/', 'music.yandex.ru')}, нажмите F12.`,
+      'Вкладка Network → фильтр <code>api.music.yandex.net</code> → обновите страницу.',
+      'Любой запрос → Request Headers → строка <code>authorization: OAuth</code>.',
+      'Скопируйте значение после <code>OAuth </code> и вставьте в поле выше.',
     ],
-    note: 'Токен даёт доступ к вашему аккаунту — он хранится только на вашем компьютере и никуда не отправляется.',
+    note: 'Токен хранится только на вашем компьютере.',
   });
 }
 
-/** SoundCloud: постоянный client_id + профиль. */
+/**
+ * SoundCloud.
+ *
+ * Главное, что должен понять человек: ключ НЕ нужен. Поиск, волна и
+ * воспроизведение работают сами. Ключ нужен только для лайков и
+ * приватных плейлистов — и то после входа через окно приложения.
+ */
 export function soundcloudTokenHelp() {
   return steps({
-    title: 'Ключ SoundCloud — только для лайков и приватных плейлистов',
+    title: 'Зачем ключ и когда он нужен',
     items: [
-      'Поиск, волна и воспроизведение работают <b>без ключа</b> — labsoul берёт его сам.',
-      `Откройте ${link('https://soundcloud.com/you/apps', 'soundcloud.com/you/apps')} и нажмите ${copy('Register a new application')}.`,
-      `Название — любое (${copy('labsoul')}), Redirect URI — ${copy('http://127.0.0.1:5270/')}, подтвердите согласие.`,
-      `На странице приложения найдите ${copy('Client ID')} — это 32 символа. Затем нажмите кнопку «Вставить из буфера» выше.`,
-      `Ниже укажите ссылку на свой профиль, например ${copy('https://soundcloud.com/')} — по ней найдутся ваши лайки.`,
+      '<b>Не нужен</b> для поиска, волны и воспроизведения — labsoul получает его сам.',
+      'Нужен только для лайков и приватных плейлистов — но проще нажать «Войти в SoundCloud» выше: ключ подставится автоматически.',
+      `Если вводите вручную: ${link('https://soundcloud.com/you/apps', 'soundcloud.com/you/apps')} → Register a new application → скопируйте Client ID.`,
     ],
-    note: 'Client ID — не пароль: он не даёт доступа к чужому аккаунту.',
+    note: 'Client ID — публичный ключ приложения, не пароль.',
   });
 }
 
-/** Spotify: только поиск и ссылки. */
+/** Spotify: без своих ключей не работает, объясняем коротко. */
 export function spotifyTokenHelp() {
   return steps({
-    title: 'Spotify: что работает без входа',
+    title: 'Spotify требует свои ключи',
     items: [
-      'Поиск и импорт по ссылкам работают <b>без ключей</b> — вводить ничего не нужно.',
-      `Ключи из ${link('https://developer.spotify.com/dashboard', 'developer.spotify.com/dashboard')} нужны только если сервис начнёт отклонять анонимные запросы.`,
-      'Избранное и плейлисты Spotify без входа в аккаунт недоступны — это ограничение самого Spotify.',
+      'Своих ключей у labsoul нет: Spotify выдаёт их только владельцу приложения.',
+      `Создайте приложение на ${link('https://developer.spotify.com/dashboard', 'developer.spotify.com/dashboard')} — это бесплатно.`,
+      'Скопируйте Client ID и Client Secret в поля выше.',
+      'Воспроизведение Spotify не отдаёт никому — только поиск и каталог.',
     ],
   });
-}
-
-/** Краткая сводка «что заработает после подключения». */
-export function likesSummary() {
-  return `
-    <div class="likes-summary">
-      <div class="likes-summary__row">
-        <span class="likes-summary__badge is-ok">Яндекс</span>
-        <span>лайки, волна, воспроизведение — нужен только токен</span>
-      </div>
-      <div class="likes-summary__row">
-        <span class="likes-summary__badge is-ok">SoundCloud</span>
-        <span>поиск и волна — без ключа; лайки — нужен client_id и ссылка на профиль</span>
-      </div>
-      <div class="likes-summary__row">
-        <span class="likes-summary__badge is-warn">Spotify</span>
-        <span>поиск и ссылки; лайки без входа в аккаунт недоступны</span>
-      </div>
-    </div>`;
 }

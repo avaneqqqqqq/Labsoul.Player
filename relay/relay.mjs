@@ -6,17 +6,13 @@
  * поставить маленький сервер-посредник на бесплатном хостинге: плеер
  * ходит к нему, а он — к SoundCloud.
  *
- * Это НЕ заменяет zapret для всех случаев, но позволяет слушать музыку
- * тем, кто не может или не хочет ставить обход.
- *
- * Как развернуть — см. файл RELAY.md рядом.
+ * Как развернуть — см. README.md рядом.
  */
 
 /* ------------------------------------------------------------------ */
-/* общая часть: работает и в Netlify, и в Cloudflare Workers          */
+/* разрешённые домены                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Домены, к которым разрешено обращаться. Только SoundCloud. */
 const ALLOWED_HOSTS = [
   'soundcloud.com',
   'www.soundcloud.com',
@@ -35,17 +31,17 @@ const ALLOWED_ZONES = [
   'sndcdn.co',
 ];
 
-/** Как выглядит наш адрес: <релей>/<полный адрес SoundCloud>. */
 const PROXY_PREFIX = '/p/';
 
 function isAllowed(hostname) {
-  const host = hostname.toLowerCase();
+  const host = String(hostname || '').toLowerCase();
+  if (!host) return false;
   if (ALLOWED_HOSTS.includes(host)) return true;
-  // медиа идёт с поддоменов вроде i1.sndcdn.com, playback.media-streaming.soundcloud.cloud
-  return ALLOWED_ZONES.some((zone) => host === zone || host.endsWith(`.${zone}`)) || host.endsWith('.soundcloud.com');
+  if (host.endsWith('.soundcloud.com')) return true;
+  return ALLOWED_ZONES.some((zone) => host === zone || host.endsWith(`.${zone}`));
 }
 
-/** Заголовки ответа, которые нельзя отдавать браузеру как есть. */
+/** Заголовки, которые нельзя отдавать обратно как есть. */
 const HOP_HEADERS = [
   'content-encoding', 'content-length', 'transfer-encoding', 'connection',
   'keep-alive', 'proxy-authenticate', 'proxy-authorization', 'te', 'trailer',
@@ -58,56 +54,15 @@ function cleanHeaders(headers) {
   return out;
 }
 
-/**
- * Переслать запрос к SoundCloud.
- * @param {Request} request
- * @param {string} targetUrl
- */
-async function relay(request, targetUrl) {
-  const incoming = new Headers(request.headers);
-
-  // убираем заголовки, которые ломают пересылку
-  for (const name of ['host', 'origin', 'referer', 'cf-connecting-ip', 'x-forwarded-for', 'x-real-ip']) {
-    incoming.delete(name);
-  }
-
-  /** @type {RequestInit} */
-  const init = {
-    method: request.method,
-    headers: incoming,
-    redirect: 'follow',
+function corsHeaders() {
+  return {
+    'access-control-allow-origin': '*',
+    'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS, HEAD',
+    'access-control-allow-headers': '*',
+    'access-control-max-age': '86400',
   };
-
-  if (request.method !== 'GET' && request.method !== 'HEAD') {
-    init.body = await request.arrayBuffer();
-  }
-
-  const response = await fetch(targetUrl, init);
-  const body = await response.arrayBuffer();
-
-  const headers = cleanHeaders(response.headers);
-  // разрешаем нашему интерфейсу читать ответ
-  headers.set('access-control-allow-origin', '*');
-  headers.set('access-control-expose-headers', '*');
-  headers.set('cache-control', 'no-store');
-
-  return new Response(body, { status: response.status, headers });
 }
 
-/** Ответ на предварительный запрос браузера. */
-function preflight() {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      'access-control-allow-origin': '*',
-      'access-control-allow-methods': 'GET, POST, PUT, DELETE, OPTIONS, HEAD',
-      'access-control-allow-headers': '*',
-      'access-control-max-age': '86400',
-    },
-  });
-}
-
-/** Служебная страница: чтобы человек видел, что релей живой. */
 function infoPage() {
   return new Response(
     `<!doctype html><meta charset="utf-8"><title>labsoul relay</title>
@@ -117,51 +72,68 @@ code{background:#1a1a24;padding:2px 6px;border-radius:4px}h1{font-size:22px}</st
 <p>Скопируйте этот адрес в плеере: <b>Настройки → SoundCloud → Релеи</b>.</p>
 <p>Сейчас: <code id="u"></code></p>
 <script>document.getElementById('u').textContent = location.origin;</script>`,
-    { status: 200, headers: { 'content-type': 'text/html; charset=utf-8' } },
+    { status: 200, headers: { 'content-type': 'text/html; charset=utf-8', ...corsHeaders() } },
   );
 }
 
 /**
- * Основная функция. Одинаковая для обеих платформ — отличается только
- * точка входа (Netlify передаёт Request, Cloudflare тоже).
+ * Основная функция. Одинакова для обеих платформ.
+ * @param {Request} request
  */
 export async function handleRequest(request) {
   const url = new URL(request.url);
 
-  if (request.method === 'OPTIONS') return preflight();
-
-  // корень — служебная страница
-  if (url.pathname === '/' || url.pathname === '') {
-    if (request.method === 'GET') return infoPage();
-    return new Response('только чтение', { status: 405 });
+  if (request.method === 'OPTIONS') {
+    return new Response(null, { status: 204, headers: corsHeaders() });
   }
 
-  // формат: /p/<полный адрес SoundCloud>
+  if (url.pathname === '/' || url.pathname === '') {
+    if (request.method === 'GET') return infoPage();
+    return new Response('только чтение', { status: 405, headers: corsHeaders() });
+  }
+
   if (url.pathname.startsWith(PROXY_PREFIX)) {
     const raw = url.pathname.slice(PROXY_PREFIX.length) + url.search;
-    const decoded = decodeURIComponent(raw);
 
     let target;
     try {
-      target = new URL(decoded);
+      target = new URL(decodeURIComponent(raw));
     } catch {
-      return new Response('некорректный адрес', { status: 400 });
+      return new Response('некорректный адрес', { status: 400, headers: corsHeaders() });
     }
 
     if (target.protocol !== 'https:') {
-      return new Response('только https', { status: 400 });
+      return new Response('только https', { status: 400, headers: corsHeaders() });
     }
 
     if (!isAllowed(target.hostname)) {
-      return new Response(`домен не разрешён: ${target.hostname}`, { status: 403 });
+      return new Response(`домен не разрешён: ${target.hostname}`, { status: 403, headers: corsHeaders() });
+    }
+
+    const incoming = new Headers(request.headers);
+    for (const name of ['host', 'origin', 'referer', 'cf-connecting-ip', 'x-forwarded-for', 'x-real-ip', 'content-length']) {
+      incoming.delete(name);
+    }
+
+    const init = { method: request.method, headers: incoming, redirect: 'follow' };
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      init.body = await request.arrayBuffer();
     }
 
     try {
-      return await relay(request, target.toString());
+      const response = await fetch(target.toString(), init);
+      const body = await response.arrayBuffer();
+      const headers = cleanHeaders(response.headers);
+      headers.set('access-control-allow-origin', '*');
+      headers.set('access-control-expose-headers', '*');
+      headers.set('cache-control', 'no-store');
+      return new Response(body, { status: response.status, headers });
     } catch (error) {
-      return new Response(`релей: ${error?.message || 'ошибка'}`, { status: 502 });
+      return new Response(`релей: ${error?.message || 'ошибка'}`, { status: 502, headers: corsHeaders() });
     }
   }
 
-  return new Response('не найдено', { status: 404 });
+  return new Response('не найдено', { status: 404, headers: corsHeaders() });
 }
+
+

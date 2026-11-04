@@ -248,24 +248,8 @@ function soundcloudCard() {
         <button class="btn btn--ghost btn--sm" type="button" data-resignin="soundcloud" title="Сбросить сессию и войти заново, если звук не играет">
           ${icon('refresh')} Войти заново
         </button>
-        <span class="signin__hint">Один раз вошли — дальше лайки и плейлисты подтягиваются сами, ключ не нужен. Если звук не идёт, хотя профиль открывается — нажмите «Войти заново».</span>
+        <span class="signin__hint">Один раз вошли — дальше всё само. Ключ не нужен.</span>
       </div>` : ''}
-
-      <div class="sc-helper">
-        <div class="sc-helper__text">
-          <b>Ключ нужен только для ваших лайков и приватных плейлистов.</b>
-          Поиск, волна и воспроизведение работают и без него.
-        </div>
-        <div class="sc-helper__actions">
-          <button class="btn btn--accent btn--sm" type="button" data-sc-open-apps>
-            ${icon('external')} Открыть настройки приложения
-          </button>
-          <button class="btn btn--ghost btn--sm" type="button" data-sc-paste>
-            ${icon('key')} Вставить из буфера
-          </button>
-        </div>
-        <div class="sc-helper__hint" data-sc-state></div>
-      </div>
 
       <div class="field">
         <label for="soundcloud-key">client_id <span style="text-transform:none;letter-spacing:0;color:var(--mute)">— необязательно</span></label>
@@ -274,8 +258,9 @@ function soundcloudCard() {
             placeholder="${app.settings?.soundcloud?.clientId ? esc(app.settings.soundcloud.clientId) : 'Если пусто — сервер получит ключ сам'}">
           <button class="input-wrap__btn" type="button" data-reveal="soundcloud-key">Показать</button>
         </div>
-        <span class="field__hint" data-hint="soundcloud:clientId">${savedHint('soundcloud', 'clientId')} · публичный ключ, не секрет</span>
+        <span class="field__hint" data-hint="soundcloud:clientId">${savedHint('soundcloud', 'clientId')}</span>
         <div class="sc-auto">
+          <button class="btn btn--ghost btn--sm" type="button" data-sc-paste>${icon('key')} Вставить из буфера</button>
           <button class="btn btn--ghost btn--sm" type="button" data-sc-auto>${icon('refresh')} Проверить автоключ</button>
           <span class="sc-auto__state" data-sc-auto-state>поиск и волна работают без своего ключа</span>
         </div>
@@ -285,7 +270,7 @@ function soundcloudCard() {
         <input class="input" id="soundcloud-profile" name="profileUrl" type="url" spellcheck="false"
           placeholder="https://soundcloud.com/ваш-ник"
           value="${esc(app.settings?.soundcloud?.profileUrl || '')}">
-        <span class="field__hint">указав профиль, вы включаете загрузку лайков по нему — client_id не нужен; привычнее и надёжнее просто нажать «Войти в SoundCloud»</span>
+        <span class="field__hint">необязательно — проще нажать «Войти в SoundCloud»</span>
       </div>
 
       ${soundcloudTokenHelp()}
@@ -419,6 +404,8 @@ function dpiCard() {
   const found = folders.length > 0;
   // список стратегий приходит от сервера; если ещё нет — пустой список
   const strategies = Array.isArray(state?.strategies) ? state.strategies : [];
+  // тумблер обхода: по умолчанию выключен
+  const bypassEnabled = Boolean(app.settings?.network?.bypass?.enabled);
 
   const statusText = works
     ? `SoundCloud открывается (${probe.ms ?? 0} мс) — можно слушать`
@@ -450,30 +437,49 @@ function dpiCard() {
 
       <div class="net-status ${works ? 'net-status--ok' : ''}" data-dpi-status>${statusText}</div>
 
-      <div class="dpi-pick">
-        <label class="dpi-pick__label" for="dpi-strategy">Стратегия</label>
-        <select class="input" id="dpi-strategy" data-dpi-strategy>
-          ${strategies.length
-            ? strategies.map((item) => `<option value="${esc(item.name)}"${item.remembered ? ' selected' : ''}>${esc(item.label)}</option>`).join('')
-            : '<option value="">сборка zapret не найдена</option>'}
-        </select>
-        <span class="dpi-pick__hint">У разных провайдеров работают разные стратегии. Если обход не помогает — попробуйте другую.</span>
-      </div>
+      ${/*
+        Тумблер обхода. По умолчанию выключен: у большинства в России
+        zapret уже стоит, и второй раз включать его не нужно. Тот, кому он
+        нужен, включит сам одной кнопкой.
+      */ ''}
+      <label class="dpi-switch">
+        <input type="checkbox" data-dpi-enabled ${bypassEnabled ? 'checked' : ''}>
+        <span class="dpi-switch__track"><span class="dpi-switch__dot"></span></span>
+        <span class="dpi-switch__text">
+          <b>Обход блокировки (zapret)</b>
+          <small>${bypassEnabled
+            ? 'включён — плеер поднимает обход при запуске'
+            : 'выключен — SoundCloud идёт напрямую или через релей'}</small>
+        </span>
+      </label>
 
-      <div class="source-card__actions">
-        <span class="source-card__error" data-form-error="dpi"></span>
-        <button class="btn btn--accent btn--sm" type="button" data-dpi-start title="Запустить выбранную стратегию">
-          ${icon('play')} Включить обход
-        </button>
-        <button class="btn btn--ghost btn--sm" type="button" data-dpi-apply>
-          ${icon('check')} ${found ? 'Домены в zapret' : 'Где скачать'}
-        </button>
-        <button class="btn btn--ghost btn--sm" type="button" data-dpi-check>
-          ${icon('refresh')} Проверить
-        </button>
-        <button class="btn btn--ghost btn--sm" type="button" data-dpi-autofix title="Проверить SoundCloud и при поломке починить обход">
-          ${icon('shield')} Починить
-        </button>
+      <div class="dpi-body" ${bypassEnabled ? '' : 'hidden'}>
+        <div class="dpi-pick">
+          <label class="dpi-pick__label" for="dpi-strategy">Стратегия</label>
+          <select class="input" id="dpi-strategy" data-dpi-strategy>
+            ${strategies.length
+              ? strategies.map((item) => `<option value="${esc(item.name)}"${item.remembered ? ' selected' : ''}>${esc(item.label)}</option>`).join('')
+              : '<option value="">сборка zapret не найдена</option>'}
+          </select>
+          <span class="dpi-pick__hint">У разных провайдеров работают разные стратегии. Если обход не помогает — попробуйте другую.</span>
+        </div>
+
+        <div class="source-card__actions">
+          <span class="source-card__error" data-form-error="dpi"></span>
+          <button class="btn btn--accent btn--sm" type="button" data-dpi-start title="Запустить выбранную стратегию">
+            ${icon('play')} Включить обход
+          </button>
+          <button class="btn btn--ghost btn--sm" type="button" data-dpi-apply>
+            ${icon('check')} ${found ? 'Домены в zapret' : 'Где скачать'}
+          </button>
+          <button class="btn btn--ghost btn--sm" type="button" data-dpi-check>
+            ${icon('refresh')} Проверить
+          </button>
+          <button class="btn btn--ghost btn--sm" type="button" data-dpi-autofix title="Проверить SoundCloud и при поломке починить обход">
+            ${icon('shield')} Починить
+          </button>
+        </div>
+      </div>
       </div>
       <div class="dpi-report" data-dpi-report hidden></div>
     </form>`;
@@ -981,6 +987,34 @@ async function signInYandex() {
   }
 }
 
+/**
+ * Переключение тумблера обхода.
+ *
+ * По умолчанию обход выключен: у большинства в России zapret уже стоит,
+ * и второй раз его включать не нужно. Настройка сохраняется и применяется
+ * при следующем запуске плеера.
+ */
+async function onChange(event) {
+  const input = event.target instanceof Element ? event.target.closest('[data-dpi-enabled]') : null;
+  if (!input) return;
+
+  const enabled = Boolean(input.checked);
+
+  try {
+    const settings = await getNetwork();
+    const network = { ...(settings || {}), bypass: { ...(settings?.bypass || {}), enabled } };
+    await saveNetwork(network);
+    app.settings = { ...(app.settings || {}), network };
+    toast(enabled ? 'Обход блокировки включён' : 'Обход блокировки выключен', {
+      icon: enabled ? 'shield' : 'check',
+    });
+    reload({ withToast: false });
+  } catch (error) {
+    toast('Не удалось сохранить: ' + (error?.message || error), { type: 'err' });
+    input.checked = !enabled;
+  }
+}
+
 function onSubmit(event) {
   const form = event.target instanceof Element ? event.target.closest('[data-source-form]') : null;
   if (!form) return;
@@ -1036,6 +1070,7 @@ const screenModule = {
     screen.root = container;
     container.addEventListener('click', onClick);
     container.addEventListener('submit', onSubmit);
+    container.addEventListener('change', onChange);
 
     const unsub = storeSubscribe((_state, event) => {
       if (event === 'status' || event === 'settings' || event === 'net') {
