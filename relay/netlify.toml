@@ -1,0 +1,19 @@
+[build]
+  functions = "netlify/functions"
+  publish = "public"
+  command = "echo build"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[redirects]]
+  from = "/p/*"
+  to = "/.netlify/functions/relay/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/"
+  to = "/.netlify/functions/relay"
+  status = 200
+  force = true
