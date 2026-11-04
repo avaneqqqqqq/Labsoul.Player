@@ -1472,9 +1472,9 @@ async function hlsToBuffer(playlistUrl, transcoding) {
   const parts = [];
   let total = 0;
   if (initUrl) {
-    // init-сегмент небольшой, но и его качаем целиком: дробление на куски
-    // по 8 КБ добавляло десятки лишних запросов
-    const init = await httpBuffer(initUrl, { timeout: TIMEOUT_MS });
+    // init-сегмент небольшой, но и его качаем кусками: провайдер рвёт
+    // большие ответы одним куском независимо от домена
+    const init = await httpBufferChunked(initUrl, { timeout: TIMEOUT_MS });
     if (!init.ok) throw fail('UPSTREAM', `HLS init-сегмент SoundCloud недоступен (HTTP ${init.status})`);
     total += init.buffer.length;
     parts.push(init.buffer);
@@ -1490,10 +1490,16 @@ async function hlsToBuffer(playlistUrl, transcoding) {
       cursor += 1;
       if (index >= segments.length) return;
       try {
-        // Сегмент качаем ОДНИМ запросом: CDN отдаёт его целиком за ~90 мс.
-        // Раньше здесь стояла нарезка по 8 КБ — это сотни запросов и
-        // задержка в 4–10 секунд перед началом воспроизведения.
-        const chunk = await httpBuffer(segments[index], { timeout: TIMEOUT_MS });
+        /*
+         * Сегмент качаем КУСКАМИ по 8 КБ через Range-запросы.
+         *
+         * Это критично: многие провайдеры в России рвут большие ответы
+         * одним куском, причём независимо от домена — маленькие ответы
+         * (метаданные, плейлист) проходят, а сегмент на 200 КБ висит до
+         * таймаута. Проверено: плейлист 26 КБ — 200 за 205 мс, сегмент —
+         * таймаут 15 с. Дробление обходит это ограничение.
+         */
+        const chunk = await httpBufferChunked(segments[index], { timeout: TIMEOUT_MS });
         if (!chunk.ok) {
           throw fail('UPSTREAM', `HLS-сегмент SoundCloud #${index} недоступен (HTTP ${chunk.status})`);
         }
