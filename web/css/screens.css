@@ -1340,3 +1340,33 @@ mark.hit {
 }
 .dpi-report b { color: var(--text); font-weight: 600; }
 .dpi-report span { line-height: 1.5; opacity: .85; }
+
+
+/* выбор стратегии обхода */
+.dpi-pick {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0;
+}
+.dpi-pick__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--dim);
+}
+.dpi-pick select {
+  width: 100%;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+}
+.dpi-pick__hint {
+  font-size: 11px;
+  color: var(--dim);
+  line-height: 1.45;
+}

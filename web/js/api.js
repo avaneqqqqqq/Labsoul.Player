@@ -385,9 +385,17 @@ export async function getClips(title, artist) {
 /** Состояние обхода блокировки SoundCloud (zapret). */
 export async function getDpi() {
   try {
-    return await request('/api/dpi', { timeout: 20000 });
+    const base = await request('/api/dpi', { timeout: 20000 });
+    // список стратегий нужен для выбора вручную: у разных провайдеров
+    // работают разные, и угадать нельзя
+    try {
+      const list = await request('/api/dpi/strategies', { timeout: 15000 });
+      return { ...base, strategies: list?.strategies || [], current: list?.current || null };
+    } catch {
+      return { ...base, strategies: [] };
+    }
   } catch (err) {
-    return { folders: [], probe: { ok: false, error: err?.message } };
+    return { folders: [], probe: { ok: false, error: err?.message }, strategies: [] };
   }
 }
 
@@ -411,9 +419,9 @@ export async function autoFixDpiRequest(force = true) {
  * (Windows покажет окно подтверждения). Таймаут большой: перебор
  * стратегий может занять до минуты.
  */
-export async function startBypassRequest() {
+export async function startBypassRequest(strategy = null) {
   try {
-    return await request('/api/dpi/start', { method: 'POST', body: {}, timeout: 120000 });
+    return await request('/api/dpi/start', { method: 'POST', body: { strategy }, timeout: 120000 });
   } catch (err) {
     return { ok: false, message: err?.message || 'сервер не ответил' };
   }

@@ -88,6 +88,17 @@ let lastAcquire = null;
  * того чтобы долбить сервис и получать отказы.
  */
 let rateLimitedUntil = 0;
+
+/**
+ * Кэш готовых потоков: id трека → {value, at}.
+ *
+ * Ссылка на аудио живёт не меньше часа, а без кэша каждый повтор и
+ * перемотка дёргали сервер заново. При частых запросах SoundCloud
+ * отвечает 429, и трек перестаёт играть вовсе.
+ */
+const streamCache = new Map();
+const STREAM_CACHE_TTL_MS = 30 * 60 * 1000;
+const STREAM_CACHE_MAX = 60;
 let lastFailError = null;
 let lastFailAt = 0;
 
@@ -617,13 +628,20 @@ function normalizeSourceId(sourceId) {
  */
 async function fetchTrackRaw(sourceId) {
   const trackId = normalizeSourceId(sourceId);
-  return withRetry((attempt) => {
-    if (attempt > 1) {
-      // перед повтором сбрасываем привязку — новый TCP-сеанс
-      try { /* нет долгоживущих соединений */ } catch { /* ignore */ }
-    }
-    return apiJson(`/tracks/${encodeURIComponent(trackId)}`);
-  }, 4);
+
+  // кэш: повтор трека и перемотка не дёргают сервер заново,
+  // иначе при частых запросах приходит 429 и звук пропадает
+  const cached = streamCache.get(trackId);
+  if (cached && Date.now() - cached.at < STREAM_CACHE_TTL_MS) return cached.value;
+
+  const raw = await withRetry(() => apiJson(`/tracks/${encodeURIComponent(trackId)}`), 4);
+
+  if (streamCache.size >= STREAM_CACHE_MAX) {
+    streamCache.delete(streamCache.keys().next().value);
+  }
+  streamCache.set(trackId, { value: raw, at: Date.now() });
+
+  return raw;
 }
 
 /* ------------------------------------------------------------------ */

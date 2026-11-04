@@ -406,6 +406,8 @@ function dpiCard() {
   const probe = state?.probe || null;
   const works = Boolean(probe?.ok);
   const found = folders.length > 0;
+  // список стратегий приходит от сервера; если ещё нет — пустой список
+  const strategies = Array.isArray(state?.strategies) ? state.strategies : [];
 
   const statusText = works
     ? `SoundCloud открывается (${probe.ms ?? 0} мс) — можно слушать`
@@ -437,9 +439,19 @@ function dpiCard() {
 
       <div class="net-status ${works ? 'net-status--ok' : ''}" data-dpi-status>${statusText}</div>
 
+      <div class="dpi-pick">
+        <label class="dpi-pick__label" for="dpi-strategy">Стратегия</label>
+        <select class="input" id="dpi-strategy" data-dpi-strategy>
+          ${strategies.length
+            ? strategies.map((item) => `<option value="${esc(item.name)}"${item.remembered ? ' selected' : ''}>${esc(item.label)}</option>`).join('')
+            : '<option value="">сборка zapret не найдена</option>'}
+        </select>
+        <span class="dpi-pick__hint">У разных провайдеров работают разные стратегии. Если обход не помогает — попробуйте другую.</span>
+      </div>
+
       <div class="source-card__actions">
         <span class="source-card__error" data-form-error="dpi"></span>
-        <button class="btn btn--accent btn--sm" type="button" data-dpi-start title="Запустить обход, если он выключен">
+        <button class="btn btn--accent btn--sm" type="button" data-dpi-start title="Запустить выбранную стратегию">
           ${icon('play')} Включить обход
         </button>
         <button class="btn btn--ghost btn--sm" type="button" data-dpi-apply>
@@ -623,6 +635,9 @@ async function checkDpi() {
 async function startBypass() {
   const button = screen.root?.querySelector('[data-dpi-start]');
   const report = screen.root?.querySelector('[data-dpi-report]');
+  // выбранная пользователем стратегия (может быть пустой)
+  const pick = screen.root?.querySelector('[data-dpi-strategy]');
+  const strategy = pick?.value || null;
 
   if (button) button.disabled = true;
   if (report) {
@@ -631,7 +646,7 @@ async function startBypass() {
   }
 
   try {
-    const result = await startBypassRequest();
+    const result = await startBypassRequest(strategy);
 
     if (result?.ok) {
       const text = result.alreadyRunning

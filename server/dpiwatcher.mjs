@@ -43,6 +43,27 @@ function rememberGood(name) {
 }
 
 /** Порядок перебора: сначала та, что работала в прошлый раз. */
+/**
+ * Все стратегии в папке — для выбора в интерфейсе.
+ *
+ * У разных людей работают разные: зависит от провайдера и города.
+ * Поэтому пользователь может выбрать сам, какая подходит.
+ */
+export function listStrategies() {
+  const folders = dpi.findZapretFolders();
+  if (!folders.length) return { folders: [], strategies: [] };
+
+  const folder = folders[0];
+  const strategies = strategyOrder(folder).map((name) => ({
+    name,
+    label: name.replace(/^general/i, 'Стратегия').replace(/\.bat$/i, ''),
+    isDefault: name.toLowerCase() === 'general.bat',
+    remembered: name === cachedGood,
+  }));
+
+  return { folder, folders, strategies, current: cachedGood };
+}
+
 function strategyOrder(folder) {
   let names = [];
   try {
@@ -119,7 +140,7 @@ async function bypassWorks() {
  *
  * @returns {Promise<{ok:boolean, alreadyRunning?:boolean, started?:boolean, strategy?:string, message:string, needDownload?:boolean}>}
  */
-export async function startBypass() {
+export async function startBypass({ strategy = null } = {}) {
   // 1. уже работает — второй winws не запускаем никогда
   const running = await dpi.detectRunning();
   if (running.running) {
@@ -151,8 +172,16 @@ export async function startBypass() {
 
   // 3. перебираем стратегии
   const folder = folders[0];
-  const order = strategyOrder(folder);
+  let order = strategyOrder(folder);
   if (!order.length) return { ok: false, message: 'В папке zapret нет стратегий (general*.bat)' };
+
+  /*
+   * Выбор вручную: пользователь лучше знает, какая стратегия работает
+   * у его провайдера. Если выбрана конкретная — пробуем только её.
+   */
+  if (strategy && order.includes(strategy)) {
+    order = [strategy];
+  }
 
   for (const name of order) {
     const script = path.join(folder, name);

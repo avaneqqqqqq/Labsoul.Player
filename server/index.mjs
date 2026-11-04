@@ -1260,12 +1260,19 @@ function reasonMessage(reason) {
 
     // Включить обход: поднять winws, если не запущен (спросит права)
     if (route[1] === 'start' && req.method === 'POST') {
-      sendJson(res, 200, await dpiwatcher.startBypass());
+      const payload = await readJson(req).catch(() => ({}));
+      sendJson(res, 200, await dpiwatcher.startBypass({ strategy: payload?.strategy || null }));
       return;
     }
 
     if (route[1] === 'state') {
-      sendJson(res, 200, await dpiwatcher.status());
+      sendJson(res, 200, { ...await dpiwatcher.status(), ...dpiwatcher.listStrategies() });
+      return;
+    }
+
+    // Список всех стратегий — для выбора вручную
+    if (route[1] === 'strategies') {
+      sendJson(res, 200, dpiwatcher.listStrategies());
       return;
     }
 
