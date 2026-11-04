@@ -1,0 +1,7 @@
+{
+  "name": "labsoul-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Релей SoundCloud для labsoul"
+}
