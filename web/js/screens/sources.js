@@ -857,7 +857,7 @@ function onClick(event) {
   }
 
   const clicked = event.target instanceof Element
-    ? event.target.closest('[data-src], [data-reveal], [data-signin]')
+    ? event.target.closest('[data-src], [data-reveal], [data-signin], [data-resignin]')
     : null;
   if (!clicked) return;
   if (clicked.dataset.resignin === 'soundcloud') { signInSoundCloud(true); return; }
