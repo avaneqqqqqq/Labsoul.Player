@@ -404,6 +404,30 @@ export async function autoFixDpiRequest(force = true) {
   }
 }
 
+/**
+ * Включить обход: поднять zapret, если он выключен.
+ *
+ * Плеер сам найдёт рабочую стратегию и запросит права администратора
+ * (Windows покажет окно подтверждения). Таймаут большой: перебор
+ * стратегий может занять до минуты.
+ */
+export async function startBypassRequest() {
+  try {
+    return await request('/api/dpi/start', { method: 'POST', body: {}, timeout: 120000 });
+  } catch (err) {
+    return { ok: false, message: err?.message || 'сервер не ответил' };
+  }
+}
+
+/** Состояние обхода: запущен ли winws и какая стратегия. */
+export async function getBypassState() {
+  try {
+    return await request('/api/dpi/state', { timeout: 20000 });
+  } catch {
+    return { running: false, strategy: null, folders: [] };
+  }
+}
+
 /** Дописать домены SoundCloud в списки установленного zapret. */
 export async function applyDpi() {
   try {

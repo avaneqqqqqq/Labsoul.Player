@@ -602,6 +602,66 @@ export function extractGeniusLyrics(html) {
   return cleanPlainLines(lines.join('\n')).join('\n').trim();
 }
 
+/**
+ * Прямой KuGou: поиск текста без прокси.
+ *
+ * lrcmux — удобный прокси к KuGou, но зависит от одного сервиса. Если он
+ * лежит, идём в KuGou напрямую: сначала поиск кандидата, потом загрузка
+ * LRC в base64. Проверено: 90 строк караоке на «Miyagi — Captain».
+ */
+async function kugouDirect({ title, artist, duration }) {
+  if (!title) return null;
+
+  const keyword = [artist, title].filter(Boolean).join(' ');
+
+  const search = await fetchJson(
+    `https://krcs.kugou.com/search?ver=1&man=yes&client=mobi&keyword=${encodeURIComponent(keyword)}`,
+    { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+    6000,
+  ).catch(() => null);
+
+  const candidates = Array.isArray(search?.candidates) ? search.candidates : [];
+  if (!candidates.length) return null;
+
+  // берём кандидата с подходящей длительностью (если она известна)
+  const best = candidates.find((item) => {
+    const ms = Number(item?.duration) || 0;
+    if (!duration || !ms) return true;
+    return Math.abs(ms / 1000 - duration) <= 12;
+  }) || candidates[0];
+
+  if (!best?.id || !best?.accesskey) return null;
+
+  const downloaded = await fetchJson(
+    `https://lyrics.kugou.com/download?ver=1&client=pc&id=${best.id}&accesskey=${best.accesskey}&fmt=lrc&charset=utf8`,
+    { 'User-Agent': USER_AGENT, Accept: 'application/json' },
+    6000,
+  ).catch(() => null);
+
+  const base64 = downloaded?.content;
+  if (!base64) return null;
+
+  let lrc = '';
+  try {
+    lrc = Buffer.from(base64, 'base64').toString('utf8');
+  } catch {
+    return null;
+  }
+  if (!lrc.trim()) return null;
+
+  const synced = parseLrc(lrc);
+  const plainLines = cleanPlainLines(synced.length ? synced.map((line) => line.text).join('\n') : lrc);
+  if (!synced.length && plainLines.length < 2) return null;
+
+  return {
+    available: true,
+    instrumental: false,
+    synced,
+    plain: plainLines.join('\n').trim(),
+    provider: 'kugou',
+  };
+}
+
 async function geniusLyrics({ title, artist }) {
   if (!title) return null;
 
@@ -677,24 +737,30 @@ export async function lookup(rawMeta) {
   const meta = prepare(rawMeta);
 
   // LRCLIB, NetEase и Lrcmux опрашиваем одновременно: ждать по очереди слишком долго
-  const [lrclibResult, neteaseResult, lrcmuxResult] = await Promise.allSettled([
+  // Все источники опрашиваем одновременно: ждать по очереди слишком долго.
+  // KuGou напрямую добавлен как запасной путь к караоке-текстам — если
+  // прокси lrcmux лежит, текст всё равно найдётся.
+  const [lrclibResult, neteaseResult, lrcmuxResult, kugouResult] = await Promise.allSettled([
     lrclibExact(meta),
     neteaseLyrics(meta),
     lrcmuxLyrics(meta),
+    kugouDirect(meta),
   ]);
 
   const lrclib = lrclibResult.status === 'fulfilled' ? lrclibResult.value : null;
   const netease = neteaseResult.status === 'fulfilled' ? neteaseResult.value : null;
   const lrcmux = lrcmuxResult.status === 'fulfilled' ? lrcmuxResult.value : null;
+  const kugou = kugouResult.status === 'fulfilled' ? kugouResult.value : null;
   if (lrclibResult.status === 'rejected') log(`lrclib get: ${lrclibResult.reason?.message}`);
   if (neteaseResult.status === 'rejected') log(`netease: ${neteaseResult.reason?.message}`);
   if (lrcmuxResult.status === 'rejected') log(`lrcmux: ${lrcmuxResult.reason?.message}`);
+  if (kugouResult.status === 'rejected') log(`kugou: ${kugouResult.reason?.message}`);
 
   // Приоритет: у кого есть послоговые тайминги — тот и отдаём первым,
   // иначе подсветка по слову не появится, хотя данные пришли.
   if (lrcmux?.wordLevel && lrcmux.synced?.length) return postProcess(lrcmux);
 
-  const withSync = [lrclib, netease, lrcmux].filter((item) => item?.synced?.length).map(postProcess);
+  const withSync = [lrclib, netease, lrcmux, kugou].filter((item) => item?.synced?.length).map(postProcess);
   if (withSync.length) return withSync[0];
 
   let search = null;
@@ -702,7 +768,7 @@ export async function lookup(rawMeta) {
   const searchSync = search?.synced?.length ? postProcess(search) : null;
   if (searchSync) return searchSync;
 
-  const anyText = [lrclib, netease, lrcmux, search].find((item) => item?.available && item.plain);
+  const anyText = [lrclib, netease, lrcmux, kugou, search].find((item) => item?.available && item.plain);
   if (anyText) return postProcess(anyText);
 
   // своих источников не хватило — идём в Genius

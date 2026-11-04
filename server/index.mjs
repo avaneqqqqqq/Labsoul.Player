@@ -30,6 +30,7 @@ import * as scProxy from './scproxy.mjs';
 import * as proxyFinder from './proxyfind.mjs';
 import * as dpi from './dpi.mjs';
 import * as dpiauto from './dpiauto.mjs';
+import * as dpiwatcher from './dpiwatcher.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -1229,6 +1230,17 @@ function reasonMessage(reason) {
       return;
     }
 
+    // Включить обход: поднять winws, если не запущен (спросит права)
+    if (route[1] === 'start' && req.method === 'POST') {
+      sendJson(res, 200, await dpiwatcher.startBypass());
+      return;
+    }
+
+    if (route[1] === 'state') {
+      sendJson(res, 200, await dpiwatcher.status());
+      return;
+    }
+
     if (req.method === 'GET') {
       sendJson(res, 200, {
         ...dpi.status(),
@@ -1376,6 +1388,7 @@ lyrics.configure();
 audioconvert.configure();
 libraryCache.configure();
 dpi.configure();
+dpiwatcher.configure();
 
 /*
  * Порт открываем ПОСЛЕ загрузки провайдеров.

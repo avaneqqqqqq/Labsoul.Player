@@ -98,41 +98,103 @@ export function findZapretFolders() {
 }
 
 /**
- * Дописать домены SoundCloud в пользовательский список zapret.
+ * Списки zapret, куда дописываем домены SoundCloud.
  *
- * list-general-user.txt в папке lists — штатное место для своих доменов,
- * его подхватывает любая стратегия general*.bat при перезапуске.
+ * Почему все, а не один: разные сборки и разные стратегии подключают
+ * разные списки. Если дописать только в list-general-user.txt, стратегия
+ * вроде «general (ALT5)» использовать его не станет, и SoundCloud будет
+ * рваться. Пишем во все основные списки — тогда подходит любая стратегия.
+ *
+ * Исключения НЕ трогаем: list-exclude*.txt — это «не обходить», запись
+ * туда сделала бы хуже.
+ */
+export const WRITABLE_LISTS = [
+  'list-general-user.txt',
+  'list-general.txt',
+  'list-google.txt',
+];
+
+/** Списки, которые нельзя трогать ни при каких условиях. */
+const FORBIDDEN_LISTS = ['list-exclude.txt', 'list-exclude-user.txt'];
+
+/**
+ * Безопасная запись списка: сначала копия, потом запись, потом проверка.
+ *
+ * Если после записи файл стал меньше или потерял строки — откатываем.
+ * Так обход не может «сломаться целиком» из-за нашей правки.
+ */
+function safeWriteList(file, nextContent) {
+  const before = fs.readFileSync(file, 'utf8');
+  const beforeLines = before.split(/\r?\n/).filter((line) => line.trim()).length;
+
+  const backup = `${file}.labsoul-backup`;
+  try {
+    if (!fs.existsSync(backup)) fs.copyFileSync(file, backup);
+  } catch { /* бэкап не критичен */ }
+
+  fs.writeFileSync(file, nextContent, 'utf8');
+
+  // проверка: строк стало не меньше, файл не пустой
+  const after = fs.readFileSync(file, 'utf8');
+  const afterLines = after.split(/\r?\n/).filter((line) => line.trim()).length;
+
+  if (!afterLines || afterLines < beforeLines) {
+    // что-то пошло не так — возвращаем как было
+    fs.writeFileSync(file, before, 'utf8');
+    throw new Error(`проверка не прошла (${beforeLines} → ${afterLines} строк), откат`);
+  }
+}
+
+/**
+ * Дописать домены SoundCloud во все рабочие списки zapret.
+ *
+ * Возвращает отчёт по каждой папке и каждому файлу.
  */
 export function addDomainsToZapret(folders) {
   const results = [];
 
   for (const folder of folders) {
-    const userList = path.join(folder, 'lists', 'list-general-user.txt');
-    try {
-      const existing = fs.existsSync(userList) ? fs.readFileSync(userList, 'utf8') : '';
-      const lines = existing.split(/\r?\n/);
-      const known = new Set(lines.map((line) => line.trim().toLowerCase()));
-      const added = [];
+    const entry = { folder, files: [], added: [], skipped: [], errors: [] };
 
-      for (const domain of TARGET_DOMAINS) {
-        if (!known.has(domain)) {
-          lines.push(domain);
-          known.add(domain);
-          added.push(domain);
+    for (const name of WRITABLE_LISTS) {
+      if (FORBIDDEN_LISTS.includes(name)) continue;
+
+      const file = path.join(folder, 'lists', name);
+      try {
+        if (!fs.existsSync(file)) {
+          entry.skipped.push(name);
+          continue;
         }
-      }
 
-      // убираем заглушку, чтобы файл не выглядел пустым
-      const cleaned = lines.filter((line) => line.trim() !== 'domain.example.abc');
-      if (!cleaned.some((line) => line.trim().startsWith('#'))) {
-        cleaned.unshift('# Домены SoundCloud (добавлено labsoul)');
-      }
+        const existing = fs.readFileSync(file, 'utf8');
+        const lines = existing.split(/\r?\n/);
+        // учитываем и «^домен» — синтаксис zapret для точного совпадения
+        const known = new Set(lines.map((line) => line.trim().toLowerCase().replace(/^\^/, '')));
+        const added = [];
 
-      if (added.length) fs.writeFileSync(userList, `${cleaned.join('\n').trimEnd()}\n`, 'utf8');
-      results.push({ folder, file: userList, added });
-    } catch (err) {
-      results.push({ folder, file: userList, added: [], error: (err && err.message) || 'не удалось записать' });
+        for (const domain of TARGET_DOMAINS) {
+          if (!known.has(domain)) {
+            lines.push(domain);
+            known.add(domain);
+            added.push(domain);
+          }
+        }
+
+        if (!added.length) continue;
+
+        // убираем заглушку, чтобы файл не выглядел пустым
+        const cleaned = lines.filter((line) => line.trim() !== 'domain.example.abc');
+        const next = `${cleaned.join('\n').trimEnd()}\n`;
+
+        safeWriteList(file, next);
+        entry.files.push(name);
+        entry.added.push(...added);
+      } catch (error) {
+        entry.errors.push(`${name}: ${error.message}`);
+      }
     }
+
+    results.push(entry);
   }
 
   return results;

@@ -118,8 +118,22 @@ function repairIpSet(folders) {
   return fixed;
 }
 
-/** Перезапустить стратегию zapret, чтобы новые списки подхватились. */
-function restartStrategy(folder) {
+/**
+ * Перезапуск стратегии zapret.
+ *
+ * ОПАСНО и по умолчанию НЕ выполняется: убивать чужой winws нельзя —
+ * если он не поднимется обратно (права, окно, антивирус), человек
+ * останется вообще без обхода, и Discord с YouTube тоже отвалятся.
+ *
+ * Вместо перезапуска мы правим ВСЕ списки сразу (list-general,
+ * list-general-user, list-google) — тогда домены подхватит любая
+ * стратегия, как только пользователь её перезапустит сам.
+ */
+function restartStrategy(folder, { allow = false } = {}) {
+  if (!allow) {
+    return Promise.resolve({ ok: false, skipped: true, reason: 'перезапуск отключён: чужая стратегия не трогается' });
+  }
+
   return new Promise((resolve) => {
     const script = path.join(folder, 'general.bat');
     if (!fs.existsSync(script)) {
@@ -127,24 +141,18 @@ function restartStrategy(folder) {
       return;
     }
 
-    // останавливаем текущий winws
-    execFile('taskkill', ['/IM', 'winws.exe', '/F'], { timeout: 8000, windowsHide: true }, () => {
-      setTimeout(() => {
-        try {
-          // запускаем стратегию отдельно и без окна
-          const child = spawn('cmd.exe', ['/c', script], {
-            cwd: folder,
-            detached: true,
-            stdio: 'ignore',
-            windowsVerbatimArguments: true,
-          });
-          child.unref();
-          setTimeout(() => resolve({ ok: true }), 3500);
-        } catch (error) {
-          resolve({ ok: false, reason: error.message });
-        }
-      }, 1200);
-    });
+    try {
+      const child = spawn('cmd.exe', ['/c', script], {
+        cwd: folder,
+        detached: true,
+        stdio: 'ignore',
+        windowsVerbatimArguments: true,
+      });
+      child.unref();
+      setTimeout(() => resolve({ ok: true }), 3500);
+    } catch (error) {
+      resolve({ ok: false, reason: error.message });
+    }
   });
 }
 
@@ -172,25 +180,30 @@ export async function repair({ force = false } = {}) {
   // 2. список IP
   const ipFixed = repairIpSet(folders);
 
-  // 3. перезапуск — только если что-то поменяли
-  let restarted = false;
-  if (added || ipFixed.length) {
-    for (const folder of folders) {
-      const result = await restartStrategy(folder);
-      if (result.ok) { restarted = true; break; }
-    }
-  }
+  /*
+   * 3. Перезапуск НЕ делаем намеренно.
+   *
+   * Убить чужой winws и не поднять его обратно — значит оставить человека
+   * без обхода вообще (Discord, YouTube, SoundCloud сразу). Домены уже
+   * записаны во все рабочие списки, так что их подхватит любая стратегия
+   * при следующем штатном перезапуске. Об этом и сообщаем.
+   */
+  const restarted = false;
 
   state.lastRepair = Date.now();
   remember({ action: 'repair', ok: true, added, ipFixed: ipFixed.length, restarted });
 
+  const files = domains.reduce((sum, entry) => sum + (entry.files?.length || 0), 0);
+
   return {
     ok: true,
     added,
+    files,
     ipFixed: ipFixed.length,
     restarted,
+    needsRestart: Boolean(added || ipFixed.length),
     message: added || ipFixed.length
-      ? `Обход обновлён: доменов ${added}, списков IP ${ipFixed.length}${restarted ? ', стратегия перезапущена' : ''}`
+      ? `Обход обновлён: доменов ${added} в ${files} списках, исправлено списков IP ${ipFixed.length}. Перезапустите свою стратегию zapret, чтобы домены заработали`
       : 'Обход в порядке, менять нечего',
   };
 }

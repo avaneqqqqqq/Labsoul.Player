@@ -3,7 +3,7 @@
    Секреты приходят с сервера только маской; формы отправляют PUT /api/settings.
    ========================================================================= */
 
-import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy, getDpi, applyDpi, autoFixDpiRequest, checkSoundcloudKey } from '../api.js';
+import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy, getDpi, applyDpi, autoFixDpiRequest, startBypassRequest, checkSoundcloudKey } from '../api.js';
 import { icon, SOURCE_MARKS } from '../components.js';
 import {
   app,
@@ -436,14 +436,17 @@ function dpiCard() {
 
       <div class="source-card__actions">
         <span class="source-card__error" data-form-error="dpi"></span>
-        <button class="btn btn--accent btn--sm" type="button" data-dpi-apply>
-          ${icon('check')} ${found ? 'Добавить домены в zapret' : 'Где скачать'}
+        <button class="btn btn--accent btn--sm" type="button" data-dpi-start title="Запустить обход, если он выключен">
+          ${icon('play')} Включить обход
+        </button>
+        <button class="btn btn--ghost btn--sm" type="button" data-dpi-apply>
+          ${icon('check')} ${found ? 'Домены в zapret' : 'Где скачать'}
         </button>
         <button class="btn btn--ghost btn--sm" type="button" data-dpi-check>
           ${icon('refresh')} Проверить
         </button>
         <button class="btn btn--ghost btn--sm" type="button" data-dpi-autofix title="Проверить SoundCloud и при поломке починить обход">
-          ${icon('shield')} Проверить и починить
+          ${icon('shield')} Починить
         </button>
       </div>
       <div class="dpi-report" data-dpi-report hidden></div>
@@ -605,6 +608,49 @@ async function checkDpi() {
     ? `SoundCloud открывается (${probe.ms} мс)`
     : `SoundCloud не открывается: ${probe?.error || 'нет ответа'}`;
   toast(text, { icon: probe?.ok ? 'check' : 'alert' });
+}
+
+/**
+ * Включить обход одной кнопкой.
+ *
+ * Если winws работает — просто сообщаем. Если нет — плеер сам поднимет
+ * его: найдёт рабочую стратегию и запросит права администратора
+ * (Windows покажет окно подтверждения, нужно нажать «Да»).
+ */
+async function startBypass() {
+  const button = screen.root?.querySelector('[data-dpi-start]');
+  const report = screen.root?.querySelector('[data-dpi-report]');
+
+  if (button) button.disabled = true;
+  if (report) {
+    report.hidden = false;
+    report.textContent = 'Запускаю обход. Если появится окно подтверждения прав — нажмите «Да»…';
+  }
+
+  try {
+    const result = await startBypassRequest();
+
+    if (result?.ok) {
+      const text = result.alreadyRunning
+        ? 'Обход уже работает'
+        : `Обход включён${result.strategy ? ` (${result.strategy})` : ''}`;
+      if (report) report.innerHTML = `<b>${esc(text)}</b>`;
+      toast(text, { icon: 'check' });
+      // обновляем карточку, чтобы пропал статус «не работает»
+      app.dpiState = await getDpi();
+      paintStates();
+    } else {
+      const text = result?.message || 'Не удалось включить обход';
+      if (report) report.innerHTML = `<b>${esc(text)}</b>`;
+      toast(text, { type: 'warn' });
+    }
+  } catch (error) {
+    const text = 'Ошибка запуска: ' + (error?.message || error);
+    if (report) report.textContent = text;
+    toast(text, { type: 'err' });
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 /**
@@ -789,6 +835,11 @@ function onClick(event) {
 
   if (target?.closest('[data-dpi-autofix]')) {
     autoFixDpi();
+    return;
+  }
+
+  if (target?.closest('[data-dpi-start]')) {
+    startBypass();
     return;
   }
 
