@@ -1,3 +1,4 @@
+import { trace } from './trace.js';
 /* =========================================================================
    labsoul — оболочка: шапка, сайдбар, нижний плеер, очередь, модалки, клавиши.
    Экраны живут в js/screens/* и сами рисуют только #content.
@@ -507,6 +508,7 @@ function onPlayerEvent(snap, event) {
 }
 
 function onPlayerClick(event) {
+  trace('click', 'нижний бар', { tag: event.target?.tagName, cls: String(event.target?.className || '').slice(0, 40) });
   const target = event.target instanceof Element ? event.target.closest('[data-pl]') : null;
   if (!target) {
     // обложка открывает полноэкранный плеер, название/исполнитель — пауза/воспроизведение
@@ -521,7 +523,7 @@ function onPlayerClick(event) {
   }
   const action = target.dataset.pl;
   switch (action) {
-    case 'toggle': player.toggle(); refreshBar(); break;
+    case 'toggle': trace('player', 'toggle нажат', { playing: player.getState().playing }); player.toggle(); trace('player', 'toggle выполнен', { playing: player.getState().playing }); refreshBar(); break;
     case 'next': player.next(); break;
     case 'prev': player.prev(); break;
     case 'shuffle': {
@@ -1027,6 +1029,7 @@ async function loadLyrics(track) {
     return;
   }
 
+  trace('lyrics', 'запрос текста', { key });
   state.key = key;
   state.status = 'loading';
   state.synced = [];
@@ -1058,8 +1061,10 @@ async function loadLyrics(track) {
       }
     }
 
+    trace('lyrics', 'ответ сервера', { available: data?.available, synced: (data?.synced || []).length, plain: (data?.plain || '').length, provider: data?.provider });
     applyLyricsResult(data);
-  } catch {
+  } catch (err) {
+    trace('lyrics', 'ошибка запроса', { message: err?.message });
     if (state.key === key) state.status = 'none';
     renderLyrics();
   }

@@ -714,7 +714,29 @@ function playCurrent() {
 function ensureRunning(action) {
   if (!audioCtx || bypassGraph) { action(); return; }
   if (audioCtx.state === 'running') { action(); return; }
-  audioCtx.resume().then(action).catch(action);
+
+  /*
+   * `audioCtx.resume()` может не завершиться вовсе: браузер ждёт жеста,
+   * контекст завис после сворачивания окна, или граф застрял. Раньше в
+   * этом случае действие не вызывалось НИКОГДА — нажатие «играть» ничего
+   * не делало, и кнопка выглядела сломанной. Теперь страховка по таймеру:
+   * через 300 мс запускаем в любом случае.
+   */
+  let done = false;
+  const runOnce = () => {
+    if (done) return;
+    done = true;
+    action();
+  };
+
+  const timer = setTimeout(runOnce, 300);
+  audioCtx.resume().then(() => {
+    clearTimeout(timer);
+    runOnce();
+  }).catch(() => {
+    clearTimeout(timer);
+    runOnce();
+  });
 }
 
 function handleEnded() {

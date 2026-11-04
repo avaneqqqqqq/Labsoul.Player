@@ -31,6 +31,7 @@ import * as proxyFinder from './proxyfind.mjs';
 import * as dpi from './dpi.mjs';
 import * as dpiauto from './dpiauto.mjs';
 import * as dpiwatcher from './dpiwatcher.mjs';
+import * as debuglog from './debuglog.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -643,6 +644,33 @@ async function handleApi(req, res, url) {
 
   if (route[0] === 'health') {
     sendJson(res, 200, { ok: true, version: currentVersion(), uptime: Math.round(process.uptime()) });
+    return;
+  }
+
+  /*
+   * Журнал диагностики.
+   *
+   * Клиент присылает сюда события (нажатия, смены состояния, ответы о
+   * текстах), сервер пишет их в файл. Нужен, чтобы увидеть проблемы
+   * внутри упакованного приложения, где консоль недоступна.
+   */
+  if (route[0] === 'debug') {
+    if (req.method === 'POST') {
+      let body = null;
+      try { body = await readJson(req); } catch { body = null; }
+      if (body?.events && Array.isArray(body.events)) {
+        for (const item of body.events) {
+          debuglog.write(item.category || 'client', item.message || '', item.data);
+        }
+      } else if (body) {
+        debuglog.write(body.category || 'client', body.message || '', body.data);
+      }
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // GET — путь к файлу и последние строки
+    sendJson(res, 200, { ok: true, path: debuglog.filePath(), tail: debuglog.tail(200) });
     return;
   }
 
