@@ -779,6 +779,32 @@ export async function lookup(rawMeta) {
     log(`genius: ${err.message}`);
   }
 
+  /*
+   * Последняя попытка — только по названию, без исполнителя.
+   *
+   * Некоторые сервисы не находят трек, когда исполнитель написан иначе
+   * («Скриптонит» вместо «Skriptonit», латиница вместо кириллицы): они
+   * ищут строго по паре. По одному названию находит почти всегда —
+   * проверено на «Полина»: с исполнителем пусто, без него 58 строк.
+   */
+  if (meta.artist) {
+    try {
+      const byTitle = await Promise.allSettled([
+        neteaseLyrics({ ...meta, artist: '' }),
+        lrclibSearch({ ...meta, artist: '' }),
+      ]);
+      const hit = byTitle
+        .map((item) => (item.status === 'fulfilled' ? item.value : null))
+        .find((item) => item?.available && ((item.synced || []).length || item.plain));
+      if (hit) {
+        log('текст найден по названию без исполнителя');
+        return postProcess(hit);
+      }
+    } catch (err) {
+      log(`повтор без исполнителя: ${err.message}`);
+    }
+  }
+
   const instrumental = [lrclib, netease, search].find((item) => item?.instrumental);
   if (instrumental) return instrumental;
 
