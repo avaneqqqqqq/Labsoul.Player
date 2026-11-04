@@ -11,6 +11,7 @@
  */
 
 import * as hostSwitch from '../yandexhost.mjs';
+import * as net from '../net.mjs';
 import crypto from 'node:crypto';
 
 // Базовый адрес можно переопределить: удобно для своего прокси/зеркала и для
@@ -21,22 +22,24 @@ const CLIENT_HEADER = 'YandexMusicWebNext/1.0.0';
 const SIGN_KEY = '7tvSmFbyf5hJnIHhCimDDD';
 const TIMEOUT = 15000;
 
+/*
+ * Пул хостов Яндекс.Музыки.
+ *
+ * Раньше выбор делался один раз и результат кэшировался: один неудачный
+ * прогрев запирал сервис в «нет ответа ни от одного хоста», хотя адреса
+ * работали. Теперь каждый запрос перебирает точки сам — если первый хост
+ * не ответил, сразу идёт второй, третий. Рабочий запоминается, поэтому
+ * обычная работа идёт в один запрос без перебора.
+ */
+const hosts = net.createHostPool([
+  API,
+  'https://api.music.yandex.net',
+  'https://api.music.yandex.ru',
+  'https://music.yandex.ru/api',
+]);
+
 const cfg = { token: '', quality: 'nq' };
 
-/**
- * Живой хост Яндекс.Музыки.
- *
- * Из некоторых сетей основной адрес не отвечает — пробуем запасные точки.
- * Результат кэшируется на 5 минут, при сетевой ошибке сбрасывается.
- */
-async function pickBase() {
-  if (process.env.YANDEX_API_BASE) return API;
-
-  const host = await hostSwitch.resolveHost((url) =>
-    fetch(url, { signal: AbortSignal.timeout(4000), headers: { Accept: 'application/json' } }),
-  );
-  return host || null;
-}
 let cachedUser = null;
 let lastError = null;
 
@@ -61,28 +64,42 @@ function authHeaders() {
 async function request(pathname, { method = 'GET', body, headers = {} } = {}) {
   if (!cfg.token) throw fail('NO_TOKEN', 'Не задан OAuth-токен Яндекс.Музыки');
 
-  // хост может быть недоступен из сети пользователя: выбираем живой автоматически
-  const base = await pickBase();
-  if (!base) {
-    throw fail('UPSTREAM', 'Яндекс.Музыка недоступна из вашей сети (нет ответа ни от одного хоста)');
-  }
-
+  /*
+   * Перебираем хосты, пока какой-нибудь не ответит.
+   *
+   * Внутри пула на каждом хосте две попытки: сеть дёргается, и со второго
+   * раза обычно проходит. Ответы 401/403 — это НЕ сбой сети, а решение
+   * сервиса: такой ответ возвращаем сразу, чтобы вызывающий код сказал
+   * «нужен вход заново», а не «сервис недоступен».
+   */
   let res;
   try {
-    res = await fetch(base + pathname, {
-      method,
-      headers: {
-        ...authHeaders(),
-        ...(body ? { 'Content-Type': 'application/json' } : {}),
-        ...headers,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(TIMEOUT),
+    res = await hosts.run(async (base) => {
+      const response = await fetch(base + pathname, {
+        method,
+        headers: {
+          ...authHeaders(),
+          ...(body ? { 'Content-Type': 'application/json' } : {}),
+          ...headers,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: AbortSignal.timeout(TIMEOUT),
+      });
+
+      // сервер ответил осмысленно — дальше перебирать хосты не нужно
+      if (response.status === 401 || response.status === 403) return response;
+      if (response.status >= 500) throw fail(`HTTP ${response.status}`, 'сервер ответил ошибкой');
+      return response;
     });
   } catch (err) {
-    // сетевой сбой: сбрасываем выбранный хост, следующий запрос перепроверит точки
-    hostSwitch.invalidate();
+    lastError = err.code || 'UPSTREAM';
     throw fail('UPSTREAM', `Яндекс.Музыка недоступна: ${err.message}`);
+  }
+
+  // 5xx после перебора — честно сообщаем
+  if (res.status >= 500) {
+    const text = await res.text().catch(() => '');
+    throw fail('UPSTREAM', `Яндекс.Музыка ответила ${res.status}: ${text.slice(0, 120)}`);
   }
 
   const text = await res.text();

@@ -157,11 +157,63 @@ export function cleanPlainLines(plain) {
 
 /* ------------------------------- запросы -------------------------------- */
 
+/**
+ * Адаптивный ограничитель частоты.
+ *
+ * lrclib отвечает 429 при частых запросах, но в обычном темпе (один трек
+ * в несколько секунд) спокойно держит поток. Поэтому паузу не держим
+ * постоянно: она включается только после отказа и плавно уменьшается,
+ * как только сервис снова отвечает нормально.
+ */
+const hostGap = new Map();
+
+async function throttle(host) {
+  const gap = hostGap.get(host) || 0;
+  if (gap > 0) {
+    await new Promise((resolve) => setTimeout(resolve, gap));
+  }
+}
+
+/** Сервис ответил нормально — снижаем паузу. */
+function relaxGap(host) {
+  const current = hostGap.get(host) || 0;
+  if (current > 0) hostGap.set(host, Math.max(0, Math.round(current * 0.6) - 50));
+}
+
+/** Сервис отказал по частоте — поднимаем паузу. */
+function raiseGap(host) {
+  const current = hostGap.get(host) || 0;
+  hostGap.set(host, Math.min(2500, current + 600));
+}
+
 async function fetchJson(url, headers = { Accept: 'application/json', 'User-Agent': USER_AGENT }, timeoutMs = LRCLIB_TIMEOUT_MS) {
-  const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
-  if (res.status === 404) return null;
-  if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
-  return res.json();
+  let host = '';
+  try { host = new URL(url).host; } catch { /* некорректный адрес */ }
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await throttle(host);
+    const res = await fetch(url, { headers, signal: AbortSignal.timeout(timeoutMs) });
+
+    if (res.status === 404) {
+      relaxGap(host);
+      return null;
+    }
+
+    if (res.status === 429) {
+      raiseGap(host);
+      if (attempt === 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1200));
+        continue;
+      }
+      throw Object.assign(new Error('HTTP 429'), { status: 429 });
+    }
+
+    if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status}`), { status: res.status });
+
+    relaxGap(host);
+    return res.json();
+  }
+  return null;
 }
 
 const normalize = (value) => String(value || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
@@ -760,11 +812,19 @@ export async function lookup(rawMeta) {
    * Медленные продолжают работать, и если принесут послоговый вариант —
    * он уже будет в кэше к следующему открытию.
    */
+  /*
+   * Гонка источников с немедленной отдачей.
+   *
+   * Как только пришёл текст с таймингами — возвращаем его сразу и НЕ ждём
+   * остальных. Раньше это было сломано: счётчик pending обнулялся, но
+   * обещание не завершалось, и код всё равно висел до самого медленного
+   * источника (lrclib с повтором 429 тянул семь секунд). Теперь есть флаг
+   * done, который закрывает обещание немедленно.
+   */
   const settled = await new Promise((resolve) => {
     const results = {};
     let pending = 4;
-    let best = null;
-    let bestRank = -1;
+    let finished = false;
 
     const rank = (item) => {
       if (!item?.available) return -1;
@@ -774,26 +834,29 @@ export async function lookup(rawMeta) {
       return -1;
     };
 
-    const finish = () => {
-      if (!Object.keys(results).length) return;
+    const finish = (reason) => {
+      if (finished) return;
+      // отдавать нечего — ждём, пока кто-нибудь ответит
+      if (!Object.keys(results).length && pending > 0) return;
+      finished = true;
+      if (reason) log(`источники: ${reason}`);
       resolve(results);
     };
 
     const take = (name, promise) => {
       promise
         .then((value) => {
+          if (finished) return;
           results[name] = value;
-          const score = rank(value);
-          if (score > bestRank) { bestRank = score; best = value; }
-          // достойный ответ есть — не ждём остальных
-          if (score >= 2) { pending = 0; finish(); }
+          // достойный ответ есть — отдаём сразу, не ждём остальных
+          if (rank(value) >= 2) finish(`первым ответил ${name}`);
         })
         .catch((error) => {
           log(`${name}: ${error?.message}`);
         })
         .finally(() => {
           pending -= 1;
-          if (pending <= 0) finish();
+          if (pending <= 0) finish('ответили все');
         });
     };
 
@@ -802,8 +865,8 @@ export async function lookup(rawMeta) {
     take('lrcmux', lrcmuxLyrics(meta));
     take('kugou', kugouDirect(meta));
 
-    // страховка: даже если кто-то завис, через паузу отдаём что есть
-    setTimeout(() => { if (!best) finish(); }, 5000).unref?.();
+    // страховка: если никто не ответил, не висим дольше пяти секунд
+    setTimeout(() => { if (!finished) finish('истекло время ожидания'); }, 5000).unref?.();
   });
 
   const lrclib = settled.lrclib || null;

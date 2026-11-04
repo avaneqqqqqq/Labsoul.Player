@@ -584,47 +584,71 @@ async function callApi(pathname, params, clientId) {
 }
 
 async function apiJson(pathname, params = {}, { retry = true } = {}) {
-  // Сохранённый вход (oauth_token) заменяет client_id: api-v2 принимает
-  // `Authorization: OAuth <token>` и обходится без ключа. Это важно, потому что
-  // SoundCloud перестал отдавать client_id со страниц — автоключ не находится,
-  // и без этой ветки всё падало с AUTH_FAILED при живом аккаунте.
-  if (oauthToken()) {
-    const authorized = await callApi(pathname, params, '');
-    if (authorized.status !== 401) {
-      if (authorized.status === 404) throw fail('NOT_FOUND', 'SoundCloud: трек не найден');
-      if (authorized.status === 403) throw fail('NOT_PLAYABLE', 'SoundCloud запретил доступ к треку (HTTP 403)');
-      if (authorized.status === 429) throw fail('UPSTREAM', 'SoundCloud ограничил частоту запросов (HTTP 429)');
-      if (!authorized.ok) throw fail('UPSTREAM', `SoundCloud ответил HTTP ${authorized.status}`);
+  /*
+   * Порядок попыток подобран по опыту живых тестов:
+   *
+   *   1. С сохранённым входом (OAuth) — самый надёжный путь: работает,
+   *      даже когда client_id не добывается.
+   *   2. С client_id — запасной, нужен для потоков и поиска.
+   *   3. Повтор при временной ошибке сети: соединение через обход часто
+   *      рвётся на первом пакете, со второй попытки проходит.
+   *
+   * 5xx (500/502/503) — временная поломка на стороне SoundCloud,
+   * а не отказ. Их тоже повторяем, но чуть подождав.
+   */
+  const attempts = [];
+
+  if (oauthToken()) attempts.push(() => callApi(pathname, params, ''));
+  attempts.push(async () => {
+    const clientId = await getClientId();
+    return callApi(pathname, params, clientId);
+  });
+
+  let lastResponse = null;
+
+  for (let round = 1; round <= 3; round += 1) {
+    for (const attempt of attempts) {
+      let response;
       try {
-        return JSON.parse(authorized.body);
-      } catch {
-        throw fail('UPSTREAM', 'SoundCloud вернул некорректный JSON');
+        response = await attempt();
+      } catch (error) {
+        // сетевой сбой — пробуем дальше
+        lastResponse = null;
+        continue;
       }
+
+      // успех
+      if (response.ok) {
+        try {
+          return JSON.parse(response.body);
+        } catch {
+          throw fail('UPSTREAM', 'SoundCloud вернул некорректный JSON');
+        }
+      }
+
+      // постоянные отказы: повторять бессмысленно
+      if (response.status === 404) throw fail('NOT_FOUND', 'SoundCloud: трек не найден');
+      if (response.status === 403) throw fail('NOT_PLAYABLE', 'SoundCloud запретил доступ к треку (HTTP 403)');
+
+      // 401 — ключ протух: сбрасываем и пробуем следующий путь
+      if (response.status === 401) {
+        invalidateClientId();
+        lastResponse = response;
+        continue;
+      }
+
+      // 429 и 5xx — временные, ждём и повторяем
+      lastResponse = response;
     }
-    // токен отклонён — пробуем обычный путь через client_id
+
+    // пауза растёт: 400 мс, 800 мс
+    await new Promise((resolve) => setTimeout(resolve, 400 * round));
   }
 
-  let clientId = await getClientId();
-  let response = await callApi(pathname, params, clientId);
-
-  // 401 — протух/отозван client_id: перевыпускаем и повторяем один раз.
-  if (response.status === 401 && retry) {
-    invalidateClientId();
-    clientId = await getClientId(true);
-    response = await callApi(pathname, params, clientId);
-  }
-
-  if (response.status === 401) throw fail('AUTH_FAILED', 'SoundCloud отклонил client_id (HTTP 401)');
-  if (response.status === 404) throw fail('NOT_FOUND', 'SoundCloud: трек не найден');
-  if (response.status === 403) throw fail('NOT_PLAYABLE', 'SoundCloud запретил доступ к треку (HTTP 403)');
-  if (response.status === 429) throw fail('UPSTREAM', 'SoundCloud ограничил частоту запросов (HTTP 429)');
-  if (!response.ok) throw fail('UPSTREAM', `SoundCloud ответил HTTP ${response.status}`);
-
-  try {
-    return JSON.parse(response.body);
-  } catch {
-    throw fail('UPSTREAM', 'SoundCloud вернул некорректный JSON');
-  }
+  if (lastResponse?.status === 401) throw fail('AUTH_FAILED', 'SoundCloud отклонил ключ доступа (HTTP 401)');
+  if (lastResponse?.status === 429) throw fail('UPSTREAM', 'SoundCloud ограничил частоту запросов (HTTP 429)');
+  if (lastResponse) throw fail('UPSTREAM', `SoundCloud ответил HTTP ${lastResponse.status}`);
+  throw fail('UPSTREAM', 'SoundCloud не ответил: сеть недоступна');
 }
 
 function normalizeSourceId(sourceId) {
