@@ -3,7 +3,7 @@
    Секреты приходят с сервера только маской; формы отправляют PUT /api/settings.
    ========================================================================= */
 
-import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy, getDpi, applyDpi, autoFixDpiRequest, startBypassRequest, checkSoundcloudKey } from '../api.js';
+import { isDemo, getNetwork, saveNetwork, testNetwork, findProxy, stopFindProxy, getDpi, applyDpi, autoFixDpiRequest, startBypassRequest, getBypassState, checkSoundcloudKey } from '../api.js';
 import { icon, SOURCE_MARKS } from '../components.js';
 import {
   app,
@@ -44,7 +44,18 @@ function stateOf(key) {
   // «сервис не отвечает» на всех трёх, хотя сервер просто ещё не ответил.
   if (!src) return { cls: 'wait', label: 'Проверяем', detail: 'проверяем подключение…' };
   if (src.connected) {
-    return { cls: 'ok', label: 'Подключено', detail: src.user ? `аккаунт ${src.user}` : 'готово к работе' };
+    /*
+     * Остаток суточного лимита SoundCloud.
+     *
+     * Сервис разрешает 1500 запросов потока в сутки. Раньше человек узнавал
+     * об исчерпании только по ошибке — теперь видит остаток заранее.
+     */
+    const limit = src.rateLimit;
+    let detail = src.user ? `аккаунт ${src.user}` : 'готово к работе';
+    if (key === 'soundcloud' && limit && typeof limit.remaining === 'number' && limit.limit) {
+      detail = `${detail} · осталось ${limit.remaining} из ${limit.limit} прослушиваний в сутки`;
+    }
+    return { cls: 'ok', label: 'Подключено', detail };
   }
   // «токена ещё нет» — это нормальное рабочее состояние, а не поломка:
   // красную ошибку показываем только когда сервис реально отверг доступ
@@ -895,6 +906,23 @@ function onClick(event) {
  * в обычном браузере такого моста нет, и мы честно об этом говорим).
  */
 /** Вход в SoundCloud через окно приложения: сессия сохраняется, лайки тянутся сами. */
+/**
+ * Включить обход после входа — без вопросов и лишних кнопок.
+ *
+ * Если winws уже работает, ничего не делаем. Если нет — пытаемся поднять.
+ * Сбой здесь не мешает входу, поэтому ошибки глушим.
+ */
+async function autoEnableBypass() {
+  try {
+    const state = await getBypassState();
+    if (state?.running) return;
+    const result = await startBypassRequest();
+    if (result?.ok && result.started) {
+      toast('Обход блокировки включён', { icon: 'shield' });
+    }
+  } catch { /* без обхода вход всё равно состоялся */ }
+}
+
 async function signInSoundCloud(reset = false) {
   const bridge = desktopBridge();
   if (!bridge || typeof bridge.signInSoundCloud !== 'function') {
@@ -906,7 +934,13 @@ async function signInSoundCloud(reset = false) {
       ? await bridge.reSignInSoundCloud()
       : await bridge.signInSoundCloud();
     if (result && result.ok) {
-      toast('SoundCloud подключён — лайки подтянутся автоматически', { icon: 'check' });
+      toast('SoundCloud подключён', { icon: 'check' });
+      /*
+       * Сразу доводим до рабочего состояния: вход без обхода бесполезен,
+       * если провайдер режет домены. Человек должен просто войти и слушать,
+       * а не искать кнопку обхода и разбираться в стратегиях.
+       */
+      await autoEnableBypass();
       reload({ withToast: false });
     } else if (result && result.error) {
       toast('Не удалось войти: ' + result.error, { type: 'err' });

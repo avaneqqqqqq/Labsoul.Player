@@ -89,6 +89,9 @@ let lastAcquire = null;
  */
 let rateLimitedUntil = 0;
 
+/** Последнее известное состояние лимита (заголовки SoundCloud). */
+let rateLimit = null;
+
 /**
  * Кэш готовых потоков: id трека → {value, at}.
  *
@@ -99,6 +102,19 @@ let rateLimitedUntil = 0;
 const streamCache = new Map();
 const STREAM_CACHE_TTL_MS = 30 * 60 * 1000;
 const STREAM_CACHE_MAX = 60;
+
+/**
+ * Кэш подписанных адресов потока.
+ *
+ * Один вызов = один запрос из суточного лимита (1500 запросов потока).
+ * Подписанный адрес живёт час и больше, поэтому храним его: повтор трека,
+ * перемотка и возврат назад не тратят лимит заново. Без этого человек
+ * сгорал лимит за несколько часов прослушивания.
+ */
+const resolvedUrlCache = new Map();
+const RESOLVED_URL_TTL_MS = 45 * 60 * 1000;
+const RESOLVED_URL_MAX = 100;
+
 let lastFailError = null;
 let lastFailAt = 0;
 
@@ -777,12 +793,15 @@ async function withRetry(run, attempts = 3) {
  * интерфейс показывал «токен не подошёл», хотя аккаунт подключён.
  */
 export async function status() {
+  // остаток лимита — чтобы показать его в интерфейсе рядом со статусом
+  const limit = rateLimitState();
+
   // вход через аккаунт — самый надёжный признак работоспособности
   if (oauthToken()) {
     try {
       const authorized = await callApi('/me', {}, '');
-      if (authorized.ok) return { connected: true };
-      if (authorized.status === 401) return { connected: true };
+      if (authorized.ok) return { connected: true, rateLimit: limit };
+      if (authorized.status === 401) return { connected: true, rateLimit: limit };
     } catch {
       // сеть подвела — пробуем дальше через client_id
     }
@@ -795,11 +814,12 @@ export async function status() {
     // client_id не добылся, но сохранённая сессия осталась — это
     // рабочее состояние, а не ошибка
     if (oauthToken()) {
-      return { connected: true, note: 'client_id недоступен, работаем через аккаунт' };
+      return { connected: true, note: 'client_id недоступен, работаем через аккаунт', rateLimit: limit };
     }
     return {
       connected: false,
       error: { code: error.code || 'UPSTREAM', message: error.message },
+      rateLimit: limit,
     };
   }
 }
@@ -1047,18 +1067,120 @@ async function callTranscoding(transcodingUrl, clientId) {
 
   const response = await httpText(url.toString(), { timeout: TIMEOUT_MS, headers });
 
+  /*
+   * Читаем счётчик лимита.
+   *
+   * SoundCloud присылает X-Ratelimit-Remaining — сколько запросов потока
+   * осталось на сутки (по умолчанию 1500). Раньше мы эти заголовки не
+   * смотрели и узнавали о конце лимита только по отказу 429. Теперь
+   * остаток известен заранее и виден в интерфейсе.
+   */
+  readRateLimit(response.headers);
+
   // 429 — слишком часто. Запоминаем и притормаживаем последующие запросы.
   if (response.status === 429) {
-    rateLimitedUntil = Date.now() + 5000;
-    console.warn('[soundcloud] ограничение частоты (429) — пауза 5 с');
+    const retryAfter = Number(response.headers?.get?.('retry-after') || 0);
+    rateLimitedUntil = Date.now() + Math.max(5000, retryAfter * 1000);
+    console.warn('[soundcloud] ограничение частоты (429)');
   }
 
   return response;
 }
 
+/**
+ * Разобрать заголовки лимита и запомнить состояние.
+ *
+ * SoundCloud отдаёт:
+ *   X-Ratelimit-Limit     — потолок окна (1500 для потока за сутки)
+ *   X-Ratelimit-Remaining — сколько осталось
+ *   X-Ratelimit-Reset     — когда окно сбрасывается (unix-время)
+ */
+function readRateLimit(headers) {
+  if (!headers?.get) return;
+  try {
+    const limit = Number(headers.get('x-ratelimit-limit') || 0);
+    const remaining = Number(headers.get('x-ratelimit-remaining') || 0);
+    const reset = Number(headers.get('x-ratelimit-reset') || 0);
+    if (!limit && !remaining) return;
+    rateLimit = {
+      limit,
+      remaining,
+      resetAt: reset ? reset * 1000 : 0,
+      at: Date.now(),
+    };
+  } catch { /* заголовков может не быть */ }
+}
+
+/**
+ * Учёт лимита прослушиваний.
+ *
+ * По документации SoundCloud разрешает 1500 запросов потока в сутки, но
+ * заголовки X-Ratelimit-* отдаёт только приложениям с официальным ключом.
+ * У нас ключ скрейпленный — заголовков нет, поэтому считаем сами: сколько
+ * раз за сутки запросили поток, столько и израсходовали. Это не точный
+ * остаток со стороны сервиса, но честное приближение: человек видит,
+ * сколько прослушиваний осталось, а не узнаёт о лимите по ошибке.
+ */
+const LISTEN_QUOTA = 1500;
+let listenCount = 0;
+let listenWindowStart = Date.now();
+
+function countListen() {
+  // окно — сутки
+  if (Date.now() - listenWindowStart > 24 * 60 * 60 * 1000) {
+    listenCount = 0;
+    listenWindowStart = Date.now();
+  }
+  listenCount += 1;
+}
+
+/** Состояние лимита для интерфейса. */
+export function rateLimitState() {
+  // если сервер прислал точные заголовки — показываем их
+  if (rateLimit) {
+    const percent = rateLimit.limit ? Math.round((rateLimit.remaining / rateLimit.limit) * 100) : null;
+    return {
+      ...rateLimit,
+      percent,
+      low: percent !== null && percent < 15,
+      empty: rateLimit.remaining <= 0,
+      source: 'server',
+    };
+  }
+
+  // иначе — наш счётчик по документированной квоте SoundCloud
+  const remaining = Math.max(0, LISTEN_QUOTA - listenCount);
+  const percent = Math.round((remaining / LISTEN_QUOTA) * 100);
+  return {
+    limit: LISTEN_QUOTA,
+    remaining,
+    used: listenCount,
+    resetAt: listenWindowStart + 24 * 60 * 60 * 1000,
+    at: Date.now(),
+    percent,
+    low: percent < 15,
+    empty: remaining <= 0,
+    source: 'local',
+  };
+}
+
 /** transcoding.url → {url, contentType} уже подписанного медиа-URL (живёт ограниченное время). */
 async function resolveTranscoding(transcoding, { retry = true } = {}) {
   if (!transcoding?.url) throw fail('UPSTREAM', 'У транскодинга SoundCloud нет URL');
+
+  /*
+   * Кэш подписанного адреса.
+   *
+   * Каждый вызов здесь — ОДИН запрос из суточного лимита (1500). Подписанный
+   * адрес живёт не меньше часа, поэтому повтор трека, перемотка и возврат
+   * назад не должны тратить лимит заново. Без кэша человек сгорал лимит за
+   * пару часов прослушивания и получал «не удалось получить поток».
+   */
+  const cacheKeyUrl = transcoding.url;
+  const cachedUrl = resolvedUrlCache.get(cacheKeyUrl);
+  if (cachedUrl && Date.now() - cachedUrl.at < RESOLVED_URL_TTL_MS) {
+    return cachedUrl.value;
+  }
 
   /*
    * Поток требует client_id — вход через аккаунт (oauth_token) его НЕ заменяет.
@@ -1084,6 +1206,9 @@ async function resolveTranscoding(transcoding, { retry = true } = {}) {
     }
     throw error;
   }
+
+  // каждый реальный запрос потока — минус одно прослушивание из суточной квоты
+  countListen();
 
   let response = await callTranscoding(transcoding.url, clientId);
 
@@ -1123,7 +1248,15 @@ async function resolveTranscoding(transcoding, { retry = true } = {}) {
   }
   if (!data?.url) throw fail('UPSTREAM', 'SoundCloud не вернул URL потока');
 
-  return { url: String(data.url), contentType: transcoding?.format?.mime_type || null };
+  const resolved = { url: String(data.url), contentType: transcoding?.format?.mime_type || null };
+
+  // запоминаем подписанный адрес: повтор и перемотка не тратят лимит
+  if (resolvedUrlCache.size >= RESOLVED_URL_MAX) {
+    resolvedUrlCache.delete(resolvedUrlCache.keys().next().value);
+  }
+  resolvedUrlCache.set(cacheKeyUrl, { value: resolved, at: Date.now() });
+
+  return resolved;
 }
 
 /** HLS → один буфер: init.mp4 + все сегменты по порядку (fMP4 остаётся валидным). */

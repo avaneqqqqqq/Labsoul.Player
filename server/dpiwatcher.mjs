@@ -184,13 +184,35 @@ export async function startBypass({ strategy = null } = {}) {
     };
   }
 
-  // домены во все списки
-  const written = dpi.addDomainsToZapret(folders);
+  /*
+   * Выбираем папку сборки.
+   *
+   * Если пользователь выбрал конкретную стратегию — пишем и запускаем
+   * ИМЕННО её сборку. Стратегии внутри одной папки читают общие списки
+   * (list-general, list-general-user, list-google), поэтому запись в
+   * любую стратегию той же папки работает для ALT9, ALT11 и остальных.
+   *
+   * Когда стратегия не выбрана — берём первую найденную и пишем во все,
+   * чтобы домены точно оказались там, где нужно.
+   */
+  let targetFolders = folders;
+  let folder = folders[0];
+
+  if (strategy) {
+    const owner = folders.find((candidate) => fs.existsSync(path.join(candidate, strategy)));
+    if (owner) {
+      folder = owner;
+      targetFolders = [owner];
+      store.log(`[dpi] стратегия «${strategy}» найдена в ${owner}`);
+    }
+  }
+
+  // домены во все списки выбранной сборки
+  const written = dpi.addDomainsToZapret(targetFolders);
   const domains = written.reduce((sum, entry) => sum + (entry.added?.length || 0), 0);
   if (domains) store.log(`[dpi] доменов дописано: ${domains}`);
 
   // 3. перебираем стратегии
-  const folder = folders[0];
   let order = strategyOrder(folder);
   if (!order.length) return { ok: false, message: 'В папке zapret нет стратегий (general*.bat)' };
 

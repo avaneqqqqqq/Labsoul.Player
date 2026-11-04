@@ -32,6 +32,7 @@ import * as dpi from './dpi.mjs';
 import * as dpiauto from './dpiauto.mjs';
 import * as dpiwatcher from './dpiwatcher.mjs';
 import * as debuglog from './debuglog.mjs';
+import * as autofix from './autofix.mjs';
 
 const PORT = Number(
   process.env.PORT ||
@@ -612,28 +613,44 @@ function refreshStatus() {
 async function statusAll(force = false) {
   const fresh = statusCache && Date.now() - statusCacheAt < STATUS_TTL_MS;
 
+  /*
+   * Лимит SoundCloud подставляем всегда свежим.
+   *
+   * Статус кэшируется на минуту — иначе каждый заход в интерфейс дёргал
+   * бы все сервисы. Но счётчик прослушиваний меняется постоянно, и в
+   * кэше он отставал бы: человек слушает треки, а остаток стоит на месте.
+   */
+  const withLimit = (result) => {
+    if (!result?.soundcloud) return result;
+    try {
+      const limit = providers.soundcloud.rateLimitState?.();
+      if (limit) return { ...result, soundcloud: { ...result.soundcloud, rateLimit: limit } };
+    } catch { /* не критично */ }
+    return result;
+  };
+
   // принудительно — ждём полную проверку без обрезки по времени
   if (force) {
     const result = await probeStatusAll(20_000);
     if (result) {
       statusCache = result;
       statusCacheAt = Date.now();
-      return result;
+      return withLimit(result);
     }
   }
 
   // свежий кэш — отдаём сразу
-  if (fresh) return statusCache;
+  if (fresh) return withLimit(statusCache);
 
   // кэш устарел: показываем его и параллельно обновляем в фоне
   if (statusCache) {
     refreshStatus();
-    return statusCache;
+    return withLimit(statusCache);
   }
 
   // самый первый запрос — ждём, но не дольше семи секунд
   const result = await refreshStatus();
-  return result || {};
+  return withLimit(result || {});
 }
 
 /* --------------------------------- API ----------------------------------- */
@@ -644,6 +661,24 @@ async function handleApi(req, res, url) {
 
   if (route[0] === 'health') {
     sendJson(res, 200, { ok: true, version: currentVersion(), uptime: Math.round(process.uptime()) });
+    return;
+  }
+
+  /*
+   * Одна кнопка на сервис.
+   *
+   * Пользователь не разбирается в стратегиях, ключах и перелогинах —
+   * жмёт кнопку, сервер сам проходит шаги и отвечает итогом.
+   */
+  if (route[0] === 'fix' && req.method === 'POST') {
+    const source = String(route[1] || '');
+    let body = {};
+    try { body = await readJson(req) || {}; } catch { body = {}; }
+    const result = await autofix.fix(source, { relogin: Boolean(body.relogin) });
+    // после починки статус мог измениться — сбрасываем кэш
+    statusCache = null;
+    statusCacheAt = 0;
+    sendJson(res, 200, result);
     return;
   }
 

@@ -1265,15 +1265,32 @@ function mountClipPlayer(host) {
     clipsState.yt = new window.YT.Player(host, {
       videoId,
       playerVars: {
-        // Интерфейс YouTube скрыт: это иллюстрация к треку, а не отдельный
-        // плеер. Управление — кнопками labsoul, они всегда под рукой.
+        /*
+         * Клип — это иллюстрация к треку, а не отдельный видеоплеер.
+         * Гасим ВСЁ, что может всплыть поверх кадра:
+         *   • controls=0     — панель управления не появляется;
+         *   • showinfo=0     — название ролика и логотип сервиса;
+         *   • rel=0          — сетка «другие видео» в конце;
+         *   • modestbranding — без крупного логотипа;
+         *   • fs=0, disablekb — полноэкранный режим и клавиши не работают;
+         *   • iv_load_policy=3 — без аннотаций;
+         *   • disablekb        — клавиатура не управляет видео;
+         *   • autohide=1      — элементы прячутся сами;
+         *   • cc_load_policy=0 — без субтитров.
+         * Плюс поверх кадра лежит маска (см. .np__clips-shade), которая
+         * перекрывает всплывающие подсказки по краям.
+         */
         rel: 0,
         modestbranding: 1,
         playsinline: 1,
         controls: 0,
+        showinfo: 0,
         disablekb: 1,
         fs: 0,
         iv_load_policy: 3,
+        autohide: 1,
+        cc_load_policy: 0,
+        enablejsapi: 1,
         origin: location.origin,
       },
       events: {
