@@ -223,18 +223,38 @@ export function detectRunning() {
   });
 }
 
-/** Проверка, открывается ли SoundCloud прямо сейчас. */
+/**
+ * Проверка, открывается ли SoundCloud прямо сейчас.
+ *
+ * Через обход первые соединения после запуска часто обрываются по
+ * таймауту, а следующие проходят за 70–200 мс (проверено: 17 из 20
+ * успешных, все три сбоя — самые первые). Поэтому делаем несколько
+ * попыток с коротким таймаутом, а не одну длинную: одна неудачная
+ * проверка показывала в интерфейсе «SoundCloud не открывается», хотя
+ * всё работало.
+ */
 export async function probe() {
   const started = Date.now();
-  try {
-    const res = await fetch('https://soundcloud.com/', {
-      signal: AbortSignal.timeout(10000),
-      headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/136.0.0.0' },
-    });
-    return { ok: res.ok, status: res.status, ms: Date.now() - started };
-  } catch (err) {
-    return { ok: false, error: (err.cause && err.cause.code) || err.name, ms: Date.now() - started };
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      const res = await fetch('https://soundcloud.com/', {
+        signal: AbortSignal.timeout(6000),
+        headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/136.0.0.0' },
+      });
+      if (res.status < 500) {
+        return { ok: true, status: res.status, ms: Date.now() - started, attempt };
+      }
+      lastError = `HTTP ${res.status}`;
+    } catch (err) {
+      lastError = (err.cause && err.cause.code) || err.name;
+    }
+
+    if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 400));
   }
+
+  return { ok: false, error: lastError, ms: Date.now() - started, attempt: 3 };
 }
 
 /** Состояние для интерфейса. */
