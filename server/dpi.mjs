@@ -28,13 +28,24 @@ export const TARGET_DOMAINS = [
   'api-v2.soundcloud.com',
   'api-auth.soundcloud.com',
   'soundcloud.app.goo.gl',
+  // YouTube нужен для клипов: без него поиск видео возвращает пустоту
+  'youtube.com',
+  'www.youtube.com',
+  'youtu.be',
+  'youtube-nocookie.com',
+  'googlevideo.com',
+  'ytimg.com',
 ];
 
 /** Домены, которые НЕ трогаем — у пользователя свой обход для них. */
+/**
+ * Домены, которые НЕ трогаем.
+ *
+ * Discord не трогаем: у пользователя своя стратегия для него, и наши
+ * правки могли помешать голосовой связи. YouTube, наоборот, нам нужен —
+ * он в TARGET_DOMAINS, потому что без него не работают клипы.
+ */
 export const AVOID_DOMAINS = [
-  'youtube.com',
-  'googlevideo.com',
-  'ytimg.com',
   'discord.com',
   'discordapp.com',
   'discord.gg',
