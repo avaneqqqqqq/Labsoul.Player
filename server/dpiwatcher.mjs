@@ -141,18 +141,37 @@ async function bypassWorks() {
  * @returns {Promise<{ok:boolean, alreadyRunning?:boolean, started?:boolean, strategy?:string, message:string, needDownload?:boolean}>}
  */
 export async function startBypass({ strategy = null } = {}) {
-  // 1. уже работает — второй winws не запускаем никогда
+  /*
+   * 1. winws уже работает.
+   *
+   * Если пользователь ВЫБРАЛ конкретную стратегию — её надо применить:
+   * гасим текущий процесс и поднимаем выбранную. Иначе он нажимает
+   * «включить», видит «обход уже работает», а фактически остаётся на
+   * прежней стратегии — что и выглядело как «опять включается general».
+   *
+   * Если стратегия не выбрана — ничего не трогаем, второй winws не нужен.
+   */
   const running = await dpi.detectRunning();
   if (running.running) {
     const works = await bypassWorks();
-    return {
-      ok: true,
-      alreadyRunning: true,
-      works,
-      message: works
-        ? 'Обход уже работает'
-        : 'Обход запущен, но SoundCloud не открывается — попробуйте другую стратегию вручную',
-    };
+    const current = cachedGood;
+
+    if (!strategy || strategy === current) {
+      return {
+        ok: true,
+        alreadyRunning: true,
+        works,
+        strategy: current,
+        message: works
+          ? `Обход уже работает${current ? ` (${current})` : ''}`
+          : 'Обход запущен, но SoundCloud не открывается — выберите другую стратегию',
+      };
+    }
+
+    // просят другую стратегию — переключаем
+    store.log(`[dpi] переключаю стратегию: ${current || 'текущая'} → ${strategy}`);
+    await stopWinws();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
   // 2. ищем сборку

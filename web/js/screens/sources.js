@@ -522,7 +522,15 @@ function paintStates() {
 
 async function reload({ withToast = false } = {}) {
   try {
-    await Promise.all([refreshStatus(), loadSettings()]);
+    /*
+     * Состояние обхода грузим здесь же.
+     *
+     * Раньше reload() перерисовывал карточки, не обновив app.dpiState, —
+     * и список стратегий рисовался пустым («сборка zapret не найдена»),
+     * хотя папка была на месте. После обновления страницы состояние
+     * появлялось снова, отсюда «то находит, то нет».
+     */
+    await Promise.all([refreshStatus(), loadSettings(), getDpi().then((d) => { app.dpiState = d; }).catch(() => {})]);
     paintOverview();
     paintStates();
     if (withToast) {
