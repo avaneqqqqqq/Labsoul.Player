@@ -67,21 +67,57 @@ export function configure({ dataDir } = {}) {
 /**
  * Найти папки установленного zapret.
  *
- * У людей сборка лежит где угодно: C:\zapret, рабочий стол, Загрузки.
- * Признак установки — файл bin\winws.exe.
+ * Признак установки — файл bin\winws.exe. Сборку кладут куда угодно,
+ * поэтому проверяем:
+ *   • стандартные папки на системном диске;
+ *   • рабочий стол и «Загрузки» — в том числе внутри OneDrive,
+ *     потому что у многих папки профиля перенесены туда;
+ *   • корни ВСЕХ локальных дисков (D:, E: и т.д.);
+ *   • один уровень вглубь от каждого корня.
+ *
+ * Раньше искали только в C:\ и профиле — и у людей с другим диском
+ * плеер отвечал «сборка не найдена», хотя она была.
  */
 export function findZapretFolders() {
   if (process.platform !== 'win32') return [];
 
   const home = process.env.USERPROFILE || '';
+  const known = new Set();
+
+  /* --- 1. папки-кандидаты: смотрим в них и одним уровнем ниже --- */
   const roots = [
-    'C:\\zapret',
-    'C:\\zapret-discord-youtube',
-    'C:\\Program Files\\zapret',
+    'C:\\',
+    'C:\\Program Files',
+    'C:\\Program Files (x86)',
+    'C:\\ProgramData',
     path.join(home, 'Desktop'),
     path.join(home, 'Downloads'),
     path.join(home, 'Documents'),
-  ].filter(Boolean);
+    path.join(home, 'AppData', 'Local', 'Programs'),
+    path.join(home, 'AppData', 'Roaming'),
+  ];
+
+  // OneDrive: у многих профиль перенесён, и рабочий стол живёт там
+  for (const dir of [home, 'C:\\Users\\Public']) {
+    try {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
+        if (!/^OneDrive/i.test(entry.name)) continue;
+        const base = path.join(dir, entry.name);
+        roots.push(base, path.join(base, 'Desktop'), path.join(base, 'Downloads'), path.join(base, 'Documents'));
+      }
+    } catch { /* нет доступа */ }
+  }
+
+  /* --- 2. корни всех локальных дисков --- */
+  try {
+    for (const letter of 'DEFGHIJKLMNOPQRSTUVWXYZ') {
+      const drive = `${letter}:\\`;
+      try {
+        if (fs.existsSync(drive)) roots.push(drive);
+      } catch { /* диска нет */ }
+    }
+  } catch { /* ignore */ }
 
   const found = new Set();
 
@@ -93,15 +129,16 @@ export function findZapretFolders() {
     }
   };
 
-  for (const root of roots) {
+  for (const root of roots.filter(Boolean)) {
     consider(root);
     try {
       for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
         if (!entry.isDirectory()) continue;
+        // сначала точное имя, потом любые папки с ключевым словом
         if (/zapret|byedpi|goodbye/i.test(entry.name)) consider(path.join(root, entry.name));
       }
     } catch {
-      /* каталога нет */
+      /* каталога нет или нет доступа */
     }
   }
 
@@ -185,7 +222,13 @@ export function addDomainsToZapret(folders) {
 
         for (const domain of TARGET_DOMAINS) {
           if (!known.has(domain)) {
-            lines.push(domain);
+            /*
+             * Пишем с «^» — это синтаксис zapret для точного совпадения
+             * хоста. Без префикса запись тоже работает как «содержит»,
+             * но с ним стратегия гарантированно ловит имя целиком и
+             * не пропускает поддомены вроде www.youtube.com.
+             */
+            lines.push(`^${domain}`);
             known.add(domain);
             added.push(domain);
           }
