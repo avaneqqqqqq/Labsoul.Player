@@ -234,7 +234,10 @@ function soundcloudCard() {
         <button class="btn btn--accent btn--sm" type="button" data-signin="soundcloud">
           ${icon('check')} Войти в SoundCloud
         </button>
-        <span class="signin__hint">Один раз вошли — дальше лайки и плейлисты подтягиваются сами, ключ не нужен.</span>
+        <button class="btn btn--ghost btn--sm" type="button" data-resignin="soundcloud" title="Сбросить сессию и войти заново, если звук не играет">
+          ${icon('refresh')} Войти заново
+        </button>
+        <span class="signin__hint">Один раз вошли — дальше лайки и плейлисты подтягиваются сами, ключ не нужен. Если звук не идёт, хотя профиль открывается — нажмите «Войти заново».</span>
       </div>` : ''}
 
       <div class="sc-helper">
@@ -857,6 +860,7 @@ function onClick(event) {
     ? event.target.closest('[data-src], [data-reveal], [data-signin]')
     : null;
   if (!clicked) return;
+  if (clicked.dataset.resignin === 'soundcloud') { signInSoundCloud(true); return; }
   if (clicked.dataset.signin === 'soundcloud') { signInSoundCloud(); return; }
   if (clicked.dataset.signin) { signInYandex(); return; }
   if (clicked.dataset.reveal) { reveal(clicked.dataset.reveal); return; }
@@ -868,14 +872,16 @@ function onClick(event) {
  * в обычном браузере такого моста нет, и мы честно об этом говорим).
  */
 /** Вход в SoundCloud через окно приложения: сессия сохраняется, лайки тянутся сами. */
-async function signInSoundCloud() {
+async function signInSoundCloud(reset = false) {
   const bridge = desktopBridge();
   if (!bridge || typeof bridge.signInSoundCloud !== 'function') {
     toast('Вход в SoundCloud доступен в приложении labsoul', { type: 'warn' });
     return;
   }
   try {
-    const result = await bridge.signInSoundCloud();
+    const result = reset && typeof bridge.reSignInSoundCloud === 'function'
+      ? await bridge.reSignInSoundCloud()
+      : await bridge.signInSoundCloud();
     if (result && result.ok) {
       toast('SoundCloud подключён — лайки подтянутся автоматически', { icon: 'check' });
       reload({ withToast: false });

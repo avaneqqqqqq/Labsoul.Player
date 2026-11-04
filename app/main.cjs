@@ -604,10 +604,30 @@ let soundcloudAuthWindow = null;
  * серверу, чтобы он сам тянул лайки и плейлисты. Повторно входить не нужно:
  * профиль остаётся, сервер проверяет сессию при запуске.
  */
-function signInSoundCloud() {
+function signInSoundCloud(options = {}) {
   if (soundcloudAuthWindow && !soundcloudAuthWindow.isDestroyed()) {
     soundcloudAuthWindow.focus();
     return Promise.resolve({ ok: false, error: 'already_open', message: 'Окно входа уже открыто.' });
+  }
+
+  /*
+   * Перелогин: полностью сбрасываем сессию SoundCloud.
+   *
+   * Токен может остаться живым для профиля и метаданных, ноSoundCloud
+   * начнёт отдавать отказ на выдачу звука (429). Свежий вход снимает
+   * это ограничение, поэтому при перелогине чистим старые cookie,
+   * иначе окно сразу увидит прошлую сессию и ничего не изменится.
+   */
+  if (options.reset) {
+    try {
+      const scSession = session.fromPartition('persist:labsoul-soundcloud');
+      scSession.clearStorageData({
+        storages: ['cookies', 'localstorage', 'sessionstorage', 'indexdb', 'cachestorage'],
+      });
+      log('SoundCloud: сессия очищена для повторного входа');
+    } catch (error) {
+      log('SoundCloud: не удалось очистить сессию — ' + (error?.message || error));
+    }
   }
 
   return new Promise((resolve) => {
@@ -700,7 +720,7 @@ function signInSoundCloud() {
   });
 }
 
-ipcMain.handle('auth:soundcloud', () => signInSoundCloud());
+ipcMain.handle('auth:soundcloud', (_event, options) => signInSoundCloud(options || {}));
 
 /* ------------------- Discord и оверлей-плеер (идеи из Liner) ------------- */
 

@@ -29,6 +29,16 @@ contextBridge.exposeInMainWorld('playerDesktop', {
     return ipcRenderer.invoke('auth:soundcloud');
   },
 
+  /**
+   * Повторный вход с чистого листа.
+   *
+   * Нужен, когда SoundCloud начнёт отказывать в выдаче звука, хотя
+   * профиль открывается: свежий вход снимает ограничение.
+   */
+  reSignInSoundCloud() {
+    return ipcRenderer.invoke('auth:soundcloud', { reset: true });
+  },
+
   /* ---------------- Discord Rich Presence и оверлей ---------------- */
 
   /** Состояние подключения к Discord. */
