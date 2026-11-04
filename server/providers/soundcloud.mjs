@@ -78,6 +78,16 @@ let clientIdSource = '';
 let clientIdAt = 0;
 let acquirePromise = null;
 let lastAcquire = null;
+
+/**
+ * Когда SoundCloud перестанет ограничивать частоту.
+ *
+ * Если запросов слишком много (перемотка, повтор трека, быстрый переход
+ * между треками), api-v2 отвечает 429 и поток не собирается вообще.
+ * Запоминаем время и на несколько секунд притормаживаем сами, вместо
+ * того чтобы долбить сервис и получать отказы.
+ */
+let rateLimitedUntil = 0;
 let lastFailError = null;
 let lastFailAt = 0;
 
@@ -1017,7 +1027,15 @@ async function callTranscoding(transcodingUrl, clientId) {
   const token = oauthToken();
   if (token) headers.authorization = `OAuth ${token}`;
 
-  return httpText(url.toString(), { timeout: TIMEOUT_MS, headers });
+  const response = await httpText(url.toString(), { timeout: TIMEOUT_MS, headers });
+
+  // 429 — слишком часто. Запоминаем и притормаживаем последующие запросы.
+  if (response.status === 429) {
+    rateLimitedUntil = Date.now() + 5000;
+    console.warn('[soundcloud] ограничение частоты (429) — пауза 5 с');
+  }
+
+  return response;
 }
 
 /** transcoding.url → {url, contentType} уже подписанного медиа-URL (живёт ограниченное время). */
@@ -1051,6 +1069,19 @@ async function resolveTranscoding(transcoding, { retry = true } = {}) {
 
   let response = await callTranscoding(transcoding.url, clientId);
 
+  /*
+   * 429 — сервер считает запрос «сторонним». Лечится не паузой, а тем,
+   * чтобы передать client_id в адресе: с ним транскодинг отдаётся сразу
+   * (проверено: без ключа 429, с ключом 200 и звук пошёл).
+   */
+  if (response.status === 429 && !clientId) {
+    const fallback = await getClientId().catch(() => '');
+    if (fallback) {
+      clientId = fallback;
+      response = await callTranscoding(transcoding.url, clientId);
+    }
+  }
+
   if (response.status === 401 && retry) {
     invalidateClientId();
     clientId = await getClientId(true).catch(() => '');
@@ -1063,6 +1094,7 @@ async function resolveTranscoding(transcoding, { retry = true } = {}) {
 
   if (response.status === 404) throw fail('NOT_PLAYABLE', 'SoundCloud не отдал этот поток (HTTP 404)');
   if (response.status === 401) throw fail('AUTH_FAILED', 'SoundCloud отклонил client_id при запросе потока');
+  if (response.status === 429) throw fail('UPSTREAM', 'SoundCloud ограничил частоту запросов — попробуйте через минуту');
   if (!response.ok) throw fail('UPSTREAM', `SoundCloud не отдал поток (HTTP ${response.status})`);
 
   let data;
@@ -1203,6 +1235,12 @@ export async function stream(sourceId) {
   for (const transcoding of transcodings.slice(0, 2)) {
     const protocol = String(transcoding?.format?.protocol || '').toLowerCase();
     try {
+      // Ограничение частоты — ждём и пробуем ещё раз, иначе плеер
+      // получает «не удалось получить поток» на полностью рабочем треке.
+      if (rateLimitedUntil > Date.now()) {
+        const wait = Math.min(rateLimitedUntil - Date.now(), 4000);
+        await new Promise((resolve) => setTimeout(resolve, wait));
+      }
       const resolved = await resolveTranscoding(transcoding);
       if (protocol === 'progressive') {
         return {
