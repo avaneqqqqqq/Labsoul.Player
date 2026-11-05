@@ -1,6 +1,6 @@
 {
   "name": "labsoul",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "labsoul — свой музыкальный плеер: Яндекс.Музыка, SoundCloud, Spotify, лента «Волна», гибкая кастомизация",
@@ -15,5 +15,9 @@
   "engines": {
     "node": ">=22"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "socks-proxy-agent": "^8.0.5",
+    "undici": "^6.29.1"
+  }
 }

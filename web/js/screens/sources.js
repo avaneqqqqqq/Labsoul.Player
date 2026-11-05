@@ -13,6 +13,7 @@ import {
   subscribe as storeSubscribe,
 } from '../store.js';
 import { toast } from '../toast.js';
+import { openModal } from '../ui.js';
 import { esc, humanizeError } from '../utils.js';
 
 const SOURCE_META = {
@@ -405,7 +406,8 @@ function dpiCard() {
   // список стратегий приходит от сервера; если ещё нет — пустой список
   const strategies = Array.isArray(state?.strategies) ? state.strategies : [];
   // тумблер обхода: по умолчанию выключен
-  const bypassEnabled = Boolean(app.settings?.network?.bypass?.enabled);
+  // по умолчанию включён: без обхода SoundCloud не играет
+  const bypassEnabled = app.settings?.network?.bypass?.enabled !== false;
 
   const statusText = works
     ? `SoundCloud открывается (${probe.ms ?? 0} мс) — можно слушать`
@@ -697,10 +699,11 @@ async function startBypass() {
 }
 
 /**
- * Проверить доступность всех хостов SoundCloud и при поломке починить обход.
+ * Проверить SoundCloud и — с согласия — дописать домены в zapret.
  *
- * Плеер делает это сам в фоне при запуске, но кнопка нужна, когда что-то
- * отвалилось именно сейчас: результат виден сразу, со списком хостов.
+ * Сами чужие файлы не правим: сначала проверяем, потом спрашиваем.
+ * Если доменов не хватает, показываем диалог с понятным объяснением,
+ * что именно будет сделано и где будет бэкап.
  */
 async function autoFixDpi() {
   const button = screen.root?.querySelector('[data-dpi-autofix]');
@@ -708,32 +711,97 @@ async function autoFixDpi() {
   if (button) button.disabled = true;
   if (report) {
     report.hidden = false;
-    report.textContent = 'Проверяю SoundCloud и при необходимости чиню обход…';
+    report.textContent = 'Проверяю SoundCloud…';
   }
 
   try {
-    const result = await autoFixDpiRequest();
+    // 1. только диагностика
+    const check = await autoFixDpiRequest();
 
-    if (!result) {
+    if (!check) {
       if (report) report.textContent = 'Сервер не ответил на проверку';
       toast('Проверка не удалась', { type: 'err' });
       return;
     }
 
-    // список хостов с результатом
-    const lines = (result.results || []).map((item) => `${item.ok ? '✓' : '✗'} ${item.label}${item.ok ? ` — ${item.ms} мс` : ''}`);
-    const summary = result.ok
-      ? (result.repaired ? `Обход починен. ${result.repairMessage || ''}` : 'Всё открывается, обход в порядке')
-      : `Не открывается: ${(result.failed || []).join(', ')}`;
+    const lines = (check.results || []).map((item) => `${item.ok ? '✓' : '✗'} ${item.label}${item.ok ? ` — ${item.ms} мс` : ''}`);
 
-    if (report) report.innerHTML = `<b>${esc(summary)}</b>${lines.length ? `<span>${lines.map(esc).join(' · ')}</span>` : ''}`;
-    toast(summary, { icon: result.ok ? 'check' : 'alert', type: result.ok ? undefined : 'warn' });
+    // всё работает — править нечего
+    if (check.ok) {
+      if (report) report.innerHTML = `<b>Всё открывается, обход в порядке</b><span>${lines.map(esc).join(' · ')}</span>`;
+      toast('Обход в порядке', { icon: 'check' });
+      return;
+    }
+
+    // SoundCloud не открывается, а доменов в списке нет — спрашиваем
+    if (check.needsDomains) {
+      if (report) report.innerHTML = `<b>SoundCloud не открывается</b><span>Домены Labsoul отсутствуют в списке zapret.</span>`;
+
+      const agreed = await confirmDomains(check);
+      if (!agreed) return;
+
+      if (report) report.textContent = 'Дописываю домены и проверяю…';
+      const applied = await autoFixDpiRequest({ apply: true, force: true });
+      const ok = Boolean(applied?.ok);
+      const summary = ok ? 'Готово — SoundCloud открывается' : 'Домены записаны, но SoundCloud пока не открывается';
+      if (report) report.textContent = summary;
+      toast(summary, { icon: ok ? 'check' : 'alert', type: ok ? undefined : 'warn' });
+      return;
+    }
+
+    // списки уже полные, значит дело не в них
+    const summary = `Не открывается: ${(check.failed || []).join(', ')}`;
+    if (report) report.innerHTML = `<b>${esc(summary)}</b><span>${lines.map(esc).join(' · ')}</span>`;
+    toast(summary, { type: 'warn', icon: 'alert' });
   } catch (error) {
     if (report) report.textContent = 'Ошибка проверки: ' + (error?.message || error);
     toast('Проверка не удалась', { type: 'err' });
   } finally {
     if (button) button.disabled = false;
   }
+}
+
+/**
+ * Спросить разрешение на правку списков zapret.
+ *
+ * Показываем что именно будет записано, куда и где останется бэкап —
+ * человек должен понимать, что меняется на его компьютере.
+ */
+async function confirmDomains(check) {
+  const folders = (check.folders || []).filter((entry) => entry.exists);
+  const where = folders.length
+    ? folders.map((entry) => entry.folder.split(/[\\/]/).pop()).join(', ')
+    : 'папка zapret';
+
+  const title = 'Дописать домены в zapret?';
+  const body = [
+    `SoundCloud не открывается у вашего провайдера, а в сборке zapret (${esc(where)}) нет его доменов.`,
+    '',
+    'Будет добавлено в <b>list-general-user.txt</b> — пользовательский список, который не перезаписывается при обновлении zapret:',
+    '<code>soundcloud.com · sndcdn.com · soundcloud.cloud · api-v2.soundcloud.com · api-auth.soundcloud.com</code>',
+    '',
+    'Основные списки (<code>list-general.txt</code>, <code>list-google.txt</code>) останутся нетронутыми. Перед правкой создаётся бэкап.',
+    '',
+    'Стратегию zapret не перезапускаю — она продолжит работать как сейчас.',
+  ].join('\n');
+
+  return await new Promise((resolve) => {
+    openModal({
+      title,
+      body: `<div class="confirm-text">${body.replace(/\n/g, '<br>')}</div>`,
+      okLabel: 'Дописать домены',
+      cancelLabel: 'Не трогать',
+      onOk: () => resolve(true),
+    });
+    // если окно закрыли крестиком — считаем отказом
+    const observer = new MutationObserver(() => {
+      if (!document.querySelector('.modal--open')) {
+        observer.disconnect();
+        resolve(false);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
 }
 
 /** Проверка соединения с SoundCloud: идёт ли трафик через прокси. */

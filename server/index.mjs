@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import * as store from './store.mjs';
+import * as audiocache from './audiocache.mjs';
 import * as waveEngine from './wave.mjs';
 import * as clips from './clips.mjs';
 import { decryptBuffer, parseRange } from './streaming.mjs';
@@ -299,6 +300,23 @@ async function getDescriptor(source, sourceId, force = false) {
   const provider = providers[source];
   if (!provider) throw badRequest('Неизвестный источник');
 
+  /*
+   * Кэш на диске — перед запросом к провайдеру.
+   *
+   * Трек, который уже звучал, берём с диска: мгновенно, без сети и без
+   * расхода суточного лимита SoundCloud. Это же спасает, когда обход
+   * выключен или провайдер режет медиа — файл уже лежит рядом.
+   */
+  if (!force) {
+    const cached = audiocache.read(source, sourceId);
+    if (cached) {
+      const desc = { buffer: cached, contentType: 'audio/mpeg' };
+      descCache.set(key, { at: Date.now(), desc });
+      store.log(`[cache] трек из кэша: ${source}:${sourceId}`);
+      return desc;
+    }
+  }
+
   // Провайдер может «залипнуть» на медиа-CDN: ограничиваем ожидание.
   // Важно: таймер обязательно очищаем. Иначе после успешного ответа он
   // срабатывает позже, отклоняет уже ненужный промис и роняет процесс
@@ -321,6 +339,16 @@ async function getDescriptor(source, sourceId, force = false) {
       err.code = 'NOT_PLAYABLE';
       throw err;
     }
+
+    /*
+     * Сохраняем звук на диск: повторное прослушивание пойдёт из файла,
+     * без сети и без расхода суточного лимита. Ошибка записи не мешает
+     * воспроизведению, поэтому глушим её.
+     */
+    if (desc.buffer?.length) {
+      try { audiocache.write(source, sourceId, desc.buffer); } catch { /* не критично */ }
+    }
+
     descCache.set(key, { at: Date.now(), desc });
     return desc;
   } finally {
@@ -1130,7 +1158,7 @@ function reasonMessage(reason) {
         autoProxyLast: scProxy.last(),
         ffmpeg: audioconvert.hasFfmpeg(),
         // тумблер обхода блокировки: по умолчанию выключен
-        bypass: { enabled: Boolean(settings.network?.bypass?.enabled) },
+        bypass: { enabled: settings.network?.bypass?.enabled !== false },
       });
       return;
     }
@@ -1306,8 +1334,24 @@ function reasonMessage(reason) {
 
     // Автообслуживание проверяем ДО общей ветки GET: иначе она перехватит
     if (route[1] === 'check') {
-      // ?force=1 — не ждать паузу между правками (кнопка «починить»)
+      /*
+       * Проверяем доступность SoundCloud и, если он не открывается,
+       * предлагаем дописать домены в пользовательский список zapret.
+       *
+       * По умолчанию НЕ правим чужие файлы сами: человек скачал сборку
+       * zapret с GitHub и настроил её под себя. Правки делаются только
+       * при явном согласии — кнопкой в интерфейсе (?apply=1) или через
+       * ручной запуск «Починить» (?force=1).
+       */
+      const apply = url.searchParams.get('apply') === '1';
       const force = url.searchParams.get('force') === '1';
+
+      if (!apply && !force) {
+        // только диагностика: что работает, что нет, что можно сделать
+        sendJson(res, 200, await dpiauto.inspect());
+        return;
+      }
+
       if (force) dpiauto.resetCooldown();
       sendJson(res, 200, await dpiauto.ensure({ force }));
       return;
@@ -1482,6 +1526,7 @@ const server = http.createServer((req, res) => {
 lyrics.configure();
 audioconvert.configure();
 libraryCache.configure();
+audiocache.configure();
 dpi.configure();
 dpiwatcher.configure();
 
@@ -1498,10 +1543,7 @@ loadProviders()
       store.log(`labsoul запущен: http://127.0.0.1:${PORT}`);
       process.stdout.write(`\n  labsoul: http://127.0.0.1:${PORT}\n\n`);
 
-      // Прогрев статуса: первый заход в интерфейс покажет готовые данные.
-      refreshStatus().catch(() => {});
-
-      /*
+            /*
        * Прогрев соединений через обход.
        *
        * Первые обращения к SoundCloud после запуска обрываются по
@@ -1517,23 +1559,29 @@ loadProviders()
       warmupBypass().catch(() => {});
 
       /*
-       * Обслуживание обхода блокировки — только если он включён.
+       * Обход блокировки при запуске.
        *
-       * По умолчанию обход выключен: у большинства в России zapret уже
-       * стоит, и трогать его не нужно. Если пользователь включил тумблер
-       * в настройках — поднимаем и следим; если нет — не вмешиваемся
-       * вообще и ничего не пишем в чужие списки.
+       * По умолчанию включён: без него SoundCloud у провайдеров не играет
+       * — проверено, сегменты висят до таймаута. Если winws уже работает,
+       * просто дописываем домены; если нет — поднимаем (Windows покажет
+       * запрос прав). Кто не хочет — выключает тумблер в настройках.
        */
       const network = store.loadSettings().network || {};
-      const bypassEnabled = Boolean(network.bypass?.enabled);
+      const bypassEnabled = network.bypass?.enabled !== false;
 
       if (bypassEnabled) {
         setTimeout(() => {
-          dpiauto.ensure().then((result) => {
-            if (result.repaired) store.log(`[dpi] автопочинка: ${result.repairMessage}`);
-            else if (!result.ok) store.log(`[dpi] недоступно: ${(result.failed || []).join(', ')}`);
+          /*
+           * При запуске только ДИАГНОСТИКА — чужие файлы не трогаем.
+           * Если SoundCloud не открывается, интерфейс покажет
+           * предложение дописать домены, и человек решит сам.
+           */
+          dpiauto.inspect().then((result) => {
+            if (result.ok) store.log('[dpi] обход в порядке');
+            else if (result.needsDomains) store.log(`[dpi] ${result.suggestion}`);
+            else store.log(`[dpi] недоступно: ${(result.failed || []).join(', ')}`);
           }).catch((error) => store.log(`[dpi] проверка не удалась: ${error.message}`));
-        }, 6000);
+        }, 4000);
       } else {
         store.log('[dpi] обход выключен в настройках — не трогаем');
       }

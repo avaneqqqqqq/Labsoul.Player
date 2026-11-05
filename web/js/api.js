@@ -412,11 +412,25 @@ export async function getDpi() {
 /**
  * Проверить хосты SoundCloud и при поломке починить обход.
  *
- * force — не ждать паузы между правками (кнопка «проверить и починить»).
+/**
+ * Проверить SoundCloud и, если разрешено, дописать домены в zapret.
+ *
+ * Без параметров — только диагностика: ничего не меняем, возвращаем,
+ * что работает и чего не хватает. Правка выполняется лишь при
+ * `apply: true`, то есть после согласия пользователя в окне.
+ *
+ * @param {{apply?: boolean, force?: boolean}} [options]
  */
-export async function autoFixDpiRequest(force = true) {
+export async function autoFixDpiRequest(options = {}) {
+  const { apply = false, force = false } = options;
+  const query = [];
+  if (apply) query.push('apply=1');
+  if (force) query.push('force=1');
+
   try {
-    return await request(`/api/dpi/check${force ? '?force=1' : ''}`, { timeout: 90000 });
+    return await request(`/api/dpi/check${query.length ? '?' + query.join('&') : ''}`, {
+      timeout: apply ? 90000 : 30000,
+    });
   } catch (err) {
     return { ok: false, failed: [err?.message || 'сервер не ответил'], results: [] };
   }

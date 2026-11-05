@@ -160,6 +160,51 @@ function restartStrategy(folder, { allow = false } = {}) {
  * Полное лечение: домены + список IP + перезапуск стратегии.
  * Выполняется не чаще REPAIR_COOLDOWN_MS, чтобы не мешать Discord и YouTube.
  */
+/**
+ * Диагностика без правок.
+ *
+ * Проверяем доступность SoundCloud и смотрим, есть ли его домены в
+ * пользовательском списке zapret. Ничего не меняем — только сообщаем,
+ * что нашлось и что можно сделать. Правки выполняются отдельно и только
+ * с согласия пользователя.
+ */
+export async function inspect() {
+  const result = await check();
+
+  const folders = dpi.findZapretFolders();
+  const lists = folders.map((folder) => {
+    const file = path.join(folder, 'lists', 'list-general-user.txt');
+    let present = false;
+    let exists = false;
+    try {
+      exists = fs.existsSync(file);
+      if (exists) {
+        const text = fs.readFileSync(file, 'utf8').toLowerCase();
+        present = text.includes('soundcloud.com');
+      }
+    } catch { /* список недоступен */ }
+    return { folder, exists, present };
+  });
+
+  const missing = lists.filter((entry) => !entry.present);
+
+  return {
+    ok: result.ok,
+    failed: result.failed,
+    results: result.results,
+    // есть ли что дописывать и куда
+    zapretFound: folders.length > 0,
+    needsDomains: missing.length > 0,
+    folders: lists,
+    // предложение показать пользователю
+    suggestion: result.ok
+      ? null
+      : folders.length
+        ? 'SoundCloud не открывается. Дописать домены в пользовательский список zapret?'
+        : 'SoundCloud не открывается, а сборка zapret не найдена. Установите zapret или включите релей.',
+  };
+}
+
 export async function repair({ force = false } = {}) {
   const now = Date.now();
   if (!force && now - state.lastRepair < REPAIR_COOLDOWN_MS) {
@@ -217,6 +262,28 @@ export async function ensure({ force = false } = {}) {
   if (checkResult.ok) {
     remember({ action: 'ensure', ok: true });
     return { ok: true, checked: true, repaired: false, results: checkResult.results };
+  }
+
+  /*
+   * Правим списки только когда не работает НИ ОДИН хост.
+   *
+   * Если часть хостов открывается, дело не в списках, а в сети или у
+   * самого сервиса — лезть в чужие файлы из-за одного моргания незачем.
+   * Это защита от лишних правок в чужой сборке zapret.
+   */
+  const total = checkResult.results?.length || 0;
+  if (total > 0 && checkResult.failed.length < total) {
+    store.log(`[dpi] часть хостов недоступна (${checkResult.failed.join(', ')}), но не все — списки не трогаю`);
+    remember({ action: 'ensure', ok: false, reason: 'частичный отказ' });
+    return {
+      ok: false,
+      checked: true,
+      repaired: false,
+      skipped: true,
+      repairMessage: 'Часть адресов не открылась, но не все — списки не трогаю. Проверьте интернет.',
+      results: checkResult.results,
+      failed: checkResult.failed,
+    };
   }
 
   store.log(`[dpi] недоступно: ${checkResult.failed.join(', ')} — пробую починить`);
